@@ -1,8 +1,37 @@
+import { useEffect, useState } from "react"
+
 export default function Home() {
-  return (
-    <div style={{padding:40}}>
-      <h1>MLB Betting Model Dashboard</h1>
-      <p>Serverless MLB analytics running on Vercel.</p>
-    </div>
-  );
+
+const [games,setGames] = useState([])
+
+useEffect(()=>{
+
+fetch("/api/runModel")
+.then(res=>res.json())
+.then(data=>setGames(data))
+
+},[])
+
+return (
+
+<div>
+
+<h1>MLB Betting Model</h1>
+
+{games.map(game => (
+
+<div key={game.gamePk}>
+
+Game {game.gamePk}
+
+Edge: {game.prediction.edge}
+
+</div>
+
+))}
+
+</div>
+
+)
+
 }
