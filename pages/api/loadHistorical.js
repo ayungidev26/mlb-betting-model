@@ -25,18 +25,37 @@ export default async function handler(req, res) {
 
         const homeScore = game?.teams?.home?.score
         const awayScore = game?.teams?.away?.score
+        const gameType = game?.gameType
 
         // Only include completed games
         if (homeScore !== undefined && awayScore !== undefined) {
 
-          allGames.push({
-            season: season,
-            date: game.gameDate,
-            homeTeam: game.teams.home.team.name,
-            awayTeam: game.teams.away.team.name,
-            homeScore: homeScore,
-            awayScore: awayScore
-          })
+          let seasonType = null
+
+          // Regular season
+          if (gameType === "R") {
+            seasonType = "regular"
+          }
+
+          // Postseason
+          if (["P","F","D","L","W"].includes(gameType)) {
+            seasonType = "playoffs"
+          }
+
+          // Only store if it's regular season or playoffs
+          if (seasonType) {
+
+            allGames.push({
+              season: season,
+              seasonType: seasonType,
+              date: game.gameDate,
+              homeTeam: game.teams.home.team.name,
+              awayTeam: game.teams.away.team.name,
+              homeScore: homeScore,
+              awayScore: awayScore
+            })
+
+          }
 
         }
 
