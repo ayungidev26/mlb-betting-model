@@ -1,4 +1,4 @@
-import { runPrediction } from "../model/predictor"
+import { runPrediction } from "../../model/predictor"
 
 export default async function handler(req, res) {
 
