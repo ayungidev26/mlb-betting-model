@@ -5,12 +5,13 @@ export default async function handler(req, res) {
 
   try {
 
+    // Load all historical games
     const games = await redis.lrange("mlb_games", 0, -1)
 
-    const parsedGames = games.map(g => JSON.parse(g))
+    // games are already JSON objects with Upstash
+    const ratings = calculateElo(games)
 
-    const ratings = calculateElo(parsedGames)
-
+    // Save ratings back to Redis
     await redis.set("mlb_team_ratings", ratings)
 
     res.status(200).json({
