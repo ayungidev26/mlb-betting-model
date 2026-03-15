@@ -1,47 +1,65 @@
 import { getPitcherRating } from "./pitcherRatings"
+import { getBullpenRating } from "./bullpenRatings"
 
 export async function predictGame(game, teamRatings) {
 
-  // Team ratings
-  const homeTeamRating = teamRatings[game.homeTeam] || 1500
-  const awayTeamRating = teamRatings[game.awayTeam] || 1500
+  const homeTeam = game.homeTeam
+  const awayTeam = game.awayTeam
 
-  // Starting pitcher ratings
-  const homePitcherRating = await getPitcherRating(game.homePitcher)
-  const awayPitcherRating = await getPitcherRating(game.awayPitcher)
+  const homeTeamRating = teamRatings[homeTeam] || 1500
+  const awayTeamRating = teamRatings[awayTeam] || 1500
 
-  // Home field advantage (MLB average)
-  const homeFieldAdvantage = 25
+  const homePitcherRating =
+    await getPitcherRating(game.homePitcher)
 
-  // Adjusted team strength
-  const homeStrength =
+  const awayPitcherRating =
+    await getPitcherRating(game.awayPitcher)
+
+  const homeBullpenRating =
+    await getBullpenRating(homeTeam)
+
+  const awayBullpenRating =
+    await getBullpenRating(awayTeam)
+
+  // Home field advantage
+  const HOME_FIELD = 25
+
+  const homeRating =
     homeTeamRating +
     homePitcherRating +
-    homeFieldAdvantage
+    homeBullpenRating +
+    HOME_FIELD
 
-  const awayStrength =
+  const awayRating =
     awayTeamRating +
-    awayPitcherRating
+    awayPitcherRating +
+    awayBullpenRating
 
-  // Convert to win probability (ELO formula)
+  const ratingDiff = homeRating - awayRating
+
+  // Elo probability formula
   const homeWinProbability =
-    1 / (1 + Math.pow(10, (awayStrength - homeStrength) / 400))
+    1 / (1 + Math.pow(10, (-ratingDiff / 400)))
 
-  const awayWinProbability = 1 - homeWinProbability
+  const awayWinProbability =
+    1 - homeWinProbability
 
   return {
+
     gameId: game.gameId,
-    homeTeam: game.homeTeam,
-    awayTeam: game.awayTeam,
+
+    homeTeam,
+    awayTeam,
 
     homePitcher: game.homePitcher,
     awayPitcher: game.awayPitcher,
 
-    homeStrength,
-    awayStrength,
+    homeRating,
+    awayRating,
 
     homeWinProbability,
     awayWinProbability
+
   }
 
 }
