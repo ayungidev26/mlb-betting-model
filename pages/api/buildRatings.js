@@ -5,25 +5,41 @@ export default async function handler(req, res) {
 
   try {
 
-    // Load historical games dataset
-    const games = await redis.get("mlb:historical:games")
+    const seasons = [
+      2015,2016,2017,2018,2019,
+      2020,2021,2022,2023,2024,2025
+    ]
 
-    if (!games || games.length === 0) {
+    let allGames = []
+
+    for (const season of seasons) {
+
+      const seasonGames =
+        await redis.get(`mlb:games:historical:${season}`)
+
+      if (seasonGames && seasonGames.length > 0) {
+        allGames = allGames.concat(seasonGames)
+      }
+
+    }
+
+    if (allGames.length === 0) {
       return res.status(400).json({
         error: "No historical games found"
       })
     }
 
-    // Calculate team ELO ratings
-    const ratings = calculateElo(games)
+    // Run ELO rating calculation
+    const ratings = calculateElo(allGames)
 
-    // Store ratings in Redis
+    // Store ratings
     await redis.set("mlb:ratings:teams", ratings)
 
     res.status(200).json({
-      gamesUsed: games.length,
+      seasonsUsed: seasons.length,
+      gamesProcessed: allGames.length,
       teamsRated: Object.keys(ratings).length,
-      ratingsSample: Object.entries(ratings).slice(0,5)
+      sampleRatings: Object.entries(ratings).slice(0,5)
     })
 
   } catch (error) {
