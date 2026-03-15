@@ -1,14 +1,14 @@
-import { calculatePitcherRating } from "./pitcherRatings"
+import { getPitcherRating } from "./pitcherRatings"
 
-export function predictGame(game, teamRatings) {
+export async function predictGame(game, teamRatings) {
 
   // Team ratings
   const homeTeamRating = teamRatings[game.homeTeam] || 1500
   const awayTeamRating = teamRatings[game.awayTeam] || 1500
 
   // Starting pitcher ratings
-  const homePitcherRating = calculatePitcherRating(game.homePitcher)
-  const awayPitcherRating = calculatePitcherRating(game.awayPitcher)
+  const homePitcherRating = await getPitcherRating(game.homePitcher)
+  const awayPitcherRating = await getPitcherRating(game.awayPitcher)
 
   // Home field advantage (MLB average)
   const homeFieldAdvantage = 25
