@@ -1,68 +1,47 @@
-import { redis } from "../lib/upstash"
+import { calculatePitcherRating } from "./pitcherRatings"
 
-export default async function handler(req, res) {
+export function predictGame(game, teamRatings) {
 
-  try {
+  // Team ratings
+  const homeTeamRating = teamRatings[game.homeTeam] || 1500
+  const awayTeamRating = teamRatings[game.awayTeam] || 1500
 
-    const today = new Date().toISOString().split("T")[0]
+  // Starting pitcher ratings
+  const homePitcherRating = calculatePitcherRating(game.homePitcher)
+  const awayPitcherRating = calculatePitcherRating(game.awayPitcher)
 
-    const url =
-      `https://statsapi.mlb.com/api/v1/schedule?sportId=1&date=${today}`
+  // Home field advantage (MLB average)
+  const homeFieldAdvantage = 25
 
-    const response = await fetch(url)
-    const data = await response.json()
+  // Adjusted team strength
+  const homeStrength =
+    homeTeamRating +
+    homePitcherRating +
+    homeFieldAdvantage
 
-    if (!data.dates || data.dates.length === 0) {
+  const awayStrength =
+    awayTeamRating +
+    awayPitcherRating
 
-      await redis.set("mlb:games:today", [])
+  // Convert to win probability (ELO formula)
+  const homeWinProbability =
+    1 / (1 + Math.pow(10, (awayStrength - homeStrength) / 400))
 
-      return res.status(200).json({
-        gamesToday: 0,
-        games: []
-      })
+  const awayWinProbability = 1 - homeWinProbability
 
-    }
+  return {
+    gameId: game.gameId,
+    homeTeam: game.homeTeam,
+    awayTeam: game.awayTeam,
 
-    const games = data.dates[0].games.map(game => {
+    homePitcher: game.homePitcher,
+    awayPitcher: game.awayPitcher,
 
-      let seasonType = "regular"
+    homeStrength,
+    awayStrength,
 
-      if (game.gameType === "S") {
-        seasonType = "spring"
-      }
-
-      if (["P","F","D","L","W"].includes(game.gameType)) {
-        seasonType = "playoffs"
-      }
-
-      return {
-        gameId: game.gamePk,
-        date: game.gameDate,
-        homeTeam: game.teams.home.team.name,
-        awayTeam: game.teams.away.team.name,
-        homeProbablePitcher: game.teams.home.probablePitcher?.fullName || null,
-        awayProbablePitcher: game.teams.away.probablePitcher?.fullName || null,
-        venue: game.venue?.name || null,
-        status: game.status.detailedState,
-        seasonType: seasonType
-      }
-
-    })
-
-    // Save to Redis
-    await redis.set("mlb:games:today", games)
-
-    res.status(200).json({
-      gamesToday: games.length,
-      sample: games.slice(0,3)
-    })
-
-  } catch (error) {
-
-    res.status(500).json({
-      error: error.message
-    })
-
+    homeWinProbability,
+    awayWinProbability
   }
 
 }
