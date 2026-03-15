@@ -1,24 +1,31 @@
-export function calculatePitcherRating(name) {
+import { redis } from "../lib/upstash"
+
+export async function getPitcherRating(name) {
 
   if (!name) return 0
 
-  const elite = [
-    "Gerrit Cole",
-    "Spencer Strider",
-    "Zack Wheeler",
-    "Corbin Burnes",
-    "Max Fried"
-  ]
+  const stats = await redis.get("mlb:stats:pitchers")
 
-  const good = [
-    "Aaron Nola",
-    "Logan Webb",
-    "Luis Castillo",
-    "Blake Snell"
-  ]
+  if (!stats || !stats[name]) return 0
 
-  if (elite.includes(name)) return 80
-  if (good.includes(name)) return 40
+  const pitcher = stats[name]
 
-  return 0
+  let rating = 0
+
+  // ERA component
+  if (pitcher.era < 3) rating += 70
+  else if (pitcher.era < 3.5) rating += 50
+  else if (pitcher.era < 4) rating += 30
+
+  // WHIP component
+  if (pitcher.whip < 1.05) rating += 40
+  else if (pitcher.whip < 1.2) rating += 20
+
+  // Strikeout strength
+  const kRate = pitcher.strikeouts / pitcher.innings
+
+  if (kRate > 1.2) rating += 30
+  else if (kRate > 1) rating += 15
+
+  return rating
 }
