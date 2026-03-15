@@ -32,7 +32,9 @@ export default async function handler(req, res) {
         game,
         teamRatings
       )
-
+      // skip failed predictions
+      if (!prediction) continue
+      
       predictions.push(prediction)
 
     }
