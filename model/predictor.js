@@ -1,64 +1,75 @@
-import { getPitcherRating } from "./pitcherRatings"
-import { getBullpenRating } from "./bullpenRatings"
+import { getPitcherRating } from "./pitcherRatings.js"
+import { getBullpenRating } from "./bullpenRatings.js"
 
 export async function predictGame(game, teamRatings) {
 
-  const homeTeam = game.homeTeam
-  const awayTeam = game.awayTeam
+  try {
 
-  const homeTeamRating = teamRatings[homeTeam] || 1500
-  const awayTeamRating = teamRatings[awayTeam] || 1500
+    const homeTeam = game.homeTeam
+    const awayTeam = game.awayTeam
 
-  const homePitcherRating =
-    await getPitcherRating(game.homePitcher)
+    // Team base ratings
+    const homeTeamRating = teamRatings?.[homeTeam] || 1500
+    const awayTeamRating = teamRatings?.[awayTeam] || 1500
 
-  const awayPitcherRating =
-    await getPitcherRating(game.awayPitcher)
+    // Pitcher ratings
+    const homePitcherRating =
+      await getPitcherRating(game.homePitcher)
 
-  const homeBullpenRating =
-    await getBullpenRating(homeTeam)
+    const awayPitcherRating =
+      await getPitcherRating(game.awayPitcher)
 
-  const awayBullpenRating =
-    await getBullpenRating(awayTeam)
+    // Bullpen ratings
+    const homeBullpenRating =
+      await getBullpenRating(homeTeam)
 
-  // Home field advantage
-  const HOME_FIELD = 25
+    const awayBullpenRating =
+      await getBullpenRating(awayTeam)
 
-  const homeRating =
-    homeTeamRating +
-    homePitcherRating +
-    homeBullpenRating +
-    HOME_FIELD
+    // Home field advantage
+    const HOME_FIELD = 25
 
-  const awayRating =
-    awayTeamRating +
-    awayPitcherRating +
-    awayBullpenRating
+    const homeRating =
+      homeTeamRating +
+      homePitcherRating +
+      homeBullpenRating +
+      HOME_FIELD
 
-  const ratingDiff = homeRating - awayRating
+    const awayRating =
+      awayTeamRating +
+      awayPitcherRating +
+      awayBullpenRating
 
-  // Elo probability formula
-  const homeWinProbability =
-    1 / (1 + Math.pow(10, (-ratingDiff / 400)))
+    const ratingDiff = homeRating - awayRating
 
-  const awayWinProbability =
-    1 - homeWinProbability
+    // Elo probability formula
+    const homeWinProbability =
+      1 / (1 + Math.pow(10, (-ratingDiff / 400)))
 
-  return {
+    const awayWinProbability =
+      1 - homeWinProbability
 
-    gameId: game.gameId,
+    return {
+      gameId: game.gameId,
 
-    homeTeam,
-    awayTeam,
+      homeTeam,
+      awayTeam,
 
-    homePitcher: game.homePitcher,
-    awayPitcher: game.awayPitcher,
+      homePitcher: game.homePitcher || null,
+      awayPitcher: game.awayPitcher || null,
 
-    homeRating,
-    awayRating,
+      homeRating,
+      awayRating,
 
-    homeWinProbability,
-    awayWinProbability
+      homeWinProbability: Number(homeWinProbability.toFixed(4)),
+      awayWinProbability: Number(awayWinProbability.toFixed(4))
+    }
+
+  } catch (error) {
+
+    console.error("Prediction error:", error)
+
+    return null
 
   }
 
