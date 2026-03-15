@@ -7,7 +7,7 @@ export default async function handler(req, res) {
     const today = new Date().toISOString().split("T")[0]
 
     const url =
-      `https://statsapi.mlb.com/api/v1/schedule?sportId=1&date=${today}`
+      `https://statsapi.mlb.com/api/v1/schedule?sportId=1&date=${today}&hydrate=probablePitcher`
 
     const response = await fetch(url)
     const data = await response.json()
@@ -40,16 +40,17 @@ export default async function handler(req, res) {
         date: game.gameDate,
         homeTeam: game.teams.home.team.name,
         awayTeam: game.teams.away.team.name,
-        homePitcher: game.teams.home.probablePitcher?game.teams.home.probablePitcher.fullName:null,
-        awayPitcher: game.teams.away.probablePitcher?game.teams.away.probablePitcher.fullName:null,
+
+        homePitcher: game.teams.home.probablePitcher?.fullName || null,
+        awayPitcher: game.teams.away.probablePitcher?.fullName || null,
+
         venue: game.venue?.name || null,
         status: game.status.detailedState,
-        seasonType: seasonType
+        seasonType
       }
 
     })
 
-    // Save to Redis
     await redis.set("mlb:games:today", games)
 
     res.status(200).json({
