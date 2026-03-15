@@ -5,17 +5,16 @@ export default async function handler(req, res) {
 
   try {
 
-    const today = new Date().toISOString().split("T")[0]
-
+    // Load today's games
     const games = await redis.get("mlb:games:today")
 
     if (!games || games.length === 0) {
       return res.status(200).json({
-        message: "No games found",
-        predictions: []
+        message: "No games today"
       })
     }
 
+    // Load team ratings
     const teamRatings = await redis.get("mlb:ratings:teams")
 
     if (!teamRatings) {
@@ -24,16 +23,33 @@ export default async function handler(req, res) {
       })
     }
 
-    const predictions = games.map(game =>
-      predictGame(game, teamRatings)
-    )
+    const predictions = []
 
+    // Generate predictions
+    for (const game of games) {
+
+      const prediction = await predictGame(
+        game,
+        teamRatings
+      )
+
+      predictions.push(prediction)
+
+    }
+
+    // Store predictions for today
     await redis.set("mlb:predictions:today", predictions)
 
-    await redis.set(`mlb:predictions:${today}`, predictions)
+    // Store prediction history
+    const today = new Date().toISOString().split("T")[0]
+
+    await redis.set(
+      `mlb:predictions:${today}`,
+      predictions
+    )
 
     res.status(200).json({
-      gamesProcessed: predictions.length,
+      predictionsCreated: predictions.length,
       sample: predictions.slice(0,3)
     })
 
