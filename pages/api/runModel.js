@@ -1,63 +1,40 @@
 import { redis } from "../../lib/upstash"
+import { predictGame } from "../../model/predictor"
 
 export default async function handler(req, res) {
 
   try {
 
-    // Load team ratings
-    const ratings = await redis.get("mlb_team_ratings")
+    // Load today's games
+    const games = await redis.get("mlb:games:today")
 
-    if (!ratings) {
-      return res.status(400).json({
-        error: "Team ratings not found. Run /api/buildRatings first."
+    if (!games || games.length === 0) {
+      return res.status(200).json({
+        message: "No games found",
+        predictions: []
       })
     }
 
-    // Fetch today's games from our API
-    const gamesResponse = await fetch(
-      "https://mlb-betting-model.vercel.app/api/fetchGames"
+    // Load team ratings
+    const teamRatings = await redis.get("mlb:ratings:teams")
+
+    if (!teamRatings) {
+      return res.status(400).json({
+        error: "Team ratings not found"
+      })
+    }
+
+    // Generate predictions
+    const predictions = games.map(game =>
+      predictGame(game, teamRatings)
     )
 
-    const gamesData = await gamesResponse.json()
-
-    const games = gamesData.games
-
-    // Only evaluate regular season games
-    const regularGames =
-      games.filter(g => g.seasonType === "regular")
-
-    const predictions = regularGames.map(game => {
-
-      const homeRating = ratings[game.homeTeam] || 1500
-      const awayRating = ratings[game.awayTeam] || 1500
-
-      const homeAdvantage = 40
-
-      const homeAdjusted = homeRating + homeAdvantage
-
-      const homeProbability =
-        1 / (1 + Math.pow(10, (awayRating - homeAdjusted) / 400))
-
-      const awayProbability = 1 - homeProbability
-
-      return {
-        homeTeam: game.homeTeam,
-        awayTeam: game.awayTeam,
-        homeRating: Math.round(homeRating),
-        awayRating: Math.round(awayRating),
-        homeWinProbability: Number(
-          (homeProbability * 100).toFixed(2)
-        ),
-        awayWinProbability: Number(
-          (awayProbability * 100).toFixed(2)
-        )
-      }
-
-    })
+    // Save predictions to Redis
+    await redis.set("mlb:predictions:today", predictions)
 
     res.status(200).json({
-      gamesEvaluated: predictions.length,
-      predictions: predictions
+      gamesProcessed: predictions.length,
+      sample: predictions.slice(0,3)
     })
 
   } catch (error) {
