@@ -5,9 +5,9 @@ function americanToProbability(odds) {
 
   if (odds > 0) {
     return 100 / (odds + 100)
-  } else {
-    return Math.abs(odds) / (Math.abs(odds) + 100)
   }
+
+  return Math.abs(odds) / (Math.abs(odds) + 100)
 
 }
 
@@ -15,8 +15,8 @@ export default async function handler(req, res) {
 
   try {
 
-    const games = await redis.get("mlb_games")
-    const odds = await redis.get("mlb_odds_today")
+    const games = await redis.get("mlb:games:today")
+    const odds = await redis.get("mlb:odds:today")
 
     if (!games || !odds) {
       return res.status(400).json({
@@ -28,92 +28,67 @@ export default async function handler(req, res) {
 
     for (const game of games) {
 
-      const oddsGame = odds.find(
-        o =>
-          o.homeTeam === game.homeTeam &&
-          o.awayTeam === game.awayTeam
+      const gameOdds = odds.find(o =>
+        o.homeTeam === game.homeTeam &&
+        o.awayTeam === game.awayTeam
       )
 
-      if (!oddsGame) continue
+      if (!gameOdds) continue
 
       const prediction = await predictGame(game)
 
-      let bestHomeOdds = -9999
-      let bestAwayOdds = -9999
-      let bestHomeBook = null
-      let bestAwayBook = null
+      for (const book of gameOdds.sportsbooks) {
 
-      const books = oddsGame.sportsbooks.map(book => {
+        const homeProb = prediction.homeWinProb
+        const awayProb = prediction.awayWinProb
 
-        if (book.homeOdds > bestHomeOdds) {
-          bestHomeOdds = book.homeOdds
-          bestHomeBook = book.sportsbook
+        const homeImplied = americanToProbability(book.homeOdds)
+        const awayImplied = americanToProbability(book.awayOdds)
+
+        const homeEdge = homeProb - homeImplied
+        const awayEdge = awayProb - awayImplied
+
+        if (homeEdge > 0.03) {
+          edges.push({
+            gameId: game.gameId,
+            team: game.homeTeam,
+            opponent: game.awayTeam,
+            sportsbook: book.sportsbook,
+            odds: book.homeOdds,
+            modelProb: homeProb,
+            impliedProb: Number(homeImplied.toFixed(3)),
+            edge: Number(homeEdge.toFixed(3))
+          })
         }
 
-        if (book.awayOdds > bestAwayOdds) {
-          bestAwayOdds = book.awayOdds
-          bestAwayBook = book.sportsbook
+        if (awayEdge > 0.03) {
+          edges.push({
+            gameId: game.gameId,
+            team: game.awayTeam,
+            opponent: game.homeTeam,
+            sportsbook: book.sportsbook,
+            odds: book.awayOdds,
+            modelProb: awayProb,
+            impliedProb: Number(awayImplied.toFixed(3)),
+            edge: Number(awayEdge.toFixed(3))
+          })
         }
 
-        return {
-          sportsbook: book.sportsbook,
-          homeOdds: book.homeOdds,
-          awayOdds: book.awayOdds
-        }
-
-      })
-
-      const impliedHome = americanToProbability(bestHomeOdds)
-      const impliedAway = americanToProbability(bestAwayOdds)
-
-      const homeEdge =
-        prediction.homeWinProb - impliedHome
-
-      const awayEdge =
-        prediction.awayWinProb - impliedAway
-
-      edges.push({
-
-        gameDate: game.gameDate,
-        homeTeam: game.homeTeam,
-        awayTeam: game.awayTeam,
-
-        model: {
-          homeWinProb: prediction.homeWinProb,
-          awayWinProb: prediction.awayWinProb
-        },
-
-        bestOdds: {
-          homeOdds: bestHomeOdds,
-          awayOdds: bestAwayOdds,
-          homeSportsbook: bestHomeBook,
-          awaySportsbook: bestAwayBook
-        },
-
-        impliedProbability: {
-          home: impliedHome,
-          away: impliedAway
-        },
-
-        edge: {
-          homeEdge,
-          awayEdge
-        },
-
-        sportsbooks: books
-
-      })
+      }
 
     }
 
-    return res.status(200).json({
-      gamesAnalyzed: edges.length,
-      edges
+    // Store results
+    await redis.set("mlb:model:edges", edges)
+
+    res.status(200).json({
+      edgesFound: edges.length,
+      edges: edges.slice(0,10)
     })
 
   } catch (error) {
 
-    return res.status(500).json({
+    res.status(500).json({
       error: error.message
     })
 
