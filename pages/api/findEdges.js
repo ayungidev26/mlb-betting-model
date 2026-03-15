@@ -36,7 +36,7 @@ export default async function handler(req, res) {
 
       if (!oddsGame) continue
 
-      const prediction = predictGame(game)
+      const prediction = await predictGame(game)
 
       let bestHomeOdds = -9999
       let bestAwayOdds = -9999
