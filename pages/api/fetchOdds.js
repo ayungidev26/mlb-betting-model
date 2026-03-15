@@ -29,10 +29,15 @@ export default async function handler(req, res) {
 
       const homeTeam = game.home_team
       const awayTeam = game.away_team
+      const gameDate = game.commence_time
 
       const sportsbooks = game.bookmakers.map(book => {
 
-        const outcomes = book.markets[0].outcomes
+        const market = book.markets.find(m => m.key === "h2h")
+
+        if (!market) return null
+
+        const outcomes = market.outcomes
 
         const homeOdds =
           outcomes.find(o => o.name === homeTeam)?.price
@@ -42,13 +47,16 @@ export default async function handler(req, res) {
 
         return {
           sportsbook: book.key,
+          lastUpdated: book.last_update,
+          market: market.key,
           homeOdds,
           awayOdds
         }
 
-      })
+      }).filter(Boolean)
 
       return {
+        gameDate,
         homeTeam,
         awayTeam,
         sportsbooks
@@ -56,7 +64,7 @@ export default async function handler(req, res) {
 
     })
 
-    // Save odds to Redis so they are reused
+    // Store odds in Redis
     await redis.set("mlb_odds_today", odds)
 
     res.status(200).json({
