@@ -4,24 +4,31 @@ export default async function handler(req, res) {
 
   try {
 
-    // Check if odds already exist in Redis
-    const existingOdds = await redis.get("mlb_odds_today")
+    const refresh = req.query.refresh === "true"
 
-    if (existingOdds) {
-      return res.status(200).json({
-        source: "redis-cache",
-        gamesFound: existingOdds.length,
-        odds: existingOdds
-      })
+    // Check Redis cache unless refresh requested
+    if (!refresh) {
+      const cachedOdds = await redis.get("mlb_odds_today")
+
+      if (cachedOdds) {
+        return res.status(200).json({
+          source: "redis-cache",
+          gamesFound: cachedOdds.length,
+          odds: cachedOdds
+        })
+      }
     }
 
-    // If no cached odds, call The Odds API
     const apiKey = process.env.ODDS_API_KEY
 
     const url =
       `https://api.the-odds-api.com/v4/sports/baseball_mlb/odds/?apiKey=${apiKey}&regions=us&markets=h2h&oddsFormat=american`
 
     const response = await fetch(url)
+
+    if (!response.ok) {
+      throw new Error("Odds API request failed")
+    }
 
     const data = await response.json()
 
@@ -31,19 +38,23 @@ export default async function handler(req, res) {
       const awayTeam = game.away_team
       const gameDate = game.commence_time
 
-      const sportsbooks = game.bookmakers.map(book => {
+      const sportsbooks = (game.bookmakers || []).map(book => {
 
-        const market = book.markets.find(m => m.key === "h2h")
+        const market = (book.markets || []).find(
+          m => m.key === "h2h"
+        )
 
         if (!market) return null
 
-        const outcomes = market.outcomes
+        const outcomes = market.outcomes || []
 
         const homeOdds =
           outcomes.find(o => o.name === homeTeam)?.price
 
         const awayOdds =
           outcomes.find(o => o.name === awayTeam)?.price
+
+        if (homeOdds == null || awayOdds == null) return null
 
         return {
           sportsbook: book.key,
@@ -55,6 +66,8 @@ export default async function handler(req, res) {
 
       }).filter(Boolean)
 
+      if (sportsbooks.length === 0) return null
+
       return {
         gameDate,
         homeTeam,
@@ -62,12 +75,14 @@ export default async function handler(req, res) {
         sportsbooks
       }
 
+    }).filter(Boolean)
+
+    // Store in Redis with expiration (24 hours)
+    await redis.set("mlb_odds_today", odds, {
+      ex: 86400
     })
 
-    // Store odds in Redis
-    await redis.set("mlb_odds_today", odds)
-
-    res.status(200).json({
+    return res.status(200).json({
       source: "odds-api",
       gamesFound: odds.length,
       odds
@@ -75,7 +90,9 @@ export default async function handler(req, res) {
 
   } catch (error) {
 
-    res.status(500).json({
+    console.error(error)
+
+    return res.status(500).json({
       error: error.message
     })
 
