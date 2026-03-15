@@ -1,18 +1,68 @@
-import { redis } from "../lib/upstash"
+import { redis } from "../../lib/upstash"
 
-export async function predictGame(game) {
+export default async function handler(req, res) {
 
-  const ratings = await redis.get("mlb_team_ratings")
+  try {
 
-  const homeRating = ratings[game.homeTeam] || 1500
-  const awayRating = ratings[game.awayTeam] || 1500
+    const today = new Date().toISOString().split("T")[0]
 
-  const homeProb =
-    1 / (1 + Math.pow(10, (awayRating - homeRating) / 400))
+    const url =
+      `https://statsapi.mlb.com/api/v1/schedule?sportId=1&date=${today}`
 
-  return {
-    homeWinProb: homeProb,
-    awayWinProb: 1 - homeProb
+    const response = await fetch(url)
+    const data = await response.json()
+
+    if (!data.dates || data.dates.length === 0) {
+
+      await redis.set("mlb:games:today", [])
+
+      return res.status(200).json({
+        gamesToday: 0,
+        games: []
+      })
+
+    }
+
+    const games = data.dates[0].games.map(game => {
+
+      let seasonType = "regular"
+
+      if (game.gameType === "S") {
+        seasonType = "spring"
+      }
+
+      if (["P","F","D","L","W"].includes(game.gameType)) {
+        seasonType = "playoffs"
+      }
+
+      return {
+        gameId: game.gamePk,
+        date: game.gameDate,
+        homeTeam: game.teams.home.team.name,
+        awayTeam: game.teams.away.team.name,
+        homeProbablePitcher: game.teams.home.probablePitcher?.fullName || null,
+        awayProbablePitcher: game.teams.away.probablePitcher?.fullName || null,
+        venue: game.venue?.name || null,
+        status: game.status.detailedState,
+        seasonType: seasonType
+      }
+
+    })
+
+    // Save to Redis
+    await redis.set("mlb:games:today", games)
+
+    res.status(200).json({
+      gamesToday: games.length,
+      sample: games.slice(0,3)
+    })
+
+  } catch (error) {
+
+    res.status(500).json({
+      error: error.message
+    })
+
   }
 
 }
