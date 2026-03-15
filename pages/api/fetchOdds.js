@@ -4,17 +4,19 @@ export default async function handler(req, res) {
 
   try {
 
+    const today = new Date().toISOString().split("T")[0]
+
+    // Prevent unnecessary API calls unless refresh requested
     const refresh = req.query.refresh === "true"
 
-    // Check Redis cache unless refresh requested
     if (!refresh) {
-      const cachedOdds = await redis.get("mlb_odds_today")
+      const existing = await redis.get("mlb:odds:today")
 
-      if (cachedOdds) {
+      if (existing) {
         return res.status(200).json({
-          source: "redis-cache",
-          gamesFound: cachedOdds.length,
-          odds: cachedOdds
+          source: "cache",
+          games: existing.length,
+          odds: existing.slice(0,3)
         })
       }
     }
@@ -25,74 +27,47 @@ export default async function handler(req, res) {
       `https://api.the-odds-api.com/v4/sports/baseball_mlb/odds/?apiKey=${apiKey}&regions=us&markets=h2h&oddsFormat=american`
 
     const response = await fetch(url)
-
-    if (!response.ok) {
-      throw new Error("Odds API request failed")
-    }
-
     const data = await response.json()
 
     const odds = data.map(game => {
 
-      const homeTeam = game.home_team
-      const awayTeam = game.away_team
-      const gameDate = game.commence_time
+      const sportsbooks = game.bookmakers.map(book => {
 
-      const sportsbooks = (game.bookmakers || []).map(book => {
+        const market = book.markets.find(m => m.key === "h2h")
 
-        const market = (book.markets || []).find(
-          m => m.key === "h2h"
-        )
-
-        if (!market) return null
-
-        const outcomes = market.outcomes || []
-
-        const homeOdds =
-          outcomes.find(o => o.name === homeTeam)?.price
-
-        const awayOdds =
-          outcomes.find(o => o.name === awayTeam)?.price
-
-        if (homeOdds == null || awayOdds == null) return null
+        const home = market.outcomes.find(o => o.name === game.home_team)
+        const away = market.outcomes.find(o => o.name === game.away_team)
 
         return {
           sportsbook: book.key,
           lastUpdated: book.last_update,
-          market: market.key,
-          homeOdds,
-          awayOdds
+          homeOdds: home.price,
+          awayOdds: away.price
         }
 
-      }).filter(Boolean)
-
-      if (sportsbooks.length === 0) return null
+      })
 
       return {
-        gameDate,
-        homeTeam,
-        awayTeam,
-        sportsbooks
+        gameId: game.id,
+        commenceTime: game.commence_time,
+        homeTeam: game.home_team,
+        awayTeam: game.away_team,
+        sportsbooks: sportsbooks
       }
 
-    }).filter(Boolean)
-
-    // Store in Redis with expiration (24 hours)
-    await redis.set("mlb_odds_today", odds, {
-      ex: 86400
     })
 
-    return res.status(200).json({
-      source: "odds-api",
-      gamesFound: odds.length,
-      odds
+    await redis.set("mlb:odds:today", odds)
+
+    res.status(200).json({
+      source: "api",
+      games: odds.length,
+      oddsSample: odds.slice(0,3)
     })
 
   } catch (error) {
 
-    console.error(error)
-
-    return res.status(500).json({
+    res.status(500).json({
       error: error.message
     })
 
