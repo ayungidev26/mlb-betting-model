@@ -15,7 +15,7 @@ export default async function handler(req, res) {
 
   try {
 
-    const games = await redis.get("mlb_games_today")
+    const games = await redis.get("mlb_games")
     const odds = await redis.get("mlb_odds_today")
 
     if (!games || !odds) {
