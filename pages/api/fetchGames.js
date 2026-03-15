@@ -1,3 +1,5 @@
+import { redis } from "../../lib/upstash"
+
 export default async function handler(req, res) {
 
   try {
@@ -11,10 +13,14 @@ export default async function handler(req, res) {
     const data = await response.json()
 
     if (!data.dates || data.dates.length === 0) {
+
+      await redis.set("mlb:games:today", [])
+
       return res.status(200).json({
         gamesToday: 0,
         games: []
       })
+
     }
 
     const games = data.dates[0].games.map(game => {
@@ -34,15 +40,21 @@ export default async function handler(req, res) {
         date: game.gameDate,
         homeTeam: game.teams.home.team.name,
         awayTeam: game.teams.away.team.name,
+        homeProbablePitcher: game.teams.home.probablePitcher?.fullName || null,
+        awayProbablePitcher: game.teams.away.probablePitcher?.fullName || null,
+        venue: game.venue?.name || null,
         status: game.status.detailedState,
         seasonType: seasonType
       }
 
     })
 
+    // Save to Redis
+    await redis.set("mlb:games:today", games)
+
     res.status(200).json({
       gamesToday: games.length,
-      games: games
+      sample: games.slice(0,3)
     })
 
   } catch (error) {
