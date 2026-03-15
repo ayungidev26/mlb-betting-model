@@ -40,8 +40,8 @@ export default async function handler(req, res) {
         date: game.gameDate,
         homeTeam: game.teams.home.team.name,
         awayTeam: game.teams.away.team.name,
-        homeProbablePitcher: game.teams.home.probablePitcher?.fullName || null,
-        awayProbablePitcher: game.teams.away.probablePitcher?.fullName || null,
+        homePitcher: game.teams.home.probablePitcher?game.teams.home.probablePitcher.fullName:null,
+        awayPitcher: game.teams.away.probablePitcher?game.teams.away.probablePitcher.fullName:null,
         venue: game.venue?.name || null,
         status: game.status.detailedState,
         seasonType: seasonType
