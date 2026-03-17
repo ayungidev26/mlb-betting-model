@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server"
-import { runModel } from "@/lib/runModel"
+import { runModel } from "../../../lib/runModel"
 
 export async function GET() {
   try {
