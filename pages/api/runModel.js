@@ -1,3 +1,4 @@
+// Data contract reference: see docs/data-contracts.md for canonical Game, OddsRecord, Prediction, Edge, and matchKey shapes.
 import { redis } from "../../lib/upstash"
 import { predictGame } from "../../model/predictor"
 
