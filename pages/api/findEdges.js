@@ -14,18 +14,27 @@ export default async function handler(req, res) {
       })
     }
 
+    const EDGE_THRESHOLD = 0.03
     const edges = []
 
     predictions.forEach(prediction => {
 
-      const gameOdds = odds.find(
-        game => game.gameId === prediction.gameId
-      )
+      const gameOdds = odds.find(game => {
+        if (prediction.matchKey && game.matchKey) {
+          return game.matchKey === prediction.matchKey
+        }
+
+        return game.gameId === prediction.gameId
+      })
 
       if (!gameOdds) return
 
       const homeOdds = gameOdds.homeMoneyline
       const awayOdds = gameOdds.awayMoneyline
+
+      if (typeof homeOdds !== "number" || typeof awayOdds !== "number") {
+        return
+      }
 
       const homeProb = prediction.homeWinProbability
       const awayProb = prediction.awayWinProbability
@@ -43,23 +52,39 @@ export default async function handler(req, res) {
       const homeEdge = homeProb - homeImplied
       const awayEdge = awayProb - awayImplied
 
-      if (homeEdge > 0.03) {
+      if (homeEdge > EDGE_THRESHOLD) {
         edges.push({
           gameId: prediction.gameId,
+          matchKey: prediction.matchKey || gameOdds.matchKey,
           team: prediction.homeTeam,
-          edge: homeEdge,
+          market: "moneyline",
+          sportsbook: gameOdds.sportsbook,
           odds: homeOdds,
-          sportsbook: gameOdds.sportsbook
+          modelProbability: homeProb,
+          impliedProbability: Number(homeImplied.toFixed(4)),
+          edge: Number(homeEdge.toFixed(4)),
+          threshold: EDGE_THRESHOLD,
+          homeTeam: prediction.homeTeam,
+          awayTeam: prediction.awayTeam,
+          lastUpdated: gameOdds.lastUpdated
         })
       }
 
-      if (awayEdge > 0.03) {
+      if (awayEdge > EDGE_THRESHOLD) {
         edges.push({
           gameId: prediction.gameId,
+          matchKey: prediction.matchKey || gameOdds.matchKey,
           team: prediction.awayTeam,
-          edge: awayEdge,
+          market: "moneyline",
+          sportsbook: gameOdds.sportsbook,
           odds: awayOdds,
-          sportsbook: gameOdds.sportsbook
+          modelProbability: awayProb,
+          impliedProbability: Number(awayImplied.toFixed(4)),
+          edge: Number(awayEdge.toFixed(4)),
+          threshold: EDGE_THRESHOLD,
+          homeTeam: prediction.homeTeam,
+          awayTeam: prediction.awayTeam,
+          lastUpdated: gameOdds.lastUpdated
         })
       }
 

@@ -1,11 +1,11 @@
 // Data contract reference: see docs/data-contracts.md for canonical Game, OddsRecord, Prediction, Edge, and matchKey shapes.
 import { redis } from "../../lib/upstash"
+import { normalizeOddsPayload } from "../../lib/normalizeOdds"
 
 export default async function handler(req, res) {
 
   try {
 
-    const today = new Date().toISOString().split("T")[0]
 
     // Prevent unnecessary API calls unless refresh requested
     const refresh = req.query.refresh === "true"
@@ -30,33 +30,11 @@ export default async function handler(req, res) {
     const response = await fetch(url)
     const data = await response.json()
 
-    const odds = data.map(game => {
+    if (!Array.isArray(data)) {
+      throw new Error(data?.message || "Unexpected odds API response")
+    }
 
-      const sportsbooks = game.bookmakers.map(book => {
-
-        const market = book.markets.find(m => m.key === "h2h")
-
-        const home = market.outcomes.find(o => o.name === game.home_team)
-        const away = market.outcomes.find(o => o.name === game.away_team)
-
-        return {
-          sportsbook: book.key,
-          lastUpdated: book.last_update,
-          homeOdds: home.price,
-          awayOdds: away.price
-        }
-
-      })
-
-      return {
-        gameId: game.id,
-        commenceTime: game.commence_time,
-        homeTeam: game.home_team,
-        awayTeam: game.away_team,
-        sportsbooks: sportsbooks
-      }
-
-    })
+    const odds = normalizeOddsPayload(data)
 
     await redis.set("mlb:odds:today", odds)
 
