@@ -24,6 +24,9 @@ export default async function handler(req, res) {
       })
     }
 
+    // Load bullpen stats populated by the dedicated ingestion route
+    const bullpenStats = await redis.get("mlb:stats:bullpen")
+
     const predictions = []
 
     // Generate predictions
@@ -31,7 +34,8 @@ export default async function handler(req, res) {
 
       const prediction = await predictGame(
         game,
-        teamRatings
+        teamRatings,
+        bullpenStats
       )
       // skip failed predictions
       if (!prediction) continue
