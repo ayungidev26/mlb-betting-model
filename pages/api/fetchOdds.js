@@ -1,6 +1,15 @@
 // Data contract reference: see docs/data-contracts.md for canonical Game, OddsRecord, Prediction, Edge, and matchKey shapes.
 import { redis } from "../../lib/upstash"
-import { normalizeOddsPayload } from "../../lib/normalizeOdds"
+import {
+  normalizeOddsPayload,
+  toCanonicalOddsRecord
+} from "../../lib/normalizeOdds"
+
+function normalizeStoredOddsRecords(records) {
+  return (records || [])
+    .map(record => toCanonicalOddsRecord(record))
+    .filter(Boolean)
+}
 
 export default async function handler(req, res) {
 
@@ -12,12 +21,17 @@ export default async function handler(req, res) {
 
     if (!refresh) {
       const existing = await redis.get("mlb:odds:today")
+      const cachedOdds = Array.isArray(existing)
+        ? normalizeStoredOddsRecords(existing)
+        : null
 
-      if (existing) {
+      if (cachedOdds?.length) {
+        await redis.set("mlb:odds:today", cachedOdds)
+
         return res.status(200).json({
           source: "cache",
-          games: existing.length,
-          odds: existing.slice(0,3)
+          games: cachedOdds.length,
+          odds: cachedOdds.slice(0,3)
         })
       }
     }
