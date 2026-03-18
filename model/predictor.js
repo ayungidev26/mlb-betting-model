@@ -51,6 +51,8 @@ export async function predictGame(game, teamRatings, bullpenStats) {
 
     return {
       gameId: game.gameId,
+      matchKey: game.matchKey || null,
+      date: game.date || null,
 
       homeTeam,
       awayTeam,

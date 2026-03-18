@@ -91,11 +91,12 @@ Represents the normalized odds for one game after sportsbook ingestion.
 | Field | Type | Notes |
 | --- | --- | --- |
 | `sportsbooks` | `Array<object>` | Full book-by-book detail if the route chooses to persist it. |
+| `primaryLine` | `object` | Selected canonical line mirrored into the top-level moneyline fields for downstream use. |
 | `source` | `string` | Cache or provider metadata. |
 
 #### Stage requirements
 
-- **Odds ingestion (`fetchOdds`)**: all required fields above should be present on each stored record.
+- **Odds ingestion (`fetchOdds`)**: all required fields above should be present on each stored record; if `sportsbooks` is retained, select a `primaryLine` and mirror it to the top-level required fields.
 - **Edge detection (`findEdges`)**: requires `matchKey`, `homeMoneyline`, `awayMoneyline`, `sportsbook`, and `lastUpdated`; nested `sportsbooks` data is optional.
 
 ### 3. `Prediction`
@@ -176,3 +177,10 @@ Represents a betting edge discovered by comparing a prediction with canonical od
 ## Implementation note
 
 If a provider exposes different names or IDs, normalize them at the API boundary and preserve the canonical contract internally.
+
+## Odds normalization strategy
+
+- Retain every valid sportsbook line in `sportsbooks` when a bookmaker exposes an `h2h` market with both home and away prices.
+- Choose `primaryLine` from the valid sportsbooks using the lowest implied hold (`home implied probability + away implied probability`).
+- Mirror `primaryLine.homeMoneyline`, `primaryLine.awayMoneyline`, `primaryLine.sportsbook`, and `primaryLine.lastUpdated` to the required top-level fields so downstream consumers such as edge detection can read a single canonical shape without scanning the nested array.
+- Skip bookmakers missing an `h2h` market or either team outcome instead of throwing, and drop the full game only when no valid sportsbook lines remain.

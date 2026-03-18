@@ -1,5 +1,6 @@
 // Data contract reference: see docs/data-contracts.md for canonical Game, OddsRecord, Prediction, Edge, and matchKey shapes.
 import { redis } from "../../lib/upstash"
+import { buildMatchKey } from "../../lib/matchKey"
 
 export default async function handler(req, res) {
 
@@ -36,11 +37,15 @@ export default async function handler(req, res) {
         seasonType = "playoffs"
       }
 
+      const homeTeam = game.teams.home.team.name
+      const awayTeam = game.teams.away.team.name
+
       return {
         gameId: game.gamePk,
+        matchKey: buildMatchKey(game.gameDate, awayTeam, homeTeam),
         date: game.gameDate,
-        homeTeam: game.teams.home.team.name,
-        awayTeam: game.teams.away.team.name,
+        homeTeam,
+        awayTeam,
 
         homePitcher: game.teams.home.probablePitcher?.fullName || null,
         awayPitcher: game.teams.away.probablePitcher?.fullName || null,
