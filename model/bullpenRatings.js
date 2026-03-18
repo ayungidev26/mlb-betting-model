@@ -1,5 +1,3 @@
-import { redis } from "../lib/upstash"
-
 function toNumber(value) {
   const parsed = Number.parseFloat(value)
   return Number.isFinite(parsed) ? parsed : null
@@ -26,14 +24,10 @@ function calculateBullpenRating(bullpen) {
   return rating
 }
 
-export async function getBullpenRating(teamName) {
-  if (!teamName) return 0
+export function getBullpenRating(teamName, bullpenStats) {
+  if (!teamName || !bullpenStats || typeof bullpenStats !== "object") return 0
 
-  const stats = await redis.get("mlb:stats:bullpen")
-
-  if (!stats || typeof stats !== "object") return 0
-
-  const bullpen = stats[teamName]
+  const bullpen = bullpenStats[teamName]
 
   if (!bullpen || typeof bullpen !== "object") return 0
 

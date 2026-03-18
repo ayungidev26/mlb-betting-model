@@ -1,7 +1,7 @@
 import { getPitcherRating } from "./pitcherRatings.js"
 import { getBullpenRating } from "./bullpenRatings.js"
 
-export async function predictGame(game, teamRatings) {
+export async function predictGame(game, teamRatings, bullpenStats) {
 
   try {
 
@@ -21,10 +21,10 @@ export async function predictGame(game, teamRatings) {
 
     // Bullpen ratings
     const homeBullpenRating =
-      await getBullpenRating(homeTeam)
+      getBullpenRating(homeTeam, bullpenStats)
 
     const awayBullpenRating =
-      await getBullpenRating(awayTeam)
+      getBullpenRating(awayTeam, bullpenStats)
 
     // Home field advantage
     const HOME_FIELD = 25
