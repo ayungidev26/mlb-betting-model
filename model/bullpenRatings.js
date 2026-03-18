@@ -1,50 +1,43 @@
 import { redis } from "../lib/upstash"
 
-export default async function handler(req, res) {
-
-  try {
-
-    const url =
-      "https://statsapi.mlb.com/api/v1/teams?sportId=1"
-
-    const response = await fetch(url)
-    const data = await response.json()
-
-    const bullpenStats = {}
-
-    for (const team of data.teams) {
-
-      const statsUrl =
-        `https://statsapi.mlb.com/api/v1/teams/${team.id}/stats?stats=season&group=pitching`
-
-      const statsRes = await fetch(statsUrl)
-      const statsData = await statsRes.json()
-
-      const stat =
-        statsData.stats?.[0]?.splits?.[0]?.stat
-
-      if (!stat) continue
-
-      bullpenStats[team.name] = {
-        era: parseFloat(stat.era),
-        whip: parseFloat(stat.whip)
-      }
-
-    }
-
-    await redis.set("mlb:stats:bullpen", bullpenStats)
-
-    res.status(200).json({
-      teamsCollected: Object.keys(bullpenStats).length,
-      sample: Object.entries(bullpenStats).slice(0,3)
-    })
-
-  } catch (error) {
-
-    res.status(500).json({
-      error: error.message
-    })
-
-  }
-
+function toNumber(value) {
+  const parsed = Number.parseFloat(value)
+  return Number.isFinite(parsed) ? parsed : null
 }
+
+function calculateBullpenRating(bullpen) {
+  const era = toNumber(bullpen?.era)
+  const whip = toNumber(bullpen?.whip)
+
+  if (era === null || whip === null) return 0
+
+  let rating = 0
+
+  if (era < 3) rating += 70
+  else if (era < 3.5) rating += 50
+  else if (era < 4) rating += 30
+  else if (era < 4.5) rating += 15
+
+  if (whip < 1.1) rating += 40
+  else if (whip < 1.2) rating += 25
+  else if (whip < 1.3) rating += 15
+  else if (whip < 1.4) rating += 5
+
+  return rating
+}
+
+export async function getBullpenRating(teamName) {
+  if (!teamName) return 0
+
+  const stats = await redis.get("mlb:stats:bullpen")
+
+  if (!stats || typeof stats !== "object") return 0
+
+  const bullpen = stats[teamName]
+
+  if (!bullpen || typeof bullpen !== "object") return 0
+
+  return calculateBullpenRating(bullpen)
+}
+
+export { calculateBullpenRating }
