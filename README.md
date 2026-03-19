@@ -148,6 +148,30 @@ mlb:edges:today
 
 ---
 
+### 7. Run the Full Daily Pipeline
+
+`/api/runPipeline`
+
+Runs the full daily workflow in order and returns a per-step execution summary:
+
+```
+fetchGames
+fetchOdds
+fetchPitcherStats
+fetchBullpenStats
+runModel
+findEdges
+```
+
+The orchestration route forces a fresh odds refresh, then leaves the latest outputs in Redis under the existing daily keys, including:
+
+```
+mlb:predictions:today
+mlb:edges:today
+```
+
+---
+
 ## Example Model Output
 
 ```
