@@ -39,8 +39,11 @@ export default async function handler(req, res) {
       )
       // skip failed predictions
       if (!prediction) continue
-      
-      predictions.push(prediction)
+
+      predictions.push({
+        ...prediction,
+        matchKey: game.matchKey || prediction.matchKey || null
+      })
 
     }
 
