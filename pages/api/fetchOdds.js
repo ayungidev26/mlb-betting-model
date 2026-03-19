@@ -4,9 +4,12 @@ import {
   normalizeOddsPayload,
   toCanonicalOddsRecord
 } from "../../lib/normalizeOdds"
+import { validateRecordArray, validateCanonicalOddsRecord } from "../../lib/payloadValidation"
 
 function normalizeStoredOddsRecords(records) {
-  return (records || [])
+  validateRecordArray(records, validateCanonicalOddsRecord, "Cached odds records")
+
+  return records
     .map(record => toCanonicalOddsRecord(record))
     .filter(Boolean)
 }
@@ -43,10 +46,6 @@ export default async function handler(req, res) {
 
     const response = await fetch(url)
     const data = await response.json()
-
-    if (!Array.isArray(data)) {
-      throw new Error(data?.message || "Unexpected odds API response")
-    }
 
     const odds = normalizeOddsPayload(data)
 

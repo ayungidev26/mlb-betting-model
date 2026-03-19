@@ -1,26 +1,12 @@
 // Data contract reference: see docs/data-contracts.md for canonical Game, OddsRecord, Prediction, Edge, and matchKey shapes.
 import { redis } from "../../lib/upstash"
-import { findEdgesFromData } from "../../lib/findEdges"
+import { generateEdges } from "../../lib/pipeline"
 
 export default async function handler(req, res) {
 
   try {
 
-    const predictions = await redis.get("mlb:predictions:today")
-    const odds = await redis.get("mlb:odds:today")
-
-    if (!predictions || !odds) {
-      return res.status(400).json({
-        error: "Missing predictions or odds data"
-      })
-    }
-
-    const { edges, matchedGames, unmatchedPredictions } = findEdgesFromData(
-      predictions,
-      odds
-    )
-
-    await redis.set("mlb:edges:today", edges)
+    const { edges, matchedGames, unmatchedPredictions } = await generateEdges(redis)
 
     res.status(200).json({
       edgesFound: edges.length,
@@ -31,7 +17,11 @@ export default async function handler(req, res) {
 
   } catch (error) {
 
-    res.status(500).json({
+    const statusCode = error.message === "Missing predictions or odds data"
+      ? 400
+      : 500
+
+    res.status(statusCode).json({
       error: error.message
     })
 
