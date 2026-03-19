@@ -70,7 +70,7 @@ test('prediction to edge pipeline stores predictions and edges from mocked Redis
   assert.equal(redis.dump('mlb:edges:today').length, 1)
 })
 
-test('prediction pipeline fails fast when required game fields drift', async () => {
+test('prediction pipeline repairs a missing matchKey when the cached game still has matchup fields', async () => {
   const redis = createMockRedis({
     'mlb:games:today': [
       {
@@ -88,11 +88,37 @@ test('prediction pipeline fails fast when required game fields drift', async () 
     'mlb:stats:bullpen': null
   })
 
+  const result = await generatePredictions(redis)
+
+  assert.equal(result.predictionsCreated, 1)
+  assert.equal(
+    redis.dump('mlb:games:today')[0].matchKey,
+    '2025-04-10|Los Angeles Dodgers|Oakland Athletics'
+  )
+})
+
+test('prediction pipeline still fails fast when a missing matchKey cannot be reconstructed', async () => {
+  const redis = createMockRedis({
+    'mlb:games:today': [
+      {
+        gameId: 'game-1',
+        date: '2025-04-10T23:10:00Z',
+        homeTeam: '',
+        awayTeam: 'Los Angeles Dodgers',
+        seasonType: 'regular'
+      }
+    ],
+    'mlb:ratings:teams': {
+      'Los Angeles Dodgers': 1600
+    },
+    'mlb:stats:bullpen': null
+  })
+
   await assert.rejects(
     () => generatePredictions(redis),
     error => {
       assert.equal(error instanceof ValidationError, true)
-      assert.match(error.message, /matchKey/)
+      assert.match(error.message, /matchKey|homeTeam/)
       return true
     }
   )
