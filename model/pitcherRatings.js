@@ -1,4 +1,4 @@
-import { redis } from "../lib/upstash"
+import { redis } from "../lib/upstash.js"
 
 export async function getPitcherRating(name) {
 
