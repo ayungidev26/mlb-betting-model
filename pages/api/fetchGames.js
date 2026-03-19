@@ -1,6 +1,7 @@
 // Data contract reference: see docs/data-contracts.md for canonical Game, OddsRecord, Prediction, Edge, and matchKey shapes.
 import { redis } from "../../lib/upstash"
 import { buildMatchKey } from "../../lib/matchKey"
+import { validateExternalMlbSchedulePayload } from "../../lib/payloadValidation"
 
 export default async function handler(req, res) {
 
@@ -14,7 +15,9 @@ export default async function handler(req, res) {
     const response = await fetch(url)
     const data = await response.json()
 
-    if (!data.dates || data.dates.length === 0) {
+    validateExternalMlbSchedulePayload(data)
+
+    if (data.dates.length === 0) {
 
       await redis.set("mlb:games:today", [])
 
