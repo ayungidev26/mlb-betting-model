@@ -8,6 +8,7 @@ import { validateRecordArray, validateCanonicalOddsRecord } from "../../lib/payl
 import { requireOperationalRouteAccess } from "../../lib/apiSecurity.js"
 import { sendRouteError } from "../../lib/apiErrors.js"
 import { buildOddsApiUrl } from "../../lib/oddsApi.js"
+import { fetchJsonWithRetry } from "../../lib/upstreamFetch.js"
 import {
   enforceCooldown,
   enforceIpRateLimit,
@@ -84,17 +85,7 @@ export default async function handler(req, res) {
       }
     }
 
-    const response = await fetch(ODDS_API_URL, {
-      headers: {
-        Accept: "application/json"
-      }
-    })
-
-    if (!response.ok) {
-      throw new Error(`Odds API request failed with status ${response.status}`)
-    }
-
-    const data = await response.json()
+    const data = await fetchJsonWithRetry(ODDS_API_URL)
 
     const odds = normalizeOddsPayload(data)
 

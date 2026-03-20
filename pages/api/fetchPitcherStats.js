@@ -2,6 +2,7 @@
 import { redis } from "../../lib/upstash.js"
 import { requireOperationalRouteAccess } from "../../lib/apiSecurity.js"
 import { sendRouteError } from "../../lib/apiErrors.js"
+import { fetchJsonWithRetry } from "../../lib/upstreamFetch.js"
 import {
   enforceIpRateLimit,
   enforceJobLock,
@@ -60,8 +61,7 @@ export default async function handler(req, res) {
         const searchUrl =
           `https://statsapi.mlb.com/api/v1/people/search?names=${encodeURIComponent(name)}`
 
-        const searchRes = await fetch(searchUrl)
-        const searchData = await searchRes.json()
+        const searchData = await fetchJsonWithRetry(searchUrl)
 
         if (!searchData.people || searchData.people.length === 0) continue
 
@@ -70,8 +70,7 @@ export default async function handler(req, res) {
         const statsUrl =
           `https://statsapi.mlb.com/api/v1/people/${playerId}/stats?stats=season&group=pitching`
 
-        const statsRes = await fetch(statsUrl)
-        const statsData = await statsRes.json()
+        const statsData = await fetchJsonWithRetry(statsUrl)
 
         const stat =
           statsData.stats?.[0]?.splits?.[0]?.stat
