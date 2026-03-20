@@ -2,6 +2,7 @@
 import { redis } from "../../lib/upstash.js"
 import { requireOperationalRouteAccess } from "../../lib/apiSecurity.js"
 import { sendRouteError } from "../../lib/apiErrors.js"
+import { fetchJsonWithRetry } from "../../lib/upstreamFetch.js"
 import {
   enforceCooldown,
   enforceIpRateLimit,
@@ -88,17 +89,19 @@ export default async function handler(req, res) {
     ]
 
     let totalGames = 0
+    const seasonGamesByKey = new Map()
 
     for (const season of seasons) {
       const url =
         `https://statsapi.mlb.com/api/v1/schedule?sportId=1&season=${season}`
 
-      const response = await fetch(url)
-      const data = await response.json()
-
+      const data = await fetchJsonWithRetry(url)
       const seasonGames = []
 
-      if (!data.dates) continue
+      if (!data.dates) {
+        seasonGamesByKey.set(`mlb:games:historical:${season}`, seasonGames)
+        continue
+      }
 
       for (const date of data.dates) {
         for (const game of date.games) {
@@ -133,12 +136,12 @@ export default async function handler(req, res) {
         }
       }
 
-      await redis.set(
-        `mlb:games:historical:${season}`,
-        seasonGames
-      )
-
+      seasonGamesByKey.set(`mlb:games:historical:${season}`, seasonGames)
       totalGames += seasonGames.length
+    }
+
+    for (const [key, seasonGames] of seasonGamesByKey.entries()) {
+      await redis.set(key, seasonGames)
     }
 
     await markCooldown(

@@ -2,6 +2,7 @@
 import { redis } from "../../lib/upstash.js"
 import { requireOperationalRouteAccess } from "../../lib/apiSecurity.js"
 import { sendRouteError } from "../../lib/apiErrors.js"
+import { fetchJsonWithRetry } from "../../lib/upstreamFetch.js"
 import {
   enforceIpRateLimit,
   enforceJobLock,
@@ -41,17 +42,14 @@ export default async function handler(req, res) {
     const url =
       "https://statsapi.mlb.com/api/v1/teams?sportId=1"
 
-    const response = await fetch(url)
-    const data = await response.json()
-
+    const data = await fetchJsonWithRetry(url)
     const bullpenStats = {}
 
     for (const team of data.teams) {
       const statsUrl =
         `https://statsapi.mlb.com/api/v1/teams/${team.id}/stats?stats=season&group=pitching`
 
-      const statsRes = await fetch(statsUrl)
-      const statsData = await statsRes.json()
+      const statsData = await fetchJsonWithRetry(statsUrl)
 
       const stat =
         statsData.stats?.[0]?.splits?.[0]?.stat

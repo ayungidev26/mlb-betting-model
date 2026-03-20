@@ -4,6 +4,7 @@ import { buildMatchKey } from "../../lib/matchKey"
 import { validateExternalMlbSchedulePayload } from "../../lib/payloadValidation"
 import { requireOperationalRouteAccess } from "../../lib/apiSecurity"
 import { sendRouteError } from "../../lib/apiErrors"
+import { fetchJsonWithRetry } from "../../lib/upstreamFetch.js"
 
 export default async function handler(req, res) {
   if (!requireOperationalRouteAccess(req, res)) {
@@ -17,8 +18,7 @@ export default async function handler(req, res) {
     const url =
       `https://statsapi.mlb.com/api/v1/schedule?sportId=1&date=${today}&hydrate=probablePitcher`
 
-    const response = await fetch(url)
-    const data = await response.json()
+    const data = await fetchJsonWithRetry(url)
 
     validateExternalMlbSchedulePayload(data)
 
