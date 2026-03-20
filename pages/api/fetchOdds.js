@@ -6,6 +6,9 @@ import {
 } from "../../lib/normalizeOdds"
 import { validateRecordArray, validateCanonicalOddsRecord } from "../../lib/payloadValidation"
 import { requireOperationalRouteAccess } from "../../lib/apiSecurity"
+import { buildOddsApiUrl } from "../../lib/oddsApi"
+
+const ODDS_API_URL = buildOddsApiUrl().toString()
 
 function normalizeStoredOddsRecords(records) {
   validateRecordArray(records, validateCanonicalOddsRecord, "Cached odds records")
@@ -43,12 +46,16 @@ export default async function handler(req, res) {
       }
     }
 
-    const apiKey = process.env.ODDS_API_KEY
+    const response = await fetch(ODDS_API_URL, {
+      headers: {
+        Accept: "application/json"
+      }
+    })
 
-    const url =
-      `https://api.the-odds-api.com/v4/sports/baseball_mlb/odds/?apiKey=${apiKey}&regions=us&markets=h2h&oddsFormat=american`
+    if (!response.ok) {
+      throw new Error(`Odds API request failed with status ${response.status}`)
+    }
 
-    const response = await fetch(url)
     const data = await response.json()
 
     const odds = normalizeOddsPayload(data)
