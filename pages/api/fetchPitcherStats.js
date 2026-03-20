@@ -1,14 +1,42 @@
 // Data contract reference: see docs/data-contracts.md for canonical Game, OddsRecord, Prediction, Edge, and matchKey shapes.
-import { redis } from "../../lib/upstash"
-import { requireOperationalRouteAccess } from "../../lib/apiSecurity"
-import { sendRouteError } from "../../lib/apiErrors"
+import { redis } from "../../lib/upstash.js"
+import { requireOperationalRouteAccess } from "../../lib/apiSecurity.js"
+import { sendRouteError } from "../../lib/apiErrors.js"
+import {
+  enforceIpRateLimit,
+  enforceJobLock,
+  releaseJobLock
+} from "../../lib/apiGuards.js"
+
+const FETCH_PITCHER_STATS_RATE_LIMIT = {
+  keyPrefix: "mlb:limit:fetchPitcherStats",
+  limit: 6,
+  windowSeconds: 60,
+  routeName: "fetchPitcherStats"
+}
+const FETCH_PITCHER_STATS_LOCK = {
+  key: "mlb:lock:fetchPitcherStats",
+  ttlSeconds: 180,
+  routeName: "fetchPitcherStats"
+}
 
 export default async function handler(req, res) {
   if (!requireOperationalRouteAccess(req, res)) {
     return
   }
 
+  let lockToken = null
+
   try {
+    if (!await enforceIpRateLimit(req, res, redis, FETCH_PITCHER_STATS_RATE_LIMIT)) {
+      return
+    }
+
+    lockToken = await enforceJobLock(req, res, redis, FETCH_PITCHER_STATS_LOCK)
+
+    if (!lockToken) {
+      return
+    }
 
     const games = await redis.get("mlb:games:today")
 
@@ -21,14 +49,12 @@ export default async function handler(req, res) {
     const pitcherStats = {}
 
     for (const game of games) {
-
       const pitchers = [
         game.homePitcher,
         game.awayPitcher
       ]
 
       for (const name of pitchers) {
-
         if (!name || pitcherStats[name]) continue
 
         const searchUrl =
@@ -58,9 +84,7 @@ export default async function handler(req, res) {
           strikeouts: parseInt(stat.strikeOuts),
           innings: parseFloat(stat.inningsPitched)
         }
-
       }
-
     }
 
     await redis.set("mlb:stats:pitchers", pitcherStats)
@@ -69,9 +93,9 @@ export default async function handler(req, res) {
       pitchersCollected: Object.keys(pitcherStats).length,
       sample: Object.entries(pitcherStats).slice(0,3)
     })
-
   } catch (error) {
     return sendRouteError(res, "fetchPitcherStats", error)
+  } finally {
+    await releaseJobLock(redis, FETCH_PITCHER_STATS_LOCK.key, lockToken)
   }
-
 }
