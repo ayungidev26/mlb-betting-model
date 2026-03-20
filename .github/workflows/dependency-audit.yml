@@ -1,0 +1,32 @@
+name: Dependency audit
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+  schedule:
+    - cron: '0 9 * * 1'
+
+jobs:
+  npm-audit:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies for audit
+        run: npm install --ignore-scripts --omit=optional
+
+      - name: Collect production audit report
+        run: npm audit --omit=dev --json > audit.json || true
+
+      - name: Enforce repository audit policy
+        run: node scripts/verify-audit.mjs audit.json
