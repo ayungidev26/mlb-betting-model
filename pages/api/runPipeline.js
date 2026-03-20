@@ -5,6 +5,7 @@ import fetchPitcherStatsHandler from "./fetchPitcherStats"
 import fetchBullpenStatsHandler from "./fetchBullpenStats"
 import runModelHandler from "./runModel"
 import findEdgesHandler from "./findEdges"
+import { requireOperationalRouteAccess } from "../../lib/apiSecurity"
 
 function createMockResponse() {
   return {
@@ -28,7 +29,8 @@ function createMockResponse() {
 async function invokeStep(handler, options = {}) {
   const req = {
     method: options.method || "POST",
-    query: options.query || {}
+    query: options.query || {},
+    headers: options.headers || {}
   }
   const res = createMockResponse()
 
@@ -52,12 +54,8 @@ async function invokeStep(handler, options = {}) {
 }
 
 export default async function handler(req, res) {
-  if (!["GET", "POST"].includes(req.method)) {
-    res.setHeader("Allow", ["GET", "POST"])
-
-    return res.status(405).json({
-      error: `Method ${req.method} Not Allowed`
-    })
+  if (!requireOperationalRouteAccess(req, res)) {
+    return
   }
 
   const pipeline = [
@@ -95,7 +93,8 @@ export default async function handler(req, res) {
   for (const step of pipeline) {
     const result = await invokeStep(step.handler, {
       method: req.method,
-      query: step.query
+      query: step.query,
+      headers: req.headers
     })
 
     steps.push({

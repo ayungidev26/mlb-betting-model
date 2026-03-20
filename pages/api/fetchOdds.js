@@ -5,6 +5,7 @@ import {
   toCanonicalOddsRecord
 } from "../../lib/normalizeOdds"
 import { validateRecordArray, validateCanonicalOddsRecord } from "../../lib/payloadValidation"
+import { requireOperationalRouteAccess } from "../../lib/apiSecurity"
 
 function normalizeStoredOddsRecords(records) {
   validateRecordArray(records, validateCanonicalOddsRecord, "Cached odds records")
@@ -15,6 +16,9 @@ function normalizeStoredOddsRecords(records) {
 }
 
 export default async function handler(req, res) {
+  if (!requireOperationalRouteAccess(req, res)) {
+    return
+  }
 
   try {
 
