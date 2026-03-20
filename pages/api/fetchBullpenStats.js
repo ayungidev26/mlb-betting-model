@@ -1,6 +1,7 @@
 // Data contract reference: see docs/data-contracts.md for canonical Game, OddsRecord, Prediction, Edge, and matchKey shapes.
 import { redis } from "../../lib/upstash"
 import { requireOperationalRouteAccess } from "../../lib/apiSecurity"
+import { sendRouteError } from "../../lib/apiErrors"
 
 export default async function handler(req, res) {
   if (!requireOperationalRouteAccess(req, res)) {
@@ -45,11 +46,7 @@ export default async function handler(req, res) {
     })
 
   } catch (error) {
-
-    res.status(500).json({
-      error: error.message
-    })
-
+    return sendRouteError(res, "fetchBullpenStats", error)
   }
 
 }

@@ -38,7 +38,7 @@ test('buildHomePageProps returns cached predictions without triggering the model
   })
 })
 
-test('buildHomePageProps reports cache loading failures as a non-mutating page error', async () => {
+test('buildHomePageProps reports cache loading failures as a generic page error', async () => {
   const result = await buildHomePageProps(async () => {
     throw new Error('redis unavailable')
   })
@@ -50,7 +50,7 @@ test('buildHomePageProps reports cache loading failures as a non-mutating page e
         predictionsCreated: 0,
         message: 'Cached predictions are currently unavailable.'
       },
-      error: 'redis unavailable'
+      error: 'Cached predictions are currently unavailable.'
     }
   })
 })

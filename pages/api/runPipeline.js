@@ -6,6 +6,7 @@ import fetchBullpenStatsHandler from "./fetchBullpenStats"
 import runModelHandler from "./runModel"
 import findEdgesHandler from "./findEdges"
 import { requireOperationalRouteAccess } from "../../lib/apiSecurity"
+import { logServerError, sendRouteError } from "../../lib/apiErrors"
 
 function createMockResponse() {
   return {
@@ -43,11 +44,16 @@ async function invokeStep(handler, options = {}) {
       body: res.body
     }
   } catch (error) {
+    logServerError("runPipeline.invokeStep", error, {
+      step: handler.name || "anonymous"
+    })
+
     return {
       ok: false,
       statusCode: 500,
       body: {
-        error: error.message
+        error: "Internal server error",
+        code: "INTERNAL_SERVER_ERROR"
       }
     }
   }
@@ -58,81 +64,85 @@ export default async function handler(req, res) {
     return
   }
 
-  const pipeline = [
-    {
-      name: "fetchGames",
-      handler: fetchGamesHandler
-    },
-    {
-      name: "fetchOdds",
-      handler: fetchOddsHandler,
-      query: {
-        refresh: "true"
-      }
-    },
-    {
-      name: "fetchPitcherStats",
-      handler: fetchPitcherStatsHandler
-    },
-    {
-      name: "fetchBullpenStats",
-      handler: fetchBullpenStatsHandler
-    },
-    {
-      name: "runModel",
-      handler: runModelHandler
-    },
-    {
-      name: "findEdges",
-      handler: findEdgesHandler
-    }
-  ]
-
-  const steps = []
-
-  for (const step of pipeline) {
-    const result = await invokeStep(step.handler, {
-      method: req.method,
-      query: step.query,
-      headers: req.headers
-    })
-
-    steps.push({
-      step: step.name,
-      status: result.ok ? "success" : "failed",
-      statusCode: result.statusCode,
-      result: result.body
-    })
-
-    if (!result.ok) {
-      return res.status(500).json({
-        ok: false,
-        completedSteps: steps.filter(item => item.status === "success").length,
-        failedStep: step.name,
-        steps,
-        keys: {
-          games: "mlb:games:today",
-          odds: "mlb:odds:today",
-          pitcherStats: "mlb:stats:pitchers",
-          bullpenStats: "mlb:stats:bullpen",
-          predictions: "mlb:predictions:today",
-          edges: "mlb:edges:today"
+  try {
+    const pipeline = [
+      {
+        name: "fetchGames",
+        handler: fetchGamesHandler
+      },
+      {
+        name: "fetchOdds",
+        handler: fetchOddsHandler,
+        query: {
+          refresh: "true"
         }
-      })
-    }
-  }
+      },
+      {
+        name: "fetchPitcherStats",
+        handler: fetchPitcherStatsHandler
+      },
+      {
+        name: "fetchBullpenStats",
+        handler: fetchBullpenStatsHandler
+      },
+      {
+        name: "runModel",
+        handler: runModelHandler
+      },
+      {
+        name: "findEdges",
+        handler: findEdgesHandler
+      }
+    ]
 
-  return res.status(200).json({
-    ok: true,
-    completedSteps: steps.length,
-    steps,
-    keys: {
-      games: "mlb:games:today",
-      odds: "mlb:odds:today",
-      pitcherStats: "mlb:stats:pitchers",
-      bullpenStats: "mlb:stats:bullpen",
-      predictions: "mlb:predictions:today",
-      edges: "mlb:edges:today"
+    const steps = []
+
+    for (const step of pipeline) {
+      const result = await invokeStep(step.handler, {
+        method: req.method,
+        query: step.query,
+        headers: req.headers
+      })
+
+      steps.push({
+        step: step.name,
+        status: result.ok ? "success" : "failed",
+        statusCode: result.statusCode,
+        result: result.body
+      })
+
+      if (!result.ok) {
+        return res.status(500).json({
+          ok: false,
+          completedSteps: steps.filter(item => item.status === "success").length,
+          failedStep: step.name,
+          steps,
+          keys: {
+            games: "mlb:games:today",
+            odds: "mlb:odds:today",
+            pitcherStats: "mlb:stats:pitchers",
+            bullpenStats: "mlb:stats:bullpen",
+            predictions: "mlb:predictions:today",
+            edges: "mlb:edges:today"
+          }
+        })
+      }
     }
-  })
+
+    return res.status(200).json({
+      ok: true,
+      completedSteps: steps.length,
+      steps,
+      keys: {
+        games: "mlb:games:today",
+        odds: "mlb:odds:today",
+        pitcherStats: "mlb:stats:pitchers",
+        bullpenStats: "mlb:stats:bullpen",
+        predictions: "mlb:predictions:today",
+        edges: "mlb:edges:today"
+      }
+    })
+  } catch (error) {
+    return sendRouteError(res, "runPipeline", error)
+  }
 }
