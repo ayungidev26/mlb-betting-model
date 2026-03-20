@@ -1,12 +1,30 @@
 // Data contract reference: see docs/data-contracts.md for canonical Game, OddsRecord, Prediction, Edge, and matchKey shapes.
-import fetchGamesHandler from "./fetchGames"
-import fetchOddsHandler from "./fetchOdds"
-import fetchPitcherStatsHandler from "./fetchPitcherStats"
-import fetchBullpenStatsHandler from "./fetchBullpenStats"
-import runModelHandler from "./runModel"
-import findEdgesHandler from "./findEdges"
-import { requireOperationalRouteAccess } from "../../lib/apiSecurity"
-import { logServerError, sendRouteError } from "../../lib/apiErrors"
+import fetchGamesHandler from "./fetchGames.js"
+import fetchOddsHandler from "./fetchOdds.js"
+import fetchPitcherStatsHandler from "./fetchPitcherStats.js"
+import fetchBullpenStatsHandler from "./fetchBullpenStats.js"
+import runModelHandler from "./runModel.js"
+import findEdgesHandler from "./findEdges.js"
+import { redis } from "../../lib/upstash.js"
+import { requireOperationalRouteAccess } from "../../lib/apiSecurity.js"
+import { logServerError, sendRouteError } from "../../lib/apiErrors.js"
+import {
+  enforceIpRateLimit,
+  enforceJobLock,
+  releaseJobLock
+} from "../../lib/apiGuards.js"
+
+const RUN_PIPELINE_RATE_LIMIT = {
+  keyPrefix: "mlb:limit:runPipeline",
+  limit: 4,
+  windowSeconds: 60,
+  routeName: "runPipeline"
+}
+const RUN_PIPELINE_LOCK = {
+  key: "mlb:lock:runPipeline",
+  ttlSeconds: 300,
+  routeName: "runPipeline"
+}
 
 function createMockResponse() {
   return {
@@ -64,7 +82,19 @@ export default async function handler(req, res) {
     return
   }
 
+  let lockToken = null
+
   try {
+    if (!await enforceIpRateLimit(req, res, redis, RUN_PIPELINE_RATE_LIMIT)) {
+      return
+    }
+
+    lockToken = await enforceJobLock(req, res, redis, RUN_PIPELINE_LOCK)
+
+    if (!lockToken) {
+      return
+    }
+
     const pipeline = [
       {
         name: "fetchGames",
@@ -144,5 +174,7 @@ export default async function handler(req, res) {
     })
   } catch (error) {
     return sendRouteError(res, "runPipeline", error)
+  } finally {
+    await releaseJobLock(redis, RUN_PIPELINE_LOCK.key, lockToken)
   }
 }

@@ -1,14 +1,53 @@
 // Data contract reference: see docs/data-contracts.md for canonical Game, OddsRecord, Prediction, Edge, and matchKey shapes.
-import { redis } from "../../lib/upstash"
-import { requireOperationalRouteAccess } from "../../lib/apiSecurity"
-import { sendRouteError } from "../../lib/apiErrors"
+import { redis } from "../../lib/upstash.js"
+import { requireOperationalRouteAccess } from "../../lib/apiSecurity.js"
+import { sendRouteError } from "../../lib/apiErrors.js"
+import {
+  enforceCooldown,
+  enforceIpRateLimit,
+  enforceJobLock,
+  markCooldown,
+  releaseJobLock
+} from "../../lib/apiGuards.js"
+
+const LOAD_HISTORICAL_RATE_LIMIT = {
+  keyPrefix: "mlb:limit:loadHistorical",
+  limit: 2,
+  windowSeconds: 3600,
+  routeName: "loadHistorical"
+}
+const LOAD_HISTORICAL_LOCK = {
+  key: "mlb:lock:loadHistorical",
+  ttlSeconds: 900,
+  routeName: "loadHistorical"
+}
+const LOAD_HISTORICAL_COOLDOWN = {
+  key: "mlb:cooldown:loadHistorical",
+  cooldownSeconds: 21600,
+  routeName: "loadHistorical"
+}
 
 export default async function handler(req, res) {
   if (!requireOperationalRouteAccess(req, res)) {
     return
   }
 
+  let lockToken = null
+
   try {
+    if (!await enforceIpRateLimit(req, res, redis, LOAD_HISTORICAL_RATE_LIMIT)) {
+      return
+    }
+
+    if (!await enforceCooldown(res, redis, LOAD_HISTORICAL_COOLDOWN)) {
+      return
+    }
+
+    lockToken = await enforceJobLock(req, res, redis, LOAD_HISTORICAL_LOCK)
+
+    if (!lockToken) {
+      return
+    }
 
     const seasons = [
       2015,2016,2017,2018,2019,
@@ -51,7 +90,6 @@ export default async function handler(req, res) {
     let totalGames = 0
 
     for (const season of seasons) {
-
       const url =
         `https://statsapi.mlb.com/api/v1/schedule?sportId=1&season=${season}`
 
@@ -63,9 +101,7 @@ export default async function handler(req, res) {
       if (!data.dates) continue
 
       for (const date of data.dates) {
-
         for (const game of date.games) {
-
           // Only final games
           if (game.status.detailedState !== "Final") continue
 
@@ -94,9 +130,7 @@ export default async function handler(req, res) {
             awayScore: game.teams.away.score,
             seasonType: seasonType
           })
-
         }
-
       }
 
       await redis.set(
@@ -105,16 +139,21 @@ export default async function handler(req, res) {
       )
 
       totalGames += seasonGames.length
-
     }
+
+    await markCooldown(
+      redis,
+      LOAD_HISTORICAL_COOLDOWN.key,
+      LOAD_HISTORICAL_COOLDOWN.cooldownSeconds
+    )
 
     res.status(200).json({
       seasonsLoaded: seasons.length,
       gamesCollected: totalGames
     })
-
   } catch (error) {
     return sendRouteError(res, "loadHistorical", error)
+  } finally {
+    await releaseJobLock(redis, LOAD_HISTORICAL_LOCK.key, lockToken)
   }
-
 }
