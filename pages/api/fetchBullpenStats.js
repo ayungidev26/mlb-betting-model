@@ -1,7 +1,11 @@
 // Data contract reference: see docs/data-contracts.md for canonical Game, OddsRecord, Prediction, Edge, and matchKey shapes.
 import { redis } from "../../lib/upstash"
+import { requireOperationalRouteAccess } from "../../lib/apiSecurity"
 
 export default async function handler(req, res) {
+  if (!requireOperationalRouteAccess(req, res)) {
+    return
+  }
 
   try {
 

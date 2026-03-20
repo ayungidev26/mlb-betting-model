@@ -28,6 +28,18 @@ Cloud stack:
 * Data source: MLB Stats API
 * Odds source: Odds API
 
+### Secret Storage
+
+Operational auth and provider credentials must be stored in environment-variable secret managers, not in source control.
+
+Recommended locations:
+
+* **Production / Preview:** Vercel Project Settings → Environment Variables (store `ADMIN_API_SECRET` and any provider credentials there).
+* **Scheduled jobs / cron:** Use the same Vercel-managed secret or a separately rotated `CRON_SECRET`.
+* **Local development only:** `.env.local` on your machine, which must stay uncommitted.
+
+Do **not** hardcode bearer tokens in the repo, client-side code, or test fixtures meant for deployment. If a token is exposed, rotate it immediately.
+
 ---
 
 ## Model Pipeline
@@ -39,6 +51,11 @@ The application runs a data pipeline that builds predictions and detects betting
 `/api/fetchGames`
 
 Pulls the current MLB schedule from the MLB Stats API and stores the games in Redis.
+
+Operational access:
+
+* Requires `POST`
+* Requires `Authorization: Bearer <ADMIN_API_SECRET>`
 
 Stored in Redis:
 
@@ -62,6 +79,11 @@ Data includes:
 
 Pulls sportsbook moneyline odds and stores them for comparison with model predictions.
 
+Operational access:
+
+* Requires `POST`
+* Requires `Authorization: Bearer <ADMIN_API_SECRET>`
+
 Stored in Redis:
 
 ```
@@ -75,6 +97,11 @@ mlb:odds:today
 `/api/fetchPitcherStats`
 
 Retrieves season statistics for the probable starting pitchers.
+
+Operational access:
+
+* Requires `POST`
+* Requires `Authorization: Bearer <ADMIN_API_SECRET>`
 
 Metrics collected:
 
@@ -97,6 +124,11 @@ mlb:stats:pitchers
 
 Retrieves pitching statistics for each MLB team's bullpen.
 
+Operational access:
+
+* Requires `POST`
+* Requires `Authorization: Bearer <ADMIN_API_SECRET>`
+
 Metrics collected:
 
 * Team ERA
@@ -115,6 +147,11 @@ mlb:stats:bullpen
 `/api/runModel`
 
 The prediction engine calculates win probabilities for each game using:
+
+Operational access:
+
+* Requires `POST`
+* Requires `Authorization: Bearer <ADMIN_API_SECRET>`
 
 ```
 Team Elo Rating
@@ -138,6 +175,11 @@ mlb:predictions:YYYY-MM-DD
 
 The model compares predicted win probabilities to sportsbook implied probabilities.
 
+Operational access:
+
+* Requires `POST`
+* Requires `Authorization: Bearer <ADMIN_API_SECRET>`
+
 If the model probability exceeds sportsbook probability by a threshold, the system identifies a **betting edge**.
 
 Edges are stored in Redis:
@@ -154,6 +196,11 @@ mlb:edges:today
 
 Runs the full daily workflow in order and returns a per-step execution summary:
 
+Operational access:
+
+* Requires `POST`
+* Requires `Authorization: Bearer <ADMIN_API_SECRET>`
+
 ```
 fetchGames
 fetchOdds
@@ -169,6 +216,13 @@ The orchestration route forces a fresh odds refresh, then leaves the latest outp
 mlb:predictions:today
 mlb:edges:today
 ```
+
+Historical bootstrap and ratings rebuild endpoints are also admin-only:
+
+* `/api/loadHistorical`
+* `/api/buildRatings`
+
+Both require `POST` plus `Authorization: Bearer <ADMIN_API_SECRET>`.
 
 ---
 

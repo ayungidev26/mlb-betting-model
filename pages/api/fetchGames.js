@@ -2,8 +2,12 @@
 import { redis } from "../../lib/upstash"
 import { buildMatchKey } from "../../lib/matchKey"
 import { validateExternalMlbSchedulePayload } from "../../lib/payloadValidation"
+import { requireOperationalRouteAccess } from "../../lib/apiSecurity"
 
 export default async function handler(req, res) {
+  if (!requireOperationalRouteAccess(req, res)) {
+    return
+  }
 
   try {
 
