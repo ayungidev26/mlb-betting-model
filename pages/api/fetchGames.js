@@ -3,6 +3,7 @@ import { redis } from "../../lib/upstash"
 import { buildMatchKey } from "../../lib/matchKey"
 import { validateExternalMlbSchedulePayload } from "../../lib/payloadValidation"
 import { requireOperationalRouteAccess } from "../../lib/apiSecurity"
+import { sendRouteError } from "../../lib/apiErrors"
 
 export default async function handler(req, res) {
   if (!requireOperationalRouteAccess(req, res)) {
@@ -72,11 +73,7 @@ export default async function handler(req, res) {
     })
 
   } catch (error) {
-
-    res.status(500).json({
-      error: error.message
-    })
-
+    return sendRouteError(res, "fetchGames", error)
   }
 
 }

@@ -2,6 +2,7 @@
 import { redis } from "../../lib/upstash"
 import { calculateElo } from "../../model/eloRatings"
 import { requireOperationalRouteAccess } from "../../lib/apiSecurity"
+import { sendRouteError } from "../../lib/apiErrors"
 
 export default async function handler(req, res) {
   if (!requireOperationalRouteAccess(req, res)) {
@@ -30,7 +31,8 @@ export default async function handler(req, res) {
 
     if (allGames.length === 0) {
       return res.status(400).json({
-        error: "No historical games found"
+        error: "Historical data unavailable",
+        code: "HISTORICAL_DATA_UNAVAILABLE"
       })
     }
 
@@ -48,11 +50,7 @@ export default async function handler(req, res) {
     })
 
   } catch (error) {
-
-    res.status(500).json({
-      error: error.message
-    })
-
+    return sendRouteError(res, "buildRatings", error)
   }
 
 }

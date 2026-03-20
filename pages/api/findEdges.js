@@ -2,6 +2,7 @@
 import { redis } from "../../lib/upstash"
 import { generateEdges } from "../../lib/pipeline"
 import { requireOperationalRouteAccess } from "../../lib/apiSecurity"
+import { sendRouteError } from "../../lib/apiErrors"
 
 export default async function handler(req, res) {
   if (!requireOperationalRouteAccess(req, res)) {
@@ -20,15 +21,7 @@ export default async function handler(req, res) {
     })
 
   } catch (error) {
-
-    const statusCode = error.message === "Missing predictions or odds data"
-      ? 400
-      : 500
-
-    res.status(statusCode).json({
-      error: error.message
-    })
-
+    return sendRouteError(res, "findEdges", error)
   }
 
 }

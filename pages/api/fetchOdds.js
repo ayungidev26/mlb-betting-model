@@ -6,6 +6,7 @@ import {
 } from "../../lib/normalizeOdds"
 import { validateRecordArray, validateCanonicalOddsRecord } from "../../lib/payloadValidation"
 import { requireOperationalRouteAccess } from "../../lib/apiSecurity"
+import { sendRouteError } from "../../lib/apiErrors"
 import { buildOddsApiUrl } from "../../lib/oddsApi"
 
 const ODDS_API_URL = buildOddsApiUrl().toString()
@@ -69,11 +70,7 @@ export default async function handler(req, res) {
     })
 
   } catch (error) {
-
-    res.status(500).json({
-      error: error.message
-    })
-
+    return sendRouteError(res, "fetchOdds", error)
   }
 
 }
