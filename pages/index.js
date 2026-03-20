@@ -1,60 +1,31 @@
-import { useEffect, useState } from "react"
+import { buildHomePageProps } from "../lib/homePageProps"
+import { redis } from "../lib/upstash"
 
-export default function Home() {
-  const [games, setGames] = useState([])
-  const [summary, setSummary] = useState(null)
-  const [error, setError] = useState("")
-  const [loading, setLoading] = useState(true)
+export async function getServerSideProps() {
+  return buildHomePageProps(() => redis.get("mlb:predictions:today"))
+}
 
-  useEffect(() => {
-    async function loadPredictions() {
-      try {
-        const response = await fetch("/api/runModel")
-        const data = await response.json()
-
-        if (!response.ok) {
-          throw new Error(data.error || "Failed to load predictions")
-        }
-
-        const sampleGames = Array.isArray(data.sample) ? data.sample : []
-
-        setSummary({
-          predictionsCreated: data.predictionsCreated ?? sampleGames.length,
-          message: data.message || ""
-        })
-        setGames(sampleGames)
-      } catch (err) {
-        setError(err.message || "Failed to load predictions")
-      } finally {
-        setLoading(false)
-      }
-    }
-
-    loadPredictions()
-  }, [])
-
+export default function Home({ games, summary, error }) {
   return (
     <main>
       <h1>MLB Betting Model</h1>
 
-      {loading && <p>Loading predictions...</p>}
+      {error && <p>Error loading cached predictions: {error}</p>}
 
-      {!loading && error && <p>Error: {error}</p>}
+      {!error && summary?.message && <p>{summary.message}</p>}
 
-      {!loading && !error && summary?.message && <p>{summary.message}</p>}
-
-      {!loading && !error && !summary?.message && (
+      {!error && !summary?.message && (
         <p>
-          Showing {games.length} sample prediction
+          Showing {games.length} cached prediction
           {games.length === 1 ? "" : "s"}
           {typeof summary?.predictionsCreated === "number"
-            ? ` from ${summary.predictionsCreated} generated`
+            ? ` from ${summary.predictionsCreated} available`
             : ""}
           .
         </p>
       )}
 
-      {!loading && !error && games.map((game, index) => (
+      {!error && games.map((game, index) => (
         <section
           key={game.matchKey || game.gameId || `${game.homeTeam}-${game.awayTeam}-${index}`}
         >
