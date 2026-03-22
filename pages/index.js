@@ -1,7 +1,8 @@
-import { useMemo, useState } from "react"
+import { useEffect, useMemo, useState } from "react"
 
 import {
   buildHomePageProps,
+  buildHomePageViewModel,
   loadHomePageData
 } from "../lib/homePageProps"
 import {
@@ -230,22 +231,156 @@ function PitcherPanel({ side, team, pitcher, probability, details }) {
   )
 }
 
-export default function Home({ games, summary, error }) {
-  const [minimumEdge, setMinimumEdge] = useState(String(EDGE_FILTER_OPTIONS[0].value))
-  const [selectedBetType, setSelectedBetType] = useState("all")
-  const [selectedTeam, setSelectedTeam] = useState("all")
+function LoadingSkeleton({ count = 3 }) {
+  return (
+    <section className="gamesGrid" aria-label="Loading predictions">
+      {Array.from({ length: count }, (_, index) => (
+        <article className="gameCard gameCard--loading" key={`loading-${index}`} aria-hidden="true">
+          <div className="gameCard__header">
+            <div className="skeletonBlock skeletonBlock--title" />
+            <div className="skeletonPill" />
+          </div>
 
-  const availableTeams = useMemo(() => getAvailableTeams(games), [games])
-  const availableBetTypes = useMemo(() => getAvailableBetTypes(games), [games])
-  const filteredGames = useMemo(() => filterGames(games, {
-    minimumEdge: Number(minimumEdge),
-    betType: selectedBetType,
-    team: selectedTeam
-  }), [games, minimumEdge, selectedBetType, selectedTeam])
+          <div className="gameCard__body">
+            {Array.from({ length: 3 }, (_, columnIndex) => (
+              <section className="gameCard__column" key={`loading-column-${columnIndex}`}>
+                <div className="skeletonBlock skeletonBlock--label" />
+                <div className="skeletonPanel">
+                  <div className="skeletonBlock skeletonBlock--lineShort" />
+                  <div className="skeletonBlock skeletonBlock--line" />
+                  <div className="skeletonBlock skeletonBlock--lineMuted" />
+                </div>
+                <div className="skeletonPanel">
+                  <div className="skeletonBlock skeletonBlock--lineShort" />
+                  <div className="skeletonBlock skeletonBlock--line" />
+                  <div className="skeletonBlock skeletonBlock--lineMuted" />
+                </div>
+              </section>
+            ))}
+          </div>
+        </article>
+      ))}
+    </section>
+  )
+}
 
-  const recommendationCount = summary?.recommendedBets ?? 0
-  const topPlays = filteredGames.slice(0, Math.min(5, filteredGames.length))
-  const activeThresholdLabel = EDGE_FILTER_OPTIONS.find((option) => String(option.value) === minimumEdge)?.label || "Any edge"
+function EmptyState({ message, isRefreshing }) {
+  return (
+    <section className="emptyState" aria-live="polite">
+      <div className="emptyState__icon" aria-hidden="true">⚾</div>
+      <p className="eyebrow emptyState__eyebrow">No predictions yet</p>
+      <h2 className="emptyState__title">We&apos;re waiting for the latest board to populate.</h2>
+      <p className="emptyState__copy">
+        {message || "Predictions will appear here as soon as the cache is refreshed with today&apos;s games."}
+      </p>
+      <div className="emptyState__actions">
+        <span className="pill pill--muted">
+          {isRefreshing ? "Checking for fresh predictions..." : "No action needed — we&apos;ll keep trying."}
+        </span>
+      </div>
+    </section>
+  )
+}
+
+async function fetchHomePageData() {
+  const [predictionsResponse, edgesResponse] = await Promise.all([
+    fetch("/api/predictions"),
+    fetch("/api/edges")
+  ])
+
+  if (!predictionsResponse.ok || !edgesResponse.ok) {
+    throw new Error("Cached predictions are currently unavailable.")
+  }
+
+  const [predictionsPayload, edgesPayload] = await Promise.all([
+    predictionsResponse.json(),
+    edgesResponse.json()
+  ])
+
+  return buildHomePageViewModel({
+    predictions: predictionsPayload?.predictions,
+    edges: edgesPayload?.edges
+  })
+}
+
+export default function Home({ games = [], summary, error = "" }) {
+  const initialViewModel = useMemo(() => ({
+    games: Array.isArray(games) ? games : [],
+    summary: summary || {
+      predictionsCreated: 0,
+      recommendedBets: 0,
+      message: "No cached predictions are available yet."
+    }
+  }), [games, summary])
+
+  const [viewModel, setViewModel] = useState(initialViewModel)
+  const [fetchState, setFetchState] = useState({
+    isLoading: initialViewModel.games.length === 0 && !error,
+    isRefreshing: false,
+    error: error || ""
+  })
+
+  useEffect(() => {
+    let isActive = true
+
+    setViewModel(initialViewModel)
+    setFetchState({
+      isLoading: initialViewModel.games.length === 0 && !error,
+      isRefreshing: initialViewModel.games.length > 0,
+      error: error || ""
+    })
+
+    fetchHomePageData()
+      .then((nextViewModel) => {
+        if (!isActive) {
+          return
+        }
+
+        setViewModel(nextViewModel)
+        setFetchState({
+          isLoading: false,
+          isRefreshing: false,
+          error: ""
+        })
+      })
+      .catch((fetchError) => {
+        if (!isActive) {
+          return
+        }
+
+        setFetchState({
+          isLoading: false,
+          isRefreshing: false,
+          error: fetchError instanceof Error
+            ? fetchError.message
+            : "Cached predictions are currently unavailable."
+        })
+      })
+
+    return () => {
+      isActive = false
+    }
+  }, [initialViewModel, error])
+
+  const activeGames = Array.isArray(viewModel.games) ? viewModel.games : []
+  const activeSummary = viewModel.summary || initialViewModel.summary
+  const recommendationCount = activeSummary?.recommendedBets ?? 0
+  const topPlays = activeGames.slice(0, Math.min(5, activeGames.length))
+  const hasGames = activeGames.length > 0
+  const showInitialLoading = fetchState.isLoading && !hasGames
+  const showEmptyState = !showInitialLoading && !fetchState.error && activeGames.length === 0
+  const statusTone = fetchState.error
+    ? "danger"
+    : fetchState.isLoading || fetchState.isRefreshing
+      ? "warning"
+      : "muted"
+  const statusLabel = fetchState.error
+    ? "Cache unavailable"
+    : fetchState.isLoading
+      ? "Loading predictions"
+      : fetchState.isRefreshing
+        ? "Refreshing predictions"
+        : (activeSummary?.message || "Ready")
 
   return (
     <main className="dashboard">
@@ -262,7 +397,7 @@ export default function Home({ games, summary, error }) {
         <div className="hero__stats">
           <DashboardStat
             label="Games loaded"
-            value={String(summary?.predictionsCreated ?? 0)}
+            value={String(activeSummary?.predictionsCreated ?? 0)}
             emphasis
           />
           <DashboardStat
@@ -277,80 +412,36 @@ export default function Home({ games, summary, error }) {
           />
           <DashboardStat
             label="Status"
-            value={error ? "Cache unavailable" : (summary?.message || "Ready")}
-            tone={error ? "danger" : "muted"}
+            value={statusLabel}
+            tone={statusTone}
           />
         </div>
       </section>
 
-      {!error && games.length > 0 && (
-        <section className="filterBar" aria-label="Filter betting board">
-          <div className="filterBar__header">
-            <div>
-              <p className="eyebrow filterBar__eyebrow">Power user filters</p>
-              <h2 className="sectionTitle">Customize the board</h2>
-            </div>
-            <p className="filterBar__copy">
-              Narrow the list by edge size, supported bet type, or a single team without leaving the dashboard.
-            </p>
-          </div>
-
-          <div className="filterBar__controls">
-            <FilterControl
-              label="Minimum edge"
-              value={minimumEdge}
-              onChange={(event) => setMinimumEdge(event.target.value)}
-            >
-              {EDGE_FILTER_OPTIONS.map((option) => (
-                <option key={option.label} value={String(option.value)}>{option.label}</option>
-              ))}
-            </FilterControl>
-
-            <FilterControl
-              label="Bet type"
-              value={selectedBetType}
-              onChange={(event) => setSelectedBetType(event.target.value)}
-            >
-              <option value="all">All bet types</option>
-              {availableBetTypes.map((betType) => (
-                <option key={betType} value={betType}>{formatBetTypeLabel(betType)}</option>
-              ))}
-            </FilterControl>
-
-            <FilterControl
-              label="Team"
-              value={selectedTeam}
-              onChange={(event) => setSelectedTeam(event.target.value)}
-            >
-              <option value="all">All teams</option>
-              {availableTeams.map((team) => (
-                <option key={team} value={team}>{team}</option>
-              ))}
-            </FilterControl>
-          </div>
-
-          <div className="filterBar__summary" aria-live="polite">
-            <span>{filteredGames.length} game{filteredGames.length === 1 ? "" : "s"} shown</span>
-            <span>Min edge: {activeThresholdLabel}</span>
-            <span>Bet type: {formatBetTypeLabel(selectedBetType)}</span>
-            <span>Team: {selectedTeam === "all" ? "All teams" : selectedTeam}</span>
-          </div>
-        </section>
+      {(fetchState.isLoading || fetchState.isRefreshing) && (
+        <div className="loadingBanner" role="status" aria-live="polite">
+          <span className="loadingSpinner" aria-hidden="true" />
+          <span>
+            {fetchState.isLoading
+              ? "Loading the latest predictions and pricing edges..."
+              : "Refreshing predictions in the background so the board stays current..."}
+          </span>
+        </div>
       )}
 
-      {error && <p className="notice notice--error">Error loading cached predictions: {error}</p>}
-
-      {!error && summary?.message && games.length === 0 && (
-        <p className="notice">{summary.message}</p>
-      )}
-
-      {!error && games.length > 0 && filteredGames.length === 0 && (
-        <p className="notice">
-          No games match the current filters. Try lowering the minimum edge or widening the team and bet type selections.
+      {fetchState.error && (
+        <p className="notice notice--error">
+          Error loading cached predictions: {fetchState.error}
         </p>
       )}
 
-      {!error && topPlays.length > 0 && (
+      {!fetchState.error && activeSummary?.message && !showInitialLoading && !hasGames && !showEmptyState && (
+        <p className="notice">{activeSummary.message}</p>
+      )}
+
+      {showInitialLoading && <LoadingSkeleton count={3} />}
+
+      {!showInitialLoading && !fetchState.error && topPlays.length > 0 && (
         <section className="topPlays" aria-label="Top Plays">
           <div className="topPlays__header">
             <div>
@@ -401,9 +492,13 @@ export default function Home({ games, summary, error }) {
         </section>
       )}
 
-      {!error && filteredGames.length > 0 && (
+      {!showInitialLoading && !fetchState.error && showEmptyState && (
+        <EmptyState message={activeSummary?.message} isRefreshing={fetchState.isRefreshing} />
+      )}
+
+      {!showInitialLoading && !fetchState.error && hasGames && (
         <section className="gamesGrid" aria-label="Model predictions dashboard">
-          {filteredGames.map((game, index) => {
+          {activeGames.map((game, index) => {
             const edgeTier = getEdgeTier(game.edge)
             const recommendedSide = game.recommendedBet || edgeTier.recommendation
             const awayPitcherDetails = game.pitcherModel?.away || null
@@ -625,7 +720,9 @@ export default function Home({ games, summary, error }) {
           background: rgba(127, 29, 29, 0.25);
         }
 
-        .notice {
+        .loadingBanner,
+        .notice,
+        .emptyState {
           margin: 0 0 20px;
           padding: 16px 18px;
           border-radius: 16px;
@@ -634,12 +731,75 @@ export default function Home({ games, summary, error }) {
           color: #dbeafe;
         }
 
+        .loadingBanner {
+          display: inline-flex;
+          align-items: center;
+          gap: 12px;
+          background: rgba(30, 64, 175, 0.25);
+          border-color: rgba(96, 165, 250, 0.32);
+        }
+
+        .loadingSpinner {
+          width: 18px;
+          height: 18px;
+          border-radius: 999px;
+          border: 2px solid rgba(191, 219, 254, 0.25);
+          border-top-color: #bfdbfe;
+          animation: spin 0.85s linear infinite;
+          flex-shrink: 0;
+        }
+
         .notice--error {
           background: rgba(127, 29, 29, 0.35);
           border-color: rgba(248, 113, 113, 0.36);
         }
 
-        .filterBar {
+        .emptyState {
+          padding: 32px 28px;
+          text-align: center;
+          background:
+            linear-gradient(180deg, rgba(59, 130, 246, 0.14), rgba(15, 23, 42, 0.9) 38%),
+            rgba(15, 23, 42, 0.9);
+          border-color: rgba(96, 165, 250, 0.26);
+          box-shadow: 0 24px 48px rgba(15, 23, 42, 0.28);
+        }
+
+        .emptyState__icon {
+          width: 64px;
+          height: 64px;
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          border-radius: 999px;
+          margin-bottom: 16px;
+          background: rgba(191, 219, 254, 0.12);
+          border: 1px solid rgba(191, 219, 254, 0.2);
+          font-size: 1.75rem;
+        }
+
+        .emptyState__eyebrow {
+          margin-bottom: 8px;
+        }
+
+        .emptyState__title {
+          margin: 0 0 10px;
+          font-size: clamp(1.5rem, 3vw, 2.15rem);
+        }
+
+        .emptyState__copy {
+          margin: 0 auto;
+          max-width: 640px;
+          color: #cbd5e1;
+          line-height: 1.75;
+        }
+
+        .emptyState__actions {
+          margin-top: 18px;
+          display: flex;
+          justify-content: center;
+        }
+
+        .topPlays {
           margin-bottom: 28px;
           padding: 22px 24px;
           border-radius: 24px;
@@ -846,6 +1006,21 @@ export default function Home({ games, summary, error }) {
           transition: border-color 160ms ease, box-shadow 160ms ease, background 160ms ease;
         }
 
+        .gameCard--loading {
+          overflow: hidden;
+          position: relative;
+          border-color: rgba(96, 165, 250, 0.22);
+        }
+
+        .gameCard--loading::after {
+          content: "";
+          position: absolute;
+          inset: 0;
+          transform: translateX(-100%);
+          background: linear-gradient(90deg, transparent, rgba(191, 219, 254, 0.09), transparent);
+          animation: shimmer 1.4s ease-in-out infinite;
+        }
+
         .gameCard--success {
           border-color: rgba(74, 222, 128, 0.34);
           box-shadow: 0 16px 36px rgba(15, 23, 42, 0.28), inset 0 1px 0 rgba(74, 222, 128, 0.08);
@@ -972,7 +1147,8 @@ export default function Home({ games, summary, error }) {
 
         .pitcherPanel,
         .analyticsBlock,
-        .recommendationCard {
+        .recommendationCard,
+        .skeletonPanel {
           padding: 16px 18px;
           border-radius: 18px;
           background: rgba(30, 41, 59, 0.68);
@@ -1072,6 +1248,75 @@ export default function Home({ games, summary, error }) {
           font-size: 1.35rem;
         }
 
+        .skeletonPanel {
+          display: flex;
+          flex-direction: column;
+          gap: 12px;
+          position: relative;
+          overflow: hidden;
+        }
+
+        .skeletonBlock,
+        .skeletonPill {
+          border-radius: 999px;
+          background: linear-gradient(90deg, rgba(148, 163, 184, 0.14), rgba(191, 219, 254, 0.26), rgba(148, 163, 184, 0.14));
+          background-size: 200% 100%;
+          animation: shimmerPulse 1.5s ease-in-out infinite;
+        }
+
+        .skeletonBlock--title {
+          width: min(280px, 100%);
+          height: 56px;
+          border-radius: 18px;
+        }
+
+        .skeletonBlock--label {
+          width: 140px;
+          height: 14px;
+        }
+
+        .skeletonBlock--lineShort {
+          width: 45%;
+          height: 16px;
+        }
+
+        .skeletonBlock--line,
+        .skeletonBlock--lineMuted {
+          width: 100%;
+          height: 14px;
+        }
+
+        .skeletonBlock--lineMuted {
+          width: 82%;
+        }
+
+        .skeletonPill {
+          width: 110px;
+          height: 34px;
+        }
+
+        @keyframes spin {
+          to {
+            transform: rotate(360deg);
+          }
+        }
+
+        @keyframes shimmer {
+          100% {
+            transform: translateX(100%);
+          }
+        }
+
+        @keyframes shimmerPulse {
+          0% {
+            background-position: 100% 0;
+          }
+
+          100% {
+            background-position: -100% 0;
+          }
+        }
+
         @media (max-width: 1100px) {
           .gameCard__body {
             grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -1160,6 +1405,11 @@ export default function Home({ games, summary, error }) {
           .topPlays,
           .filterBar {
             padding: 20px;
+          }
+
+          .loadingBanner {
+            display: flex;
+            width: auto;
           }
         }
       `}</style>
