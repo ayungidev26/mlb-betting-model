@@ -66,6 +66,57 @@ test('buildHomePageProps merges cached predictions with their strongest edges', 
   })
 })
 
+test('buildHomePageProps sorts games by highest edge first', async () => {
+  const result = await buildHomePageProps(async () => ({
+    predictions: [
+      {
+        gameId: 'game-1',
+        matchKey: '2025-04-10|Team A|Team B',
+        date: '2025-04-10T23:10:00Z',
+        homeTeam: 'Team B',
+        awayTeam: 'Team A'
+      },
+      {
+        gameId: 'game-2',
+        matchKey: '2025-04-10|Team C|Team D',
+        date: '2025-04-10T23:10:00Z',
+        homeTeam: 'Team D',
+        awayTeam: 'Team C'
+      },
+      {
+        gameId: 'game-3',
+        matchKey: '2025-04-10|Team E|Team F',
+        date: '2025-04-10T23:10:00Z',
+        homeTeam: 'Team F',
+        awayTeam: 'Team E'
+      }
+    ],
+    edges: [
+      {
+        matchKey: '2025-04-10|Team C|Team D',
+        team: 'Team C',
+        edge: 0.031,
+        odds: -110
+      },
+      {
+        matchKey: '2025-04-10|Team A|Team B',
+        team: 'Team A',
+        edge: 0.062,
+        odds: -125
+      }
+    ]
+  }))
+
+  assert.deepEqual(
+    result.props.games.map((game) => [game.gameId, game.edge]),
+    [
+      ['game-1', 0.062],
+      ['game-2', 0.031],
+      ['game-3', null]
+    ]
+  )
+})
+
 test('buildHomePageProps reports cache loading failures as a generic page error', async () => {
   const result = await buildHomePageProps(async () => {
     throw new Error('redis unavailable')
