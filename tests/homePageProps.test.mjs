@@ -3,9 +3,22 @@ import assert from 'node:assert/strict'
 
 import {
   buildHomePageProps,
+  buildHomePageViewModel,
   loadCachedEdgesFromApi,
   loadHomePageData
 } from '../lib/homePageProps.js'
+
+
+test('buildHomePageViewModel returns a friendly empty summary when no predictions are available', () => {
+  assert.deepEqual(buildHomePageViewModel({ predictions: null, edges: null }), {
+    games: [],
+    summary: {
+      predictionsCreated: 0,
+      recommendedBets: 0,
+      message: 'No cached predictions are available yet.'
+    }
+  })
+})
 
 test('buildHomePageProps merges cached predictions with their strongest edges', async () => {
   const result = await buildHomePageProps(async () => ({
