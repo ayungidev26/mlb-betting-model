@@ -1,7 +1,23 @@
+import { useMemo, useState } from "react"
+
 import {
   buildHomePageProps,
   loadHomePageData
 } from "../lib/homePageProps"
+import {
+  filterGames,
+  getAvailableBetTypes,
+  getAvailableTeams,
+  getGameBetType
+} from "../lib/gameFilters"
+
+const EDGE_FILTER_OPTIONS = [
+  { value: 0, label: "Any edge" },
+  { value: 0.02, label: ">= 2%" },
+  { value: 0.03, label: ">= 3%" },
+  { value: 0.05, label: ">= 5%" },
+  { value: 0.07, label: ">= 7%" }
+]
 
 export async function getServerSideProps(context) {
   return buildHomePageProps(() => loadHomePageData(context.req))
@@ -45,6 +61,17 @@ function formatGameTime(value) {
     hour: "numeric",
     minute: "2-digit"
   })
+}
+
+function formatBetTypeLabel(value) {
+  if (!value || value === "all") {
+    return "All bet types"
+  }
+
+  return value
+    .split(/\s+/)
+    .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+    .join(" ")
 }
 
 function probabilityToMoneyline(probability) {
@@ -175,6 +202,17 @@ function DashboardStat({ label, value, emphasis = false, tone = "default" }) {
   )
 }
 
+function FilterControl({ label, value, onChange, children }) {
+  return (
+    <label className="filterControl">
+      <span className="filterControl__label">{label}</span>
+      <select className="filterControl__select" value={value} onChange={onChange}>
+        {children}
+      </select>
+    </label>
+  )
+}
+
 function PitcherPanel({ side, team, pitcher, probability, details }) {
   return (
     <div className="pitcherPanel">
@@ -193,8 +231,21 @@ function PitcherPanel({ side, team, pitcher, probability, details }) {
 }
 
 export default function Home({ games, summary, error }) {
+  const [minimumEdge, setMinimumEdge] = useState(String(EDGE_FILTER_OPTIONS[0].value))
+  const [selectedBetType, setSelectedBetType] = useState("all")
+  const [selectedTeam, setSelectedTeam] = useState("all")
+
+  const availableTeams = useMemo(() => getAvailableTeams(games), [games])
+  const availableBetTypes = useMemo(() => getAvailableBetTypes(games), [games])
+  const filteredGames = useMemo(() => filterGames(games, {
+    minimumEdge: Number(minimumEdge),
+    betType: selectedBetType,
+    team: selectedTeam
+  }), [games, minimumEdge, selectedBetType, selectedTeam])
+
   const recommendationCount = summary?.recommendedBets ?? 0
-  const topPlays = games.slice(0, Math.min(5, games.length))
+  const topPlays = filteredGames.slice(0, Math.min(5, filteredGames.length))
+  const activeThresholdLabel = EDGE_FILTER_OPTIONS.find((option) => String(option.value) === minimumEdge)?.label || "Any edge"
 
   return (
     <main className="dashboard">
@@ -220,6 +271,11 @@ export default function Home({ games, summary, error }) {
             tone={recommendationCount > 0 ? "success" : "muted"}
           />
           <DashboardStat
+            label="Showing"
+            value={String(filteredGames.length)}
+            tone={filteredGames.length > 0 ? "default" : "warning"}
+          />
+          <DashboardStat
             label="Status"
             value={error ? "Cache unavailable" : (summary?.message || "Ready")}
             tone={error ? "danger" : "muted"}
@@ -227,10 +283,71 @@ export default function Home({ games, summary, error }) {
         </div>
       </section>
 
+      {!error && games.length > 0 && (
+        <section className="filterBar" aria-label="Filter betting board">
+          <div className="filterBar__header">
+            <div>
+              <p className="eyebrow filterBar__eyebrow">Power user filters</p>
+              <h2 className="sectionTitle">Customize the board</h2>
+            </div>
+            <p className="filterBar__copy">
+              Narrow the list by edge size, supported bet type, or a single team without leaving the dashboard.
+            </p>
+          </div>
+
+          <div className="filterBar__controls">
+            <FilterControl
+              label="Minimum edge"
+              value={minimumEdge}
+              onChange={(event) => setMinimumEdge(event.target.value)}
+            >
+              {EDGE_FILTER_OPTIONS.map((option) => (
+                <option key={option.label} value={String(option.value)}>{option.label}</option>
+              ))}
+            </FilterControl>
+
+            <FilterControl
+              label="Bet type"
+              value={selectedBetType}
+              onChange={(event) => setSelectedBetType(event.target.value)}
+            >
+              <option value="all">All bet types</option>
+              {availableBetTypes.map((betType) => (
+                <option key={betType} value={betType}>{formatBetTypeLabel(betType)}</option>
+              ))}
+            </FilterControl>
+
+            <FilterControl
+              label="Team"
+              value={selectedTeam}
+              onChange={(event) => setSelectedTeam(event.target.value)}
+            >
+              <option value="all">All teams</option>
+              {availableTeams.map((team) => (
+                <option key={team} value={team}>{team}</option>
+              ))}
+            </FilterControl>
+          </div>
+
+          <div className="filterBar__summary" aria-live="polite">
+            <span>{filteredGames.length} game{filteredGames.length === 1 ? "" : "s"} shown</span>
+            <span>Min edge: {activeThresholdLabel}</span>
+            <span>Bet type: {formatBetTypeLabel(selectedBetType)}</span>
+            <span>Team: {selectedTeam === "all" ? "All teams" : selectedTeam}</span>
+          </div>
+        </section>
+      )}
+
       {error && <p className="notice notice--error">Error loading cached predictions: {error}</p>}
 
       {!error && summary?.message && games.length === 0 && (
         <p className="notice">{summary.message}</p>
+      )}
+
+      {!error && games.length > 0 && filteredGames.length === 0 && (
+        <p className="notice">
+          No games match the current filters. Try lowering the minimum edge or widening the team and bet type selections.
+        </p>
       )}
 
       {!error && topPlays.length > 0 && (
@@ -250,6 +367,7 @@ export default function Home({ games, summary, error }) {
             {topPlays.map((game, index) => {
               const edgeTier = getEdgeTier(game.edge)
               const recommendedSide = game.recommendedBet || edgeTier.recommendation
+              const betType = getGameBetType(game)
 
               return (
                 <article
@@ -273,6 +391,7 @@ export default function Home({ games, summary, error }) {
 
                   <div className="topPlayCard__stats">
                     <DashboardStat label="Edge" value={formatEdge(game.edge)} emphasis tone={edgeTier.tone} />
+                    <DashboardStat label="Bet type" value={formatBetTypeLabel(betType)} tone="muted" />
                     <DashboardStat label="Bet recommendation" value={recommendedSide} tone={edgeTier.tone} />
                   </div>
                 </article>
@@ -282,9 +401,9 @@ export default function Home({ games, summary, error }) {
         </section>
       )}
 
-      {!error && games.length > 0 && (
+      {!error && filteredGames.length > 0 && (
         <section className="gamesGrid" aria-label="Model predictions dashboard">
-          {games.map((game, index) => {
+          {filteredGames.map((game, index) => {
             const edgeTier = getEdgeTier(game.edge)
             const recommendedSide = game.recommendedBet || edgeTier.recommendation
             const awayPitcherDetails = game.pitcherModel?.away || null
@@ -292,6 +411,7 @@ export default function Home({ games, summary, error }) {
             const awayBullpenDetails = game.bullpenModel?.away || null
             const homeBullpenDetails = game.bullpenModel?.home || null
             const oddsComparison = getOddsComparison(game)
+            const betType = getGameBetType(game)
 
             return (
               <article
@@ -307,9 +427,12 @@ export default function Home({ games, summary, error }) {
                       <span>{game.homeTeam}</span>
                     </h2>
                   </div>
-                  <span className={`pill pill--${edgeTier.tone}`}>
-                    {edgeTier.label}
-                  </span>
+                  <div className="gameCard__headerMeta">
+                    <span className="pill pill--muted">{formatBetTypeLabel(betType)}</span>
+                    <span className={`pill pill--${edgeTier.tone}`}>
+                      {edgeTier.label}
+                    </span>
+                  </div>
                 </div>
 
                 <div className="gameCard__body">
@@ -381,6 +504,7 @@ export default function Home({ games, summary, error }) {
 
                     <div className="cardMetrics">
                       <DashboardStat label="Model edge" value={formatEdge(game.edge)} emphasis tone={edgeTier.tone} />
+                      <DashboardStat label="Bet type" value={formatBetTypeLabel(betType)} tone="muted" />
                       <DashboardStat label="Book odds" value={oddsComparison.bookOdds} tone={edgeTier.tone} />
                       <DashboardStat label="Model fair odds" value={oddsComparison.modelOdds} tone="muted" />
                       <DashboardStat label="Recommendation" value={game.recommendation || recommendedSide} tone={edgeTier.tone} />
@@ -442,7 +566,8 @@ export default function Home({ games, summary, error }) {
         }
 
         .hero__stats,
-        .cardMetrics {
+        .cardMetrics,
+        .filterBar__controls {
           display: grid;
           gap: 14px;
           grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -514,6 +639,90 @@ export default function Home({ games, summary, error }) {
           border-color: rgba(248, 113, 113, 0.36);
         }
 
+        .filterBar {
+          margin-bottom: 28px;
+          padding: 22px 24px;
+          border-radius: 24px;
+          border: 1px solid rgba(148, 163, 184, 0.2);
+          background: rgba(15, 23, 42, 0.74);
+          box-shadow: 0 20px 40px rgba(15, 23, 42, 0.22);
+          backdrop-filter: blur(16px);
+        }
+
+        .filterBar__header {
+          display: flex;
+          justify-content: space-between;
+          align-items: flex-end;
+          gap: 20px;
+          margin-bottom: 18px;
+        }
+
+        .filterBar__eyebrow {
+          margin-bottom: 10px;
+        }
+
+        .sectionTitle {
+          margin: 0;
+          font-size: clamp(1.7rem, 3vw, 2.4rem);
+        }
+
+        .filterBar__copy,
+        .topPlays__copy {
+          margin: 0;
+          max-width: 460px;
+          color: #cbd5e1;
+          line-height: 1.7;
+        }
+
+        .filterControl {
+          display: flex;
+          flex-direction: column;
+          gap: 10px;
+        }
+
+        .filterControl__label {
+          font-size: 0.76rem;
+          text-transform: uppercase;
+          letter-spacing: 0.08em;
+          color: #93c5fd;
+          font-weight: 700;
+        }
+
+        .filterControl__select {
+          width: 100%;
+          appearance: none;
+          border: 1px solid rgba(148, 163, 184, 0.18);
+          border-radius: 16px;
+          background: rgba(30, 41, 59, 0.72);
+          color: #f8fafc;
+          padding: 14px 16px;
+          font-size: 0.96rem;
+          box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03);
+        }
+
+        .filterControl__select:focus {
+          outline: 2px solid rgba(96, 165, 250, 0.5);
+          outline-offset: 2px;
+        }
+
+        .filterBar__summary {
+          margin-top: 16px;
+          display: flex;
+          gap: 10px;
+          flex-wrap: wrap;
+        }
+
+        .filterBar__summary span {
+          display: inline-flex;
+          align-items: center;
+          border-radius: 999px;
+          padding: 8px 12px;
+          border: 1px solid rgba(148, 163, 184, 0.18);
+          background: rgba(30, 41, 59, 0.66);
+          color: #dbeafe;
+          font-size: 0.85rem;
+        }
+
         .topPlays {
           margin-bottom: 28px;
           padding: 24px;
@@ -535,18 +744,6 @@ export default function Home({ games, summary, error }) {
 
         .topPlays__eyebrow {
           margin-bottom: 10px;
-        }
-
-        .sectionTitle {
-          margin: 0;
-          font-size: clamp(1.7rem, 3vw, 2.4rem);
-        }
-
-        .topPlays__copy {
-          margin: 0;
-          max-width: 420px;
-          color: #cbd5e1;
-          line-height: 1.7;
         }
 
         .topPlays__grid {
@@ -604,7 +801,8 @@ export default function Home({ games, summary, error }) {
           letter-spacing: 0.08em;
         }
 
-        .topPlayCard__header {
+        .topPlayCard__header,
+        .gameCard__headerMeta {
           display: flex;
           justify-content: space-between;
           gap: 16px;
@@ -671,6 +869,11 @@ export default function Home({ games, summary, error }) {
           justify-content: space-between;
           gap: 16px;
           align-items: flex-start;
+        }
+
+        .gameCard__headerMeta {
+          flex-wrap: wrap;
+          justify-content: flex-end;
         }
 
         .gameCard__body {
@@ -891,13 +1094,16 @@ export default function Home({ games, summary, error }) {
         }
 
         @media (max-width: 900px) {
-          .hero {
-            grid-template-columns: 1fr;
-          }
-
+          .hero,
+          .filterBar__header,
           .topPlays__header {
+            grid-template-columns: 1fr;
             flex-direction: column;
             align-items: flex-start;
+          }
+
+          .filterBar__controls {
+            grid-template-columns: 1fr;
           }
         }
 
@@ -922,7 +1128,8 @@ export default function Home({ games, summary, error }) {
           .pitcherPanel__header,
           .analyticsBlock__row,
           .gameCard__header,
-          .topPlayCard__header {
+          .topPlayCard__header,
+          .gameCard__headerMeta {
             grid-template-columns: 1fr;
             flex-direction: column;
             align-items: flex-start;
@@ -950,7 +1157,8 @@ export default function Home({ games, summary, error }) {
             grid-template-columns: 1fr;
           }
 
-          .topPlays {
+          .topPlays,
+          .filterBar {
             padding: 20px;
           }
         }
