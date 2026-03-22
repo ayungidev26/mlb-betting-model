@@ -154,6 +154,7 @@ export default async function handler(req, res) {
           steps,
           keys: {
             games: "mlb:games:today",
+            ballparkFactors: "mlb:ballparkFactors:current",
             odds: "mlb:odds:today",
             pitcherStats: "mlb:stats:pitchers",
             bullpenStats: "mlb:stats:bullpen",
@@ -171,6 +172,7 @@ export default async function handler(req, res) {
       steps,
       keys: {
         games: "mlb:games:today",
+        ballparkFactors: "mlb:ballparkFactors:current",
         odds: "mlb:odds:today",
         pitcherStats: "mlb:stats:pitchers",
         bullpenStats: "mlb:stats:bullpen",

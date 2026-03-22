@@ -230,6 +230,17 @@ test('prediction output includes advanced pitcher feature inputs for scoring', a
         awayTeam: 'Los Angeles Dodgers',
         homePitcher: 'Pitcher A',
         awayPitcher: 'Pitcher B',
+        venue: 'Sutter Health Park',
+        ballpark: {
+          venue: 'Sutter Health Park',
+          classification: 'neutral',
+          runFactor: 1.05,
+          homeRunFactor: 1.08,
+          hitsFactor: 1.03,
+          doublesTriplesFactor: 1.01,
+          leftHandedHitterFactor: 1.05,
+          rightHandedHitterFactor: 1.04
+        },
         seasonType: 'regular'
       }
     ],
@@ -278,4 +289,8 @@ test('prediction output includes advanced pitcher feature inputs for scoring', a
   assert.equal(prediction.offenseModel.away.rating > prediction.offenseModel.home.rating, true)
   assert.equal(prediction.offenseModel.home.derived.opposingPitcherHand, 'L')
   assert.equal(prediction.offenseModel.away.stats.overall.weightedRunsCreatedPlus, 121)
+  assert.equal(prediction.ballpark.classification, 'neutral')
+  assert.equal(prediction.ballparkModel.away.ratingAdjustment > prediction.ballparkModel.home.ratingAdjustment, true)
+  assert.equal(prediction.ballparkModel.away.factors.homeRunFactor, 1.08)
+  assert.equal(prediction.ballparkModel.home.expectedRuns > 0, true)
 })

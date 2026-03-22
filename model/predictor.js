@@ -1,6 +1,11 @@
 import { getPitcherRatingDetails } from "./pitcherRatings.js"
 import { getBullpenRatingDetails } from "./bullpenRatings.js"
 import { getOffenseRatingDetails } from "./offenseRatings.js"
+import {
+  DEFAULT_BALLPARK_FACTOR,
+  getBallparkHandednessFactor,
+  resolveBallparkFactors
+} from "../lib/ballparkFactors.js"
 
 function resolveOpposingPitcherHand(pitcherName, pitcherStats) {
   if (!pitcherName || !pitcherStats || typeof pitcherStats !== "object") {
@@ -9,6 +14,103 @@ function resolveOpposingPitcherHand(pitcherName, pitcherStats) {
 
   const throwingHand = pitcherStats?.[pitcherName]?.throwingHand || null
   return typeof throwingHand === "string" && throwingHand.length > 0 ? throwingHand : null
+}
+
+function clamp(value, minimum, maximum) {
+  return Math.min(Math.max(value, minimum), maximum)
+}
+
+function toNumber(value, fallback = null) {
+  return typeof value === "number" && Number.isFinite(value) ? value : fallback
+}
+
+function calculatePitcherHomeRunExposure(stats = null) {
+  const explicitRate = toNumber(stats?.hrPerFlyBallRate)
+
+  if (explicitRate !== null) {
+    return explicitRate
+  }
+
+  const homeRunsAllowed = toNumber(stats?.homeRunsAllowed)
+  const flyBalls = toNumber(stats?.flyBalls)
+
+  if (homeRunsAllowed === null || flyBalls === null || flyBalls <= 0) {
+    return 0.105
+  }
+
+  return homeRunsAllowed / flyBalls
+}
+
+function buildBallparkAdjustmentDetails({
+  team,
+  offenseDetails,
+  opposingPitcherDetails,
+  opposingPitcherHand,
+  ballpark
+}) {
+  const baselineRunsPerGame = toNumber(offenseDetails?.stats?.overall?.runsPerGame, 4.2)
+  const baselineWeightedRunsCreatedPlus = toNumber(offenseDetails?.stats?.overall?.weightedRunsCreatedPlus, 100)
+  const baselineBarrelRate = toNumber(offenseDetails?.stats?.overall?.barrelRate, 0.07)
+  const handednessFactor = getBallparkHandednessFactor(ballpark, opposingPitcherHand)
+  const runFactor = toNumber(ballpark?.runFactor, DEFAULT_BALLPARK_FACTOR)
+  const hitsFactor = toNumber(ballpark?.hitsFactor, DEFAULT_BALLPARK_FACTOR)
+  const doublesTriplesFactor = toNumber(ballpark?.doublesTriplesFactor, DEFAULT_BALLPARK_FACTOR)
+  const homeRunFactor = toNumber(ballpark?.homeRunFactor, DEFAULT_BALLPARK_FACTOR)
+  const pitcherHomeRunExposure = calculatePitcherHomeRunExposure(opposingPitcherDetails?.stats)
+  const powerSynergy = clamp(
+    ((baselineBarrelRate - 0.07) * 3.5) + ((pitcherHomeRunExposure - 0.105) * 4.5),
+    -0.25,
+    0.45
+  )
+  const expectedRuns = Number((
+    baselineRunsPerGame *
+    runFactor *
+    (0.985 + ((hitsFactor - DEFAULT_BALLPARK_FACTOR) * 0.45)) *
+    (0.99 + ((doublesTriplesFactor - DEFAULT_BALLPARK_FACTOR) * 0.3)) *
+    (0.99 + ((handednessFactor - DEFAULT_BALLPARK_FACTOR) * 0.55))
+  ).toFixed(3))
+
+  // Park effects are applied as offense-side deltas so the same venue can change each team differently depending on
+  // its quality of contact and the opposing starter's home-run susceptibility.
+  const runEnvironmentAdjustment = (runFactor - DEFAULT_BALLPARK_FACTOR) * 42
+  const hitEnvironmentAdjustment = (hitsFactor - DEFAULT_BALLPARK_FACTOR) * 18
+  const gapEnvironmentAdjustment = (doublesTriplesFactor - DEFAULT_BALLPARK_FACTOR) * 14
+  const handednessAdjustment = (handednessFactor - DEFAULT_BALLPARK_FACTOR) * 22
+  const homeRunEnvironmentAdjustment = (homeRunFactor - DEFAULT_BALLPARK_FACTOR) * (24 + (baselineWeightedRunsCreatedPlus - 100) * 0.16)
+  const powerPitcherSynergyAdjustment = homeRunEnvironmentAdjustment * powerSynergy
+  const ratingAdjustment = Number((
+    runEnvironmentAdjustment +
+    hitEnvironmentAdjustment +
+    gapEnvironmentAdjustment +
+    handednessAdjustment +
+    powerPitcherSynergyAdjustment
+  ).toFixed(2))
+
+  return {
+    team,
+    venue: ballpark?.venue || null,
+    classification: ballpark?.classification || "neutral",
+    factors: {
+      runFactor,
+      homeRunFactor,
+      hitsFactor,
+      doublesTriplesFactor,
+      handednessFactor
+    },
+    adjustments: {
+      runEnvironmentAdjustment: Number(runEnvironmentAdjustment.toFixed(2)),
+      hitEnvironmentAdjustment: Number(hitEnvironmentAdjustment.toFixed(2)),
+      gapEnvironmentAdjustment: Number(gapEnvironmentAdjustment.toFixed(2)),
+      handednessAdjustment: Number(handednessAdjustment.toFixed(2)),
+      homeRunEnvironmentAdjustment: Number(homeRunEnvironmentAdjustment.toFixed(2)),
+      powerPitcherSynergyAdjustment: Number(powerPitcherSynergyAdjustment.toFixed(2))
+    },
+    expectedRuns,
+    baselineRunsPerGame,
+    baselineBarrelRate,
+    pitcherHomeRunExposure: Number(pitcherHomeRunExposure.toFixed(4)),
+    ratingAdjustment
+  }
 }
 
 export async function predictGame(game, teamRatings, bullpenStats, pitcherStats = null, offenseStats = null) {
@@ -47,6 +149,24 @@ export async function predictGame(game, teamRatings, bullpenStats, pitcherStats 
 
     const homeOffenseRating = homeOffenseDetails.rating
     const awayOffenseRating = awayOffenseDetails.rating
+    const ballpark = game?.ballpark || await resolveBallparkFactors({
+      venue: game?.venue || null,
+      homeTeam
+    })
+    const homeBallparkAdjustment = buildBallparkAdjustmentDetails({
+      team: homeTeam,
+      offenseDetails: homeOffenseDetails,
+      opposingPitcherDetails: awayPitcherDetails,
+      opposingPitcherHand: resolveOpposingPitcherHand(game.awayPitcher, pitcherStats),
+      ballpark
+    })
+    const awayBallparkAdjustment = buildBallparkAdjustmentDetails({
+      team: awayTeam,
+      offenseDetails: awayOffenseDetails,
+      opposingPitcherDetails: homePitcherDetails,
+      opposingPitcherHand: resolveOpposingPitcherHand(game.homePitcher, pitcherStats),
+      ballpark
+    })
 
     const HOME_FIELD = 25
 
@@ -55,13 +175,15 @@ export async function predictGame(game, teamRatings, bullpenStats, pitcherStats 
       homePitcherRating +
       homeBullpenRating +
       homeOffenseRating +
+      homeBallparkAdjustment.ratingAdjustment +
       HOME_FIELD
 
     const awayRating =
       awayTeamRating +
       awayPitcherRating +
       awayBullpenRating +
-      awayOffenseRating
+      awayOffenseRating +
+      awayBallparkAdjustment.ratingAdjustment
 
     const ratingDiff = homeRating - awayRating
 
@@ -81,6 +203,8 @@ export async function predictGame(game, teamRatings, bullpenStats, pitcherStats 
 
       homePitcher: game.homePitcher || null,
       awayPitcher: game.awayPitcher || null,
+      venue: game.venue || ballpark.venue || null,
+      ballpark,
 
       homeRating,
       awayRating,
@@ -126,6 +250,13 @@ export async function predictGame(game, teamRatings, bullpenStats, pitcherStats 
           components: awayOffenseDetails.components,
           derived: awayOffenseDetails.derived
         }
+      },
+
+      ballparkModel: {
+        source: ballpark.source || null,
+        classification: ballpark.classification || "neutral",
+        home: homeBallparkAdjustment,
+        away: awayBallparkAdjustment
       },
 
       homeWinProbability: Number(homeWinProbability.toFixed(4)),

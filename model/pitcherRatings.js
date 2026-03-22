@@ -53,7 +53,16 @@ function createPitcherStatSnapshot(pitcher = null) {
     expectedSluggingAgainst: pitcher.expectedSluggingAgainst ?? null,
     hardHitRate: pitcher.hardHitRate ?? null,
     barrelRate: pitcher.barrelRate ?? null,
-    averageExitVelocity: pitcher.averageExitVelocity ?? null
+    averageExitVelocity: pitcher.averageExitVelocity ?? null,
+    homeRunsAllowed: pitcher.homeRunsAllowed ?? null,
+    flyBalls: pitcher.flyBalls ?? null,
+    hrPerFlyBallRate: (
+      typeof pitcher.homeRunsAllowed === "number" &&
+      typeof pitcher.flyBalls === "number" &&
+      pitcher.flyBalls > 0
+    )
+      ? pitcher.homeRunsAllowed / pitcher.flyBalls
+      : null
   }
 }
 
