@@ -196,9 +196,9 @@ function getOddsComparison(game) {
 
 function DashboardStat({ label, value, emphasis = false, tone = "default" }) {
   return (
-    <div className={`stat stat--${tone} ${emphasis ? "stat--emphasis" : ""}`}>
-      <span className="stat__label">{label}</span>
-      <strong className="stat__value">{value}</strong>
+    <div className={`statCard statCard--${tone} ${emphasis ? "statCard--emphasis" : ""}`}>
+      <span className="statCard__label">{label}</span>
+      <strong className="statCard__value">{value}</strong>
     </div>
   )
 }
@@ -214,19 +214,49 @@ function FilterControl({ label, value, onChange, children }) {
   )
 }
 
+function SectionBlock({ kicker, title, subtitle, children }) {
+  return (
+    <section className="contentBlock">
+      <div className="contentBlock__header">
+        <div>
+          <p className="contentBlock__kicker">{kicker}</p>
+          <h3 className="contentBlock__title">{title}</h3>
+        </div>
+        {subtitle ? <p className="contentBlock__subtitle">{subtitle}</p> : null}
+      </div>
+      {children}
+    </section>
+  )
+}
+
 function PitcherPanel({ side, team, pitcher, probability, details }) {
   return (
-    <div className="pitcherPanel">
-      <div className="pitcherPanel__header">
+    <div className="detailCard detailCard--compact">
+      <div className="detailCard__row detailCard__row--start">
         <div>
-          <p className="teamRow__label">{side}</p>
-          <h3>{team}</h3>
+          <p className="detailCard__eyebrow">{side}</p>
+          <h4 className="detailCard__title">{team}</h4>
         </div>
-        <div className="teamRow__probability">{formatPercent(probability)}</div>
+        <div className="detailCard__value">{formatPercent(probability)}</div>
       </div>
 
-      <p className="pitcherPanel__name">{pitcher || "TBD"}</p>
-      <p className="pitcherPanel__stats">{getPitcherStatLine(details?.stats)}</p>
+      <p className="detailCard__headline">{pitcher || "TBD"}</p>
+      <p className="detailCard__copy">{getPitcherStatLine(details?.stats)}</p>
+    </div>
+  )
+}
+
+function InfoList({ items }) {
+  return (
+    <div className="detailCard">
+      <div className="detailList">
+        {items.map((item) => (
+          <div className="detailList__item" key={item.label}>
+            <span className="detailList__label">{item.label}</span>
+            <span className="detailList__value">{item.value}</span>
+          </div>
+        ))}
+      </div>
     </div>
   )
 }
@@ -243,7 +273,7 @@ function LoadingSkeleton({ count = 3 }) {
 
           <div className="gameCard__body">
             {Array.from({ length: 3 }, (_, columnIndex) => (
-              <section className="gameCard__column" key={`loading-column-${columnIndex}`}>
+              <section className="contentBlock" key={`loading-column-${columnIndex}`}>
                 <div className="skeletonBlock skeletonBlock--label" />
                 <div className="skeletonPanel">
                   <div className="skeletonBlock skeletonBlock--lineShort" />
@@ -274,7 +304,7 @@ function EmptyState({ message, isRefreshing }) {
         {message || "Predictions will appear here as soon as the cache is refreshed with today&apos;s games."}
       </p>
       <div className="emptyState__actions">
-        <span className="pill pill--muted">
+        <span className="tag tag--muted">
           {isRefreshing ? "Checking for fresh predictions..." : "No action needed — we&apos;ll keep trying."}
         </span>
       </div>
@@ -408,13 +438,12 @@ export default function Home({ games = [], summary, error = "" }) {
 
   return (
     <main className="dashboard">
-      <section className="hero">
-        <div>
+      <section className="hero shellCard">
+        <div className="hero__content">
           <p className="eyebrow">MLB model dashboard</p>
           <h1>Today&apos;s betting board</h1>
           <p className="hero__copy">
-            Scan projected winners, starters, bullpen context, and pricing gaps
-            in a card-based layout built for quick decision-making.
+            Scan projected winners, starters, bullpen context, and pricing gaps in one clean view built for quick reads.
           </p>
         </div>
 
@@ -443,7 +472,7 @@ export default function Home({ games = [], summary, error = "" }) {
       </section>
 
       {(fetchState.isLoading || fetchState.isRefreshing) && (
-        <div className="loadingBanner" role="status" aria-live="polite">
+        <div className="notice notice--info" role="status" aria-live="polite">
           <span className="loadingSpinner" aria-hidden="true" />
           <span>
             {fetchState.isLoading
@@ -466,18 +495,18 @@ export default function Home({ games = [], summary, error = "" }) {
       {showInitialLoading && <LoadingSkeleton count={3} />}
 
       {!showInitialLoading && !fetchState.error && hasGames && (
-        <section className="filterBar" aria-label="Filter predictions">
-          <div className="filterBar__header">
+        <section className="shellCard boardSection" aria-label="Filter predictions">
+          <div className="sectionIntro">
             <div>
-              <p className="eyebrow filterBar__eyebrow">Filter board</p>
-              <h2 className="sectionTitle">Refine the card view</h2>
+              <p className="eyebrow sectionIntro__eyebrow">Filter board</p>
+              <h2 className="sectionTitle">Refine the slate</h2>
             </div>
-            <p className="filterBar__copy">
-              Narrow the slate by minimum edge, market, or team without losing the premium board layout.
+            <p className="sectionIntro__copy">
+              Narrow the board by edge, market, or team while keeping the layout easy to compare at a glance.
             </p>
           </div>
 
-          <div className="filterBar__controls">
+          <div className="filterGrid">
             <FilterControl
               label="Minimum edge"
               value={String(filters.minimumEdge)}
@@ -541,28 +570,27 @@ export default function Home({ games = [], summary, error = "" }) {
             />
           </div>
 
-          <div className="filterBar__summary" aria-live="polite">
-            <span>Edge: {EDGE_FILTER_OPTIONS.find((option) => option.value === filters.minimumEdge)?.label || "Any edge"}</span>
-            <span>Bet type: {formatBetTypeLabel(filters.betType)}</span>
-            <span>Team: {filters.team === "all" ? "All teams" : filters.team}</span>
+          <div className="tagRow" aria-live="polite">
+            <span className="tag tag--muted">Edge: {EDGE_FILTER_OPTIONS.find((option) => option.value === filters.minimumEdge)?.label || "Any edge"}</span>
+            <span className="tag tag--muted">Bet type: {formatBetTypeLabel(filters.betType)}</span>
+            <span className="tag tag--muted">Team: {filters.team === "all" ? "All teams" : filters.team}</span>
           </div>
         </section>
       )}
 
       {!showInitialLoading && !fetchState.error && topPlays.length > 0 && (
-        <section className="topPlays" aria-label="Top Plays">
-          <div className="topPlays__header">
+        <section className="shellCard boardSection" aria-label="Top Plays">
+          <div className="sectionIntro">
             <div>
-              <p className="eyebrow topPlays__eyebrow">Best bets</p>
-              <h2 className="sectionTitle">Top Plays</h2>
+              <p className="eyebrow sectionIntro__eyebrow">Best bets</p>
+              <h2 className="sectionTitle">Top plays</h2>
             </div>
-            <p className="topPlays__copy">
-              The highest-edge matchups are pinned here first so the strongest plays
-              stand out immediately.
+            <p className="sectionIntro__copy">
+              Highest-edge matchups are pinned first so the strongest looks stand out immediately.
             </p>
           </div>
 
-          <div className="topPlays__grid">
+          <div className="summaryGrid">
             {topPlays.map((game, index) => {
               const edgeTier = getEdgeTier(game.edge)
               const recommendedSide = game.recommendedBet || edgeTier.recommendation
@@ -570,28 +598,25 @@ export default function Home({ games = [], summary, error = "" }) {
 
               return (
                 <article
-                  className={`topPlayCard topPlayCard--${edgeTier.tone}`}
+                  className={`summaryCard summaryCard--${edgeTier.tone}`}
                   key={`top-play-${game.matchKey || game.gameId || `${game.homeTeam}-${game.awayTeam}-${index}`}`}
                 >
-                  <div className="topPlayCard__rank">#{index + 1}</div>
-                  <div className="topPlayCard__header">
-                    <div>
-                      <p className="gameCard__meta">{formatGameTime(game.date)}</p>
-                      <h3 className="topPlayCard__teams">
-                        <span>{game.awayTeam}</span>
-                        <span className="vs">@</span>
-                        <span>{game.homeTeam}</span>
-                      </h3>
-                    </div>
-                    <span className={`pill pill--${edgeTier.tone}`}>
-                      {edgeTier.label}
-                    </span>
+                  <div className="summaryCard__header">
+                    <span className="tag tag--muted">#{index + 1}</span>
+                    <span className={`tag tag--${edgeTier.tone}`}>{edgeTier.label}</span>
                   </div>
 
-                  <div className="topPlayCard__stats">
+                  <p className="summaryCard__meta">{formatGameTime(game.date)}</p>
+                  <h3 className="summaryCard__title">
+                    <span>{game.awayTeam}</span>
+                    <span className="vs">@</span>
+                    <span>{game.homeTeam}</span>
+                  </h3>
+
+                  <div className="metricGrid">
                     <DashboardStat label="Edge" value={formatEdge(game.edge)} emphasis tone={edgeTier.tone} />
                     <DashboardStat label="Bet type" value={formatBetTypeLabel(betType)} tone="muted" />
-                    <DashboardStat label="Bet recommendation" value={recommendedSide} tone={edgeTier.tone} />
+                    <DashboardStat label="Recommendation" value={recommendedSide} tone={edgeTier.tone} />
                   </div>
                 </article>
               )
@@ -633,95 +658,86 @@ export default function Home({ games = [], summary, error = "" }) {
                 <div className="gameCard__header">
                   <div>
                     <p className="gameCard__meta">{formatGameTime(game.date)}</p>
-                    <h2>
+                    <h2 className="gameCard__title">
                       <span>{game.awayTeam}</span>
                       <span className="vs">@</span>
                       <span>{game.homeTeam}</span>
                     </h2>
                   </div>
-                  <div className="gameCard__headerMeta">
-                    <span className="pill pill--muted">{formatBetTypeLabel(betType)}</span>
-                    <span className={`pill pill--${edgeTier.tone}`}>
-                      {edgeTier.label}
-                    </span>
+                  <div className="tagRow tagRow--tight">
+                    <span className="tag tag--muted">{formatBetTypeLabel(betType)}</span>
+                    <span className={`tag tag--${edgeTier.tone}`}>{edgeTier.label}</span>
                   </div>
                 </div>
 
                 <div className="gameCard__body">
-                  <section className="gameCard__column gameCard__column--matchup" aria-label="Matchup overview">
-                    <div className="gameCard__sectionHeader">
-                      <span className="sectionKicker">Matchup</span>
-                      <span className="gameCard__subtle">Left side snapshot</span>
+                  <SectionBlock
+                    kicker="Matchup"
+                    title="Projected winner odds"
+                    subtitle="Starter snapshot"
+                  >
+                    <div className="stack">
+                      <PitcherPanel
+                        side="Away"
+                        team={game.awayTeam}
+                        pitcher={game.awayPitcher}
+                        probability={game.awayWinProbability}
+                        details={awayPitcherDetails}
+                      />
+
+                      <PitcherPanel
+                        side="Home"
+                        team={game.homeTeam}
+                        pitcher={game.homePitcher}
+                        probability={game.homeWinProbability}
+                        details={homePitcherDetails}
+                      />
                     </div>
+                  </SectionBlock>
 
-                    <PitcherPanel
-                      side="Away"
-                      team={game.awayTeam}
-                      pitcher={game.awayPitcher}
-                      probability={game.awayWinProbability}
-                      details={awayPitcherDetails}
-                    />
-
-                    <PitcherPanel
-                      side="Home"
-                      team={game.homeTeam}
-                      pitcher={game.homePitcher}
-                      probability={game.homeWinProbability}
-                      details={homePitcherDetails}
-                    />
-                  </section>
-
-                  <section className="gameCard__column gameCard__column--analytics" aria-label="Pitching and bullpen context">
-                    <div className="gameCard__sectionHeader">
-                      <span className="sectionKicker">Pitching context</span>
-                      <span className="gameCard__subtle">Starter and bullpen read</span>
+                  <SectionBlock
+                    kicker="Context"
+                    title="Pitching and bullpen"
+                    subtitle="Model inputs"
+                  >
+                    <div className="stack">
+                      <InfoList
+                        items={[
+                          { label: `${game.awayTeam} starter`, value: getPitcherStatLine(awayPitcherDetails?.stats) },
+                          { label: `${game.homeTeam} starter`, value: getPitcherStatLine(homePitcherDetails?.stats) }
+                        ]}
+                      />
+                      <InfoList
+                        items={[
+                          { label: `${game.awayTeam} bullpen`, value: getBullpenSummary(awayBullpenDetails) },
+                          { label: `${game.homeTeam} bullpen`, value: getBullpenSummary(homeBullpenDetails) }
+                        ]}
+                      />
                     </div>
+                  </SectionBlock>
 
-                    <div className="analyticsBlock">
-                      <div className="analyticsBlock__row">
-                        <span className="analyticsBlock__team">{game.awayTeam}</span>
-                        <span className="analyticsBlock__text">{getPitcherStatLine(awayPitcherDetails?.stats)}</span>
+                  <SectionBlock
+                    kicker="Edge"
+                    title="Bet summary"
+                    subtitle="Recommendation"
+                  >
+                    <div className="stack">
+                      <div className="detailCard detailCard--highlight">
+                        <p className="detailCard__eyebrow">Recommended side</p>
+                        <h4 className="detailCard__hero">{recommendedSide}</h4>
+                        <p className="detailCard__copy">
+                          {game.sportsbook ? `Best book: ${game.sportsbook}` : "Sportsbook line pending"}
+                        </p>
                       </div>
-                      <div className="analyticsBlock__row">
-                        <span className="analyticsBlock__team">{game.homeTeam}</span>
-                        <span className="analyticsBlock__text">{getPitcherStatLine(homePitcherDetails?.stats)}</span>
+
+                      <div className="metricGrid">
+                        <DashboardStat label="Model edge" value={formatEdge(game.edge)} emphasis tone={edgeTier.tone} />
+                        <DashboardStat label="Book odds" value={oddsComparison.bookOdds} tone={edgeTier.tone} />
+                        <DashboardStat label="Fair odds" value={oddsComparison.modelOdds} tone="muted" />
+                        <DashboardStat label="Recommendation" value={game.recommendation || recommendedSide} tone={edgeTier.tone} />
                       </div>
                     </div>
-
-                    <div className="analyticsBlock analyticsBlock--bullpen">
-                      <div className="analyticsBlock__row analyticsBlock__row--stacked">
-                        <span className="analyticsBlock__team">{game.awayTeam} bullpen</span>
-                        <span className="analyticsBlock__text">{getBullpenSummary(awayBullpenDetails)}</span>
-                      </div>
-                      <div className="analyticsBlock__row analyticsBlock__row--stacked">
-                        <span className="analyticsBlock__team">{game.homeTeam} bullpen</span>
-                        <span className="analyticsBlock__text">{getBullpenSummary(homeBullpenDetails)}</span>
-                      </div>
-                    </div>
-                  </section>
-
-                  <section className="gameCard__column gameCard__column--edge" aria-label="Betting edge and recommendation">
-                    <div className="gameCard__sectionHeader">
-                      <span className="sectionKicker">Edge</span>
-                      <span className="gameCard__subtle">Recommendation summary</span>
-                    </div>
-
-                    <div className="recommendationCard">
-                      <p className="recommendationCard__label">Recommended side</p>
-                      <h3 className="recommendationCard__team">{recommendedSide}</h3>
-                      <p className="recommendationCard__supporting">
-                        {game.sportsbook ? `Best book: ${game.sportsbook}` : "Sportsbook line pending"}
-                      </p>
-                    </div>
-
-                    <div className="cardMetrics">
-                      <DashboardStat label="Model edge" value={formatEdge(game.edge)} emphasis tone={edgeTier.tone} />
-                      <DashboardStat label="Bet type" value={formatBetTypeLabel(betType)} tone="muted" />
-                      <DashboardStat label="Book odds" value={oddsComparison.bookOdds} tone={edgeTier.tone} />
-                      <DashboardStat label="Model fair odds" value={oddsComparison.modelOdds} tone="muted" />
-                      <DashboardStat label="Recommendation" value={game.recommendation || recommendedSide} tone={edgeTier.tone} />
-                    </div>
-                  </section>
+                  </SectionBlock>
                 </div>
               </article>
             )
@@ -734,151 +750,495 @@ export default function Home({ games = [], summary, error = "" }) {
           margin: 0;
           font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
           background:
-            radial-gradient(circle at top, rgba(59, 130, 246, 0.16), transparent 32%),
+            radial-gradient(circle at top, rgba(59, 130, 246, 0.14), transparent 34%),
             linear-gradient(180deg, #0f172a 0%, #111827 100%);
           color: #e5eefb;
         }
 
         .dashboard {
           min-height: 100vh;
-          padding: 48px 24px 64px;
-          max-width: 1360px;
+          max-width: 1320px;
           margin: 0 auto;
+          padding: 40px 24px 64px;
+          display: grid;
+          gap: 24px;
+        }
+
+        .shellCard,
+        .gameCard,
+        .emptyState,
+        .notice {
+          background: rgba(15, 23, 42, 0.82);
+          border: 1px solid rgba(148, 163, 184, 0.16);
+          border-radius: 24px;
+          box-shadow: 0 18px 40px rgba(2, 6, 23, 0.28);
+          backdrop-filter: blur(14px);
+        }
+
+        .shellCard,
+        .gameCard,
+        .emptyState,
+        .notice,
+        .contentBlock,
+        .detailCard,
+        .statCard,
+        .filterControl__select,
+        .tag,
+        .skeletonPanel {
+          box-sizing: border-box;
         }
 
         .hero {
           display: grid;
-          grid-template-columns: minmax(0, 2fr) minmax(320px, 1fr);
+          grid-template-columns: minmax(0, 1.7fr) minmax(320px, 1fr);
           gap: 24px;
+          padding: 28px;
           align-items: start;
-          margin-bottom: 32px;
         }
 
-        .eyebrow {
-          text-transform: uppercase;
-          letter-spacing: 0.14em;
-          color: #93c5fd;
-          font-size: 0.78rem;
+        .eyebrow,
+        .contentBlock__kicker,
+        .detailCard__eyebrow,
+        .filterControl__label,
+        .statCard__label {
+          margin: 0;
+          font-size: 0.74rem;
           font-weight: 700;
-          margin: 0 0 12px;
+          letter-spacing: 0.12em;
+          text-transform: uppercase;
+          color: #93c5fd;
+        }
+
+        h1,
+        h2,
+        h3,
+        h4,
+        p {
+          margin-top: 0;
         }
 
         h1 {
-          margin: 0;
-          font-size: clamp(2.25rem, 4vw, 3.5rem);
-          line-height: 1;
+          margin-bottom: 0;
+          font-size: clamp(2.2rem, 4vw, 3.4rem);
+          line-height: 1.02;
+        }
+
+        .hero__copy,
+        .sectionIntro__copy,
+        .contentBlock__subtitle,
+        .detailCard__copy,
+        .emptyState__copy,
+        .gameCard__meta,
+        .summaryCard__meta {
+          color: #94a3b8;
+          line-height: 1.6;
         }
 
         .hero__copy {
           margin: 16px 0 0;
-          max-width: 720px;
+          max-width: 680px;
+          font-size: 1rem;
           color: #cbd5e1;
-          font-size: 1.02rem;
-          line-height: 1.7;
         }
 
         .hero__stats,
-        .cardMetrics,
-        .filterBar__controls {
+        .metricGrid,
+        .summaryGrid,
+        .filterGrid {
           display: grid;
           gap: 14px;
+        }
+
+        .hero__stats,
+        .filterGrid {
           grid-template-columns: repeat(2, minmax(0, 1fr));
         }
 
-        .hero__stats {
-          background: rgba(15, 23, 42, 0.72);
-          border: 1px solid rgba(148, 163, 184, 0.18);
-          border-radius: 24px;
-          padding: 20px;
-          backdrop-filter: blur(18px);
-          box-shadow: 0 20px 45px rgba(15, 23, 42, 0.32);
-        }
-
-        .stat {
-          background: rgba(30, 41, 59, 0.72);
-          border-radius: 18px;
+        .statCard {
+          min-height: 92px;
           padding: 16px;
-          border: 1px solid rgba(148, 163, 184, 0.16);
+          border-radius: 18px;
+          background: rgba(30, 41, 59, 0.72);
+          border: 1px solid rgba(148, 163, 184, 0.14);
           display: flex;
           flex-direction: column;
+          justify-content: space-between;
           gap: 8px;
-          min-height: 88px;
         }
 
-        .stat__label {
-          font-size: 0.75rem;
-          text-transform: uppercase;
-          letter-spacing: 0.08em;
-          color: #94a3b8;
-        }
-
-        .stat__value {
+        .statCard__value {
           font-size: 1rem;
           line-height: 1.35;
           color: #f8fafc;
         }
 
-        .stat--emphasis .stat__value {
-          font-size: 1.75rem;
+        .statCard--emphasis .statCard__value {
+          font-size: 1.7rem;
+          letter-spacing: -0.03em;
         }
 
-        .stat--success {
-          border-color: rgba(74, 222, 128, 0.35);
+        .statCard--success,
+        .tag--success,
+        .summaryCard--success,
+        .gameCard--success {
+          border-color: rgba(74, 222, 128, 0.32);
+        }
+
+        .statCard--warning,
+        .tag--warning,
+        .summaryCard--warning,
+        .gameCard--warning {
+          border-color: rgba(250, 204, 21, 0.3);
+        }
+
+        .statCard--danger,
+        .tag--danger,
+        .summaryCard--danger,
+        .gameCard--danger {
+          border-color: rgba(248, 113, 113, 0.28);
+        }
+
+        .statCard--success {
           background: rgba(20, 83, 45, 0.28);
         }
 
-        .stat--warning {
-          border-color: rgba(250, 204, 21, 0.35);
+        .statCard--warning {
           background: rgba(113, 63, 18, 0.26);
         }
 
-        .stat--danger {
-          border-color: rgba(248, 113, 113, 0.3);
-          background: rgba(127, 29, 29, 0.25);
+        .statCard--danger {
+          background: rgba(127, 29, 29, 0.24);
         }
 
-        .loadingBanner,
-        .notice,
-        .emptyState {
-          margin: 0 0 20px;
+        .notice {
           padding: 16px 18px;
-          border-radius: 16px;
-          background: rgba(30, 41, 59, 0.78);
-          border: 1px solid rgba(148, 163, 184, 0.16);
           color: #dbeafe;
         }
 
-        .loadingBanner {
+        .notice--info {
           display: inline-flex;
           align-items: center;
           gap: 12px;
-          background: rgba(30, 64, 175, 0.25);
-          border-color: rgba(96, 165, 250, 0.32);
+          background: rgba(30, 64, 175, 0.18);
+          border-color: rgba(96, 165, 250, 0.26);
+        }
+
+        .notice--error {
+          background: rgba(127, 29, 29, 0.32);
+          border-color: rgba(248, 113, 113, 0.3);
         }
 
         .loadingSpinner {
           width: 18px;
           height: 18px;
           border-radius: 999px;
-          border: 2px solid rgba(191, 219, 254, 0.25);
+          border: 2px solid rgba(191, 219, 254, 0.24);
           border-top-color: #bfdbfe;
           animation: spin 0.85s linear infinite;
           flex-shrink: 0;
         }
 
-        .notice--error {
-          background: rgba(127, 29, 29, 0.35);
-          border-color: rgba(248, 113, 113, 0.36);
+        .boardSection {
+          padding: 24px;
+        }
+
+        .sectionIntro {
+          display: flex;
+          justify-content: space-between;
+          gap: 20px;
+          align-items: flex-end;
+          margin-bottom: 18px;
+        }
+
+        .sectionIntro__eyebrow {
+          margin-bottom: 10px;
+        }
+
+        .sectionTitle {
+          margin: 0;
+          font-size: clamp(1.5rem, 3vw, 2rem);
+          line-height: 1.1;
+        }
+
+        .sectionIntro__copy {
+          max-width: 460px;
+          margin-bottom: 0;
+        }
+
+        .filterControl {
+          display: flex;
+          flex-direction: column;
+          gap: 10px;
+        }
+
+        .filterControl__select {
+          width: 100%;
+          appearance: none;
+          padding: 14px 16px;
+          border-radius: 16px;
+          border: 1px solid rgba(148, 163, 184, 0.16);
+          background: rgba(30, 41, 59, 0.72);
+          color: #f8fafc;
+          font-size: 0.95rem;
+        }
+
+        .filterControl__select:focus {
+          outline: 2px solid rgba(96, 165, 250, 0.5);
+          outline-offset: 2px;
+        }
+
+        .tagRow {
+          display: flex;
+          flex-wrap: wrap;
+          gap: 10px;
+        }
+
+        .tagRow--tight {
+          justify-content: flex-end;
+        }
+
+        .tag {
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          min-height: 34px;
+          padding: 8px 12px;
+          border-radius: 999px;
+          border: 1px solid rgba(148, 163, 184, 0.2);
+          background: rgba(30, 41, 59, 0.68);
+          color: #e2e8f0;
+          font-size: 0.8rem;
+          font-weight: 700;
+          white-space: nowrap;
+        }
+
+        .tag--muted {
+          color: #cbd5e1;
+        }
+
+        .tag--success {
+          background: rgba(20, 83, 45, 0.28);
+          color: #86efac;
+        }
+
+        .tag--warning {
+          background: rgba(120, 53, 15, 0.28);
+          color: #fde68a;
+        }
+
+        .tag--danger {
+          background: rgba(127, 29, 29, 0.26);
+          color: #fca5a5;
+        }
+
+        .summaryGrid {
+          grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+        }
+
+        .summaryCard {
+          padding: 20px;
+          border-radius: 22px;
+          border: 1px solid rgba(148, 163, 184, 0.16);
+          background: rgba(15, 23, 42, 0.7);
+          display: flex;
+          flex-direction: column;
+          gap: 14px;
+        }
+
+        .summaryCard__header,
+        .gameCard__header,
+        .detailCard__row,
+        .contentBlock__header {
+          display: flex;
+          justify-content: space-between;
+          gap: 14px;
+          align-items: flex-start;
+        }
+
+        .summaryCard__meta,
+        .gameCard__meta {
+          margin-bottom: 8px;
+          font-size: 0.9rem;
+        }
+
+        .summaryCard__title,
+        .gameCard__title {
+          margin-bottom: 0;
+          display: flex;
+          flex-wrap: wrap;
+          gap: 10px;
+          align-items: center;
+          line-height: 1.25;
+          color: #f8fafc;
+        }
+
+        .summaryCard__title {
+          font-size: 1.35rem;
+        }
+
+        .gameCard__title {
+          font-size: 1.4rem;
+        }
+
+        .vs {
+          color: #60a5fa;
+          font-weight: 800;
+        }
+
+        .metricGrid {
+          grid-template-columns: repeat(2, minmax(0, 1fr));
+        }
+
+        .gamesGrid {
+          display: grid;
+          gap: 18px;
+        }
+
+        .gameCard {
+          padding: 24px;
+          display: flex;
+          flex-direction: column;
+          gap: 20px;
+          background: rgba(15, 23, 42, 0.8);
+        }
+
+        .gameCard--success {
+          background: linear-gradient(180deg, rgba(22, 101, 52, 0.14), rgba(15, 23, 42, 0.82) 20%);
+        }
+
+        .gameCard--warning {
+          background: linear-gradient(180deg, rgba(161, 98, 7, 0.14), rgba(15, 23, 42, 0.82) 20%);
+        }
+
+        .gameCard--danger {
+          background: linear-gradient(180deg, rgba(127, 29, 29, 0.14), rgba(15, 23, 42, 0.82) 20%);
+        }
+
+        .gameCard--loading {
+          overflow: hidden;
+          position: relative;
+        }
+
+        .gameCard--loading::after {
+          content: "";
+          position: absolute;
+          inset: 0;
+          transform: translateX(-100%);
+          background: linear-gradient(90deg, transparent, rgba(191, 219, 254, 0.08), transparent);
+          animation: shimmer 1.4s ease-in-out infinite;
+        }
+
+        .gameCard__body {
+          display: grid;
+          grid-template-columns: repeat(3, minmax(0, 1fr));
+          gap: 16px;
+        }
+
+        .contentBlock {
+          padding: 18px;
+          border-radius: 20px;
+          background: rgba(15, 23, 42, 0.54);
+          border: 1px solid rgba(148, 163, 184, 0.12);
+          display: flex;
+          flex-direction: column;
+          gap: 16px;
+        }
+
+        .contentBlock__title {
+          margin: 6px 0 0;
+          font-size: 1.05rem;
+          color: #f8fafc;
+        }
+
+        .contentBlock__subtitle {
+          margin-bottom: 0;
+          font-size: 0.88rem;
+          max-width: 180px;
+        }
+
+        .stack {
+          display: flex;
+          flex-direction: column;
+          gap: 12px;
+        }
+
+        .detailCard,
+        .skeletonPanel {
+          padding: 16px;
+          border-radius: 18px;
+          background: rgba(30, 41, 59, 0.72);
+          border: 1px solid rgba(148, 163, 184, 0.12);
+        }
+
+        .detailCard--compact {
+          display: flex;
+          flex-direction: column;
+          gap: 8px;
+        }
+
+        .detailCard--highlight {
+          background: linear-gradient(180deg, rgba(59, 130, 246, 0.14), rgba(30, 41, 59, 0.8));
+        }
+
+        .detailCard__row--start {
+          align-items: flex-start;
+        }
+
+        .detailCard__title,
+        .detailCard__hero,
+        .detailCard__headline {
+          margin-bottom: 0;
+          color: #f8fafc;
+        }
+
+        .detailCard__title {
+          font-size: 1.05rem;
+        }
+
+        .detailCard__hero {
+          font-size: 1.3rem;
+        }
+
+        .detailCard__headline {
+          font-size: 0.98rem;
+          font-weight: 700;
+        }
+
+        .detailCard__value {
+          font-size: 1.25rem;
+          font-weight: 800;
+          color: #f8fafc;
+          white-space: nowrap;
+        }
+
+        .detailList {
+          display: grid;
+          gap: 12px;
+        }
+
+        .detailList__item {
+          display: grid;
+          gap: 6px;
+        }
+
+        .detailList__label {
+          font-size: 0.8rem;
+          font-weight: 700;
+          color: #e2e8f0;
+        }
+
+        .detailList__value {
+          color: #94a3b8;
+          line-height: 1.55;
+          font-size: 0.92rem;
         }
 
         .emptyState {
           padding: 32px 28px;
           text-align: center;
           background:
-            linear-gradient(180deg, rgba(59, 130, 246, 0.14), rgba(15, 23, 42, 0.9) 38%),
-            rgba(15, 23, 42, 0.9);
-          border-color: rgba(96, 165, 250, 0.26);
-          box-shadow: 0 24px 48px rgba(15, 23, 42, 0.28);
+            linear-gradient(180deg, rgba(59, 130, 246, 0.12), rgba(15, 23, 42, 0.9) 40%),
+            rgba(15, 23, 42, 0.88);
         }
 
         .emptyState__icon {
@@ -890,7 +1250,7 @@ export default function Home({ games = [], summary, error = "" }) {
           border-radius: 999px;
           margin-bottom: 16px;
           background: rgba(191, 219, 254, 0.12);
-          border: 1px solid rgba(191, 219, 254, 0.2);
+          border: 1px solid rgba(191, 219, 254, 0.18);
           font-size: 1.75rem;
         }
 
@@ -899,15 +1259,14 @@ export default function Home({ games = [], summary, error = "" }) {
         }
 
         .emptyState__title {
-          margin: 0 0 10px;
-          font-size: clamp(1.5rem, 3vw, 2.15rem);
+          margin-bottom: 10px;
+          font-size: clamp(1.5rem, 3vw, 2rem);
         }
 
         .emptyState__copy {
-          margin: 0 auto;
           max-width: 640px;
+          margin: 0 auto;
           color: #cbd5e1;
-          line-height: 1.75;
         }
 
         .emptyState__actions {
@@ -916,468 +1275,10 @@ export default function Home({ games = [], summary, error = "" }) {
           justify-content: center;
         }
 
-        .filterBar,
-        .topPlays {
-          margin-bottom: 28px;
-          padding: 22px 24px;
-          border-radius: 24px;
-          border: 1px solid rgba(148, 163, 184, 0.2);
-          background: rgba(15, 23, 42, 0.74);
-          box-shadow: 0 20px 40px rgba(15, 23, 42, 0.22);
-          backdrop-filter: blur(16px);
-        }
-
-        .filterBar__header {
-          display: flex;
-          justify-content: space-between;
-          align-items: flex-end;
-          gap: 20px;
-          margin-bottom: 18px;
-        }
-
-        .filterBar__eyebrow {
-          margin-bottom: 10px;
-        }
-
-        .sectionTitle {
-          margin: 0;
-          font-size: clamp(1.7rem, 3vw, 2.4rem);
-        }
-
-        .filterBar__copy,
-        .topPlays__copy {
-          margin: 0;
-          max-width: 460px;
-          color: #cbd5e1;
-          line-height: 1.7;
-        }
-
-        .filterControl {
-          display: flex;
-          flex-direction: column;
-          gap: 10px;
-        }
-
-        .filterControl__label {
-          font-size: 0.76rem;
-          text-transform: uppercase;
-          letter-spacing: 0.08em;
-          color: #93c5fd;
-          font-weight: 700;
-        }
-
-        .filterControl__select {
-          width: 100%;
-          appearance: none;
-          border: 1px solid rgba(148, 163, 184, 0.18);
-          border-radius: 16px;
-          background: rgba(30, 41, 59, 0.72);
-          color: #f8fafc;
-          padding: 14px 16px;
-          font-size: 0.96rem;
-          box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03);
-        }
-
-        .filterControl__select:focus {
-          outline: 2px solid rgba(96, 165, 250, 0.5);
-          outline-offset: 2px;
-        }
-
-        .filterBar__summary {
-          margin-top: 16px;
-          display: flex;
-          gap: 10px;
-          flex-wrap: wrap;
-        }
-
-        .filterBar__summary span {
-          display: inline-flex;
-          align-items: center;
-          border-radius: 999px;
-          padding: 8px 12px;
-          border: 1px solid rgba(148, 163, 184, 0.18);
-          background: rgba(30, 41, 59, 0.66);
-          color: #dbeafe;
-          font-size: 0.85rem;
-        }
-
-        .topPlays {
-          margin-bottom: 28px;
-          padding: 24px;
-          border-radius: 28px;
-          border: 1px solid rgba(96, 165, 250, 0.28);
-          background:
-            linear-gradient(135deg, rgba(30, 64, 175, 0.3), rgba(15, 23, 42, 0.92) 45%),
-            rgba(15, 23, 42, 0.9);
-          box-shadow: 0 24px 48px rgba(15, 23, 42, 0.34);
-        }
-
-        .topPlays__header {
-          display: flex;
-          justify-content: space-between;
-          align-items: flex-end;
-          gap: 20px;
-          margin-bottom: 20px;
-        }
-
-        .topPlays__eyebrow {
-          margin-bottom: 10px;
-        }
-
-        .topPlays__grid {
-          display: grid;
-          gap: 18px;
-          grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
-        }
-
-        .topPlayCard {
-          position: relative;
-          overflow: hidden;
-          min-height: 220px;
-          padding: 24px;
-          border-radius: 24px;
-          border: 1px solid rgba(148, 163, 184, 0.24);
-          background: rgba(15, 23, 42, 0.88);
-          box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05), 0 18px 36px rgba(2, 6, 23, 0.34);
-          display: flex;
-          flex-direction: column;
-          gap: 18px;
-        }
-
-        .topPlayCard::after {
-          content: "";
-          position: absolute;
-          inset: 0;
-          background: linear-gradient(180deg, rgba(255, 255, 255, 0.05), transparent 40%);
-          pointer-events: none;
-        }
-
-        .topPlayCard--success {
-          border-color: rgba(74, 222, 128, 0.36);
-          background: linear-gradient(180deg, rgba(20, 83, 45, 0.32), rgba(15, 23, 42, 0.92) 24%);
-        }
-
-        .topPlayCard--warning {
-          border-color: rgba(250, 204, 21, 0.32);
-          background: linear-gradient(180deg, rgba(133, 77, 14, 0.34), rgba(15, 23, 42, 0.92) 24%);
-        }
-
-        .topPlayCard--danger {
-          border-color: rgba(248, 113, 113, 0.3);
-          background: linear-gradient(180deg, rgba(127, 29, 29, 0.32), rgba(15, 23, 42, 0.92) 24%);
-        }
-
-        .topPlayCard__rank {
-          align-self: flex-start;
-          padding: 7px 12px;
-          border-radius: 999px;
-          background: rgba(191, 219, 254, 0.16);
-          border: 1px solid rgba(191, 219, 254, 0.18);
-          color: #dbeafe;
-          font-size: 0.82rem;
-          font-weight: 800;
-          letter-spacing: 0.08em;
-        }
-
-        .topPlayCard__header,
-        .gameCard__headerMeta {
-          display: flex;
-          justify-content: space-between;
-          gap: 16px;
-          align-items: flex-start;
-        }
-
-        .topPlayCard__teams {
-          margin: 0;
-          font-size: 1.5rem;
-          line-height: 1.3;
-          display: flex;
-          align-items: center;
-          gap: 10px;
-          flex-wrap: wrap;
-        }
-
-        .topPlayCard__stats {
-          display: grid;
-          gap: 14px;
-          grid-template-columns: repeat(2, minmax(0, 1fr));
-          margin-top: auto;
-        }
-
-        .gamesGrid {
-          display: grid;
-          gap: 20px;
-          grid-template-columns: 1fr;
-        }
-
-        .gameCard {
-          background: rgba(15, 23, 42, 0.78);
-          border: 1px solid rgba(148, 163, 184, 0.18);
-          border-left-width: 4px;
-          border-radius: 24px;
-          padding: 22px;
-          box-shadow: 0 16px 36px rgba(15, 23, 42, 0.28);
-          display: flex;
-          flex-direction: column;
-          gap: 20px;
-          backdrop-filter: blur(14px);
-          transition: border-color 160ms ease, box-shadow 160ms ease, background 160ms ease;
-        }
-
-        .gameCard--loading {
-          overflow: hidden;
-          position: relative;
-          border-color: rgba(96, 165, 250, 0.22);
-        }
-
-        .gameCard--loading::after {
-          content: "";
-          position: absolute;
-          inset: 0;
-          transform: translateX(-100%);
-          background: linear-gradient(90deg, transparent, rgba(191, 219, 254, 0.09), transparent);
-          animation: shimmer 1.4s ease-in-out infinite;
-        }
-
-        .gameCard--success {
-          border-color: rgba(74, 222, 128, 0.34);
-          box-shadow: 0 16px 36px rgba(15, 23, 42, 0.28), inset 0 1px 0 rgba(74, 222, 128, 0.08);
-          background: linear-gradient(180deg, rgba(22, 101, 52, 0.15), rgba(15, 23, 42, 0.78) 18%);
-        }
-
-        .gameCard--warning {
-          border-color: rgba(250, 204, 21, 0.34);
-          box-shadow: 0 16px 36px rgba(15, 23, 42, 0.28), inset 0 1px 0 rgba(250, 204, 21, 0.08);
-          background: linear-gradient(180deg, rgba(161, 98, 7, 0.14), rgba(15, 23, 42, 0.78) 18%);
-        }
-
-        .gameCard--danger {
-          border-color: rgba(248, 113, 113, 0.3);
-          box-shadow: 0 16px 36px rgba(15, 23, 42, 0.28), inset 0 1px 0 rgba(248, 113, 113, 0.06);
-          background: linear-gradient(180deg, rgba(127, 29, 29, 0.14), rgba(15, 23, 42, 0.78) 18%);
-        }
-
-        .gameCard__header {
-          display: flex;
-          justify-content: space-between;
-          gap: 16px;
-          align-items: flex-start;
-        }
-
-        .gameCard__headerMeta {
-          flex-wrap: wrap;
-          justify-content: flex-end;
-        }
-
-        .gameCard__body {
-          display: grid;
-          gap: 18px;
-          grid-template-columns: minmax(0, 1.1fr) minmax(0, 1.25fr) minmax(300px, 0.9fr);
-          align-items: stretch;
-        }
-
-        .gameCard__column {
-          display: flex;
-          flex-direction: column;
-          gap: 14px;
-          min-width: 0;
-        }
-
-        .gameCard__column--analytics,
-        .gameCard__column--edge {
-          padding-left: 18px;
-          border-left: 1px solid rgba(148, 163, 184, 0.12);
-        }
-
-        .gameCard__sectionHeader {
-          display: flex;
-          justify-content: space-between;
-          gap: 12px;
-          align-items: baseline;
-        }
-
-        .sectionKicker {
-          text-transform: uppercase;
-          letter-spacing: 0.12em;
-          font-size: 0.72rem;
-          font-weight: 800;
-          color: #93c5fd;
-        }
-
-        .gameCard__subtle {
-          color: #64748b;
-          font-size: 0.84rem;
-        }
-
-        .gameCard__meta {
-          margin: 0 0 8px;
-          color: #94a3b8;
-          font-size: 0.9rem;
-        }
-
-        h2 {
-          margin: 0;
-          font-size: 1.35rem;
-          line-height: 1.3;
-          display: flex;
-          align-items: center;
-          gap: 10px;
-          flex-wrap: wrap;
-        }
-
-        .vs {
-          color: #60a5fa;
-          font-weight: 800;
-        }
-
-        .pill {
-          border-radius: 999px;
-          padding: 8px 12px;
-          font-size: 0.8rem;
-          font-weight: 700;
-          white-space: nowrap;
-          border: 1px solid transparent;
-        }
-
-        .pill--success {
-          background: rgba(34, 197, 94, 0.18);
-          color: #86efac;
-          border-color: rgba(74, 222, 128, 0.36);
-        }
-
-        .pill--warning {
-          background: rgba(250, 204, 21, 0.16);
-          color: #fde68a;
-          border-color: rgba(250, 204, 21, 0.3);
-        }
-
-        .pill--danger {
-          background: rgba(248, 113, 113, 0.14);
-          color: #fca5a5;
-          border-color: rgba(248, 113, 113, 0.3);
-        }
-
-        .pill--muted {
-          background: rgba(71, 85, 105, 0.34);
-          color: #cbd5e1;
-          border-color: rgba(148, 163, 184, 0.24);
-        }
-
-        .pitcherPanel,
-        .analyticsBlock,
-        .recommendationCard,
-        .skeletonPanel {
-          padding: 16px 18px;
-          border-radius: 18px;
-          background: rgba(30, 41, 59, 0.68);
-          border: 1px solid rgba(148, 163, 184, 0.14);
-        }
-
-        .pitcherPanel {
-          display: flex;
-          flex-direction: column;
-          gap: 8px;
-        }
-
-        .pitcherPanel__header {
-          display: flex;
-          justify-content: space-between;
-          gap: 14px;
-          align-items: flex-start;
-        }
-
-        .teamRow__label {
-          font-size: 0.74rem;
-          text-transform: uppercase;
-          letter-spacing: 0.08em;
-          color: #93c5fd;
-          margin: 0 0 6px;
-        }
-
-        h3 {
-          margin: 0;
-          font-size: 1.08rem;
-        }
-
-        .pitcherPanel__name {
-          margin: 0;
-          color: #f8fafc;
-          font-weight: 700;
-        }
-
-        .pitcherPanel__stats,
-        .analyticsBlock__text,
-        .recommendationCard__supporting {
-          margin: 0;
-          color: #94a3b8;
-          font-size: 0.92rem;
-          line-height: 1.55;
-        }
-
-        .teamRow__probability {
-          font-size: 1.35rem;
-          font-weight: 800;
-          color: #f8fafc;
-          text-align: right;
-          white-space: nowrap;
-        }
-
-        .analyticsBlock {
-          display: flex;
-          flex-direction: column;
-          gap: 12px;
-        }
-
-        .analyticsBlock__row {
-          display: grid;
-          grid-template-columns: minmax(120px, auto) minmax(0, 1fr);
-          gap: 14px;
-          align-items: baseline;
-        }
-
-        .analyticsBlock__row--stacked {
-          grid-template-columns: 1fr;
-        }
-
-        .analyticsBlock__team {
-          color: #e2e8f0;
-          font-weight: 700;
-        }
-
-        .analyticsBlock--bullpen {
-          background: rgba(15, 23, 42, 0.56);
-        }
-
-        .recommendationCard {
-          background:
-            linear-gradient(180deg, rgba(59, 130, 246, 0.16), rgba(30, 41, 59, 0.78));
-        }
-
-        .recommendationCard__label {
-          margin: 0 0 8px;
-          text-transform: uppercase;
-          letter-spacing: 0.08em;
-          font-size: 0.72rem;
-          color: #93c5fd;
-        }
-
-        .recommendationCard__team {
-          margin: 0 0 6px;
-          font-size: 1.35rem;
-        }
-
-        .skeletonPanel {
-          display: flex;
-          flex-direction: column;
-          gap: 12px;
-          position: relative;
-          overflow: hidden;
-        }
-
         .skeletonBlock,
         .skeletonPill {
           border-radius: 999px;
-          background: linear-gradient(90deg, rgba(148, 163, 184, 0.14), rgba(191, 219, 254, 0.26), rgba(148, 163, 184, 0.14));
+          background: linear-gradient(90deg, rgba(148, 163, 184, 0.14), rgba(191, 219, 254, 0.24), rgba(148, 163, 184, 0.14));
           background-size: 200% 100%;
           animation: shimmerPulse 1.5s ease-in-out infinite;
         }
@@ -1389,7 +1290,7 @@ export default function Home({ games = [], summary, error = "" }) {
         }
 
         .skeletonBlock--label {
-          width: 140px;
+          width: 120px;
           height: 14px;
         }
 
@@ -1435,403 +1336,43 @@ export default function Home({ games = [], summary, error = "" }) {
           }
         }
 
-        @media (max-width: 1100px) {
+        @media (max-width: 1080px) {
+          .hero,
           .gameCard__body {
-            grid-template-columns: repeat(2, minmax(0, 1fr));
-          }
-
-          .gameCard__column--edge {
-            grid-column: 1 / -1;
-          }
-
-          .gameCard__column--edge,
-          .gameCard__column--analytics {
-            padding-left: 0;
-            border-left: 0;
-          }
-
-          .gameCard__column--edge {
-            padding-top: 4px;
-            border-top: 1px solid rgba(148, 163, 184, 0.12);
+            grid-template-columns: 1fr;
           }
         }
 
         @media (max-width: 900px) {
-          .hero,
-          .filterBar__header,
-          .topPlays__header {
-            grid-template-columns: 1fr;
-            flex-direction: column;
-            align-items: flex-start;
-          }
-
-          .filterBar__controls {
-            grid-template-columns: 1fr;
-          }
-        }
-
-        @media (max-width: 760px) {
-          .gameCard__body {
-            grid-template-columns: 1fr;
-          }
-
-          .gameCard__column--analytics,
-          .gameCard__column--edge {
-            padding-left: 0;
-            border-left: 0;
-          }
-
-          .gameCard__column--analytics,
-          .gameCard__column--edge {
-            padding-top: 4px;
-            border-top: 1px solid rgba(148, 163, 184, 0.12);
-          }
-
-          .gameCard__sectionHeader,
-          .pitcherPanel__header,
-          .analyticsBlock__row,
+          .sectionIntro,
+          .summaryCard__header,
           .gameCard__header,
-          .topPlayCard__header,
-          .gameCard__headerMeta {
+          .contentBlock__header,
+          .detailCard__row {
+            flex-direction: column;
+          }
+
+          .hero__stats,
+          .filterGrid,
+          .metricGrid {
             grid-template-columns: 1fr;
-            flex-direction: column;
-            gap: 10px;
-            min-height: 104px;
           }
 
-          .stat__label {
-            font-size: 0.74rem;
-            text-transform: uppercase;
-            letter-spacing: 0.11em;
-            color: #94a3b8;
-            font-weight: 700;
-          }
-
-          .stat__value {
-            font-size: 1rem;
-            line-height: 1.45;
-            color: #f8fafc;
-          }
-
-          .stat--emphasis .stat__value {
-            font-size: 1.9rem;
-            letter-spacing: -0.03em;
-          }
-
-          .stat--success {
-            border-color: rgba(74, 222, 128, 0.24);
-            background: linear-gradient(180deg, rgba(20, 83, 45, 0.3), rgba(15, 23, 42, 0.82));
-          }
-
-          .stat--warning {
-            border-color: rgba(250, 204, 21, 0.24);
-            background: linear-gradient(180deg, rgba(120, 53, 15, 0.28), rgba(15, 23, 42, 0.82));
-          }
-
-          .stat--danger {
-            border-color: rgba(248, 113, 113, 0.24);
-            background: linear-gradient(180deg, rgba(127, 29, 29, 0.3), rgba(15, 23, 42, 0.82));
-          }
-
-          .stat--muted {
-            background: rgba(15, 23, 42, 0.68);
-          }
-
-          .notice {
-            margin: 0;
-            padding: 16px 18px;
-            border-radius: 18px;
-            background: rgba(15, 23, 42, 0.8);
-            border: 1px solid rgba(148, 163, 184, 0.16);
-            color: #dbeafe;
-            line-height: 1.6;
-          }
-
-          .notice--error {
-            background: rgba(127, 29, 29, 0.28);
-            border-color: rgba(248, 113, 113, 0.3);
-          }
-
-          .panel {
-            padding: 28px;
-          }
-
-          .panel--feature {
-            background:
-              linear-gradient(135deg, rgba(37, 99, 235, 0.18), rgba(8, 15, 29, 0.86) 40%),
-              rgba(8, 15, 29, 0.8);
-            border-color: rgba(96, 165, 250, 0.2);
-          }
-
-          .topPlays__grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
-            gap: 18px;
-          }
-
-          .topPlayCard {
-            position: relative;
-            min-height: 230px;
-            padding: 22px;
-            border-radius: 24px;
-            border: 1px solid rgba(148, 163, 184, 0.18);
-            background: rgba(15, 23, 42, 0.84);
-            display: flex;
-            flex-direction: column;
-            gap: 18px;
-            overflow: hidden;
-          }
-
-          .topPlayCard::after {
-            content: "";
-            position: absolute;
-            inset: 0;
-            background: linear-gradient(180deg, rgba(255, 255, 255, 0.05), transparent 42%);
-            pointer-events: none;
-          }
-
-          .topPlayCard--success {
-            border-color: rgba(74, 222, 128, 0.26);
-            background: linear-gradient(180deg, rgba(20, 83, 45, 0.26), rgba(15, 23, 42, 0.9) 28%);
-          }
-
-          .topPlayCard--warning {
-            border-color: rgba(250, 204, 21, 0.26);
-            background: linear-gradient(180deg, rgba(133, 77, 14, 0.26), rgba(15, 23, 42, 0.9) 28%);
-          }
-
-          .topPlayCard--danger {
-            border-color: rgba(248, 113, 113, 0.22);
-            background: linear-gradient(180deg, rgba(127, 29, 29, 0.24), rgba(15, 23, 42, 0.9) 28%);
-          }
-
-          .topPlayCard__rank {
-            position: relative;
-            z-index: 1;
-            align-self: flex-start;
-            padding: 7px 12px;
-            border-radius: 999px;
-            background: rgba(148, 163, 184, 0.12);
-            border: 1px solid rgba(148, 163, 184, 0.16);
-            color: #e2e8f0;
-            font-size: 0.78rem;
-            font-weight: 800;
-            letter-spacing: 0.1em;
-          }
-
-          .topPlayCard__header,
-          .gameCard__header {
-            display: flex;
-            justify-content: space-between;
-            align-items: flex-start;
-            gap: 16px;
-          }
-
-          .gameCard__meta {
-            margin: 0 0 10px;
-            color: #94a3b8;
-            font-size: 0.9rem;
-          }
-
-          .topPlayCard__teams,
-          .gameCard__title {
-            margin: 0;
-            display: flex;
-            flex-wrap: wrap;
-            align-items: center;
-            gap: 10px;
-            line-height: 1.25;
-            letter-spacing: -0.02em;
-            color: #f8fafc;
-          }
-
-          .topPlayCard__teams {
-            font-size: 1.45rem;
-          }
-
-          .gameCard__title {
-            font-size: 1.32rem;
-          }
-
-          .vs {
-            color: #38bdf8;
-            font-weight: 800;
-          }
-
-          .topPlayCard__stats,
-          .cardMetrics {
-            display: grid;
-            grid-template-columns: repeat(2, minmax(0, 1fr));
-            gap: 14px;
-          }
-
-          .topPlayCard__stats {
-            margin-top: auto;
-          }
-
-          .gamesGrid {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
-            gap: 20px;
-          }
-
-          .gameCard {
-            padding: 22px;
-            border-radius: 24px;
-            border: 1px solid rgba(148, 163, 184, 0.16);
-            background: rgba(15, 23, 42, 0.78);
-            display: flex;
-            flex-direction: column;
-            gap: 20px;
-            transition: transform 160ms ease, border-color 160ms ease, box-shadow 160ms ease;
-          }
-
-          .gameCard:hover {
-            transform: translateY(-2px);
-            box-shadow: 0 20px 40px rgba(2, 6, 23, 0.32);
-          }
-
-          .gameCard--success {
-            border-color: rgba(74, 222, 128, 0.24);
-            background: linear-gradient(180deg, rgba(22, 101, 52, 0.14), rgba(15, 23, 42, 0.82) 18%);
-          }
-
-          .gameCard--warning {
-            border-color: rgba(250, 204, 21, 0.24);
-            background: linear-gradient(180deg, rgba(161, 98, 7, 0.14), rgba(15, 23, 42, 0.82) 18%);
-          }
-
-          .gameCard--danger {
-            border-color: rgba(248, 113, 113, 0.22);
-            background: linear-gradient(180deg, rgba(127, 29, 29, 0.14), rgba(15, 23, 42, 0.82) 18%);
-          }
-
-          .pill {
-            display: inline-flex;
-            align-items: center;
-            justify-content: center;
-            border-radius: 999px;
-            padding: 8px 12px;
-            white-space: nowrap;
-            font-size: 0.78rem;
-            font-weight: 700;
-            border: 1px solid transparent;
-          }
-
-          .pill--success {
-            background: rgba(34, 197, 94, 0.14);
-            color: #86efac;
-            border-color: rgba(74, 222, 128, 0.26);
-          }
-
-          .pill--warning {
-            background: rgba(250, 204, 21, 0.13);
-            color: #fde68a;
-            border-color: rgba(250, 204, 21, 0.24);
-          }
-
-          .pill--danger {
-            background: rgba(248, 113, 113, 0.12);
-            color: #fca5a5;
-            border-color: rgba(248, 113, 113, 0.22);
-          }
-
-          .pill--muted {
-            background: rgba(71, 85, 105, 0.28);
-            color: #cbd5e1;
-            border-color: rgba(148, 163, 184, 0.2);
-          }
-
-          .teams {
-            display: grid;
-            gap: 14px;
-          }
-
-          .teamRow {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            gap: 16px;
-            padding: 16px 18px;
-            border-radius: 20px;
-            background: rgba(15, 23, 42, 0.54);
-            border: 1px solid rgba(148, 163, 184, 0.12);
-          }
-
-          .teamRow__label,
-          .teamRow__pitcher {
-            margin: 0;
-          }
-
-          .teamRow__label {
-            margin-bottom: 6px;
-            font-size: 0.72rem;
-            text-transform: uppercase;
-            letter-spacing: 0.12em;
-            color: #7dd3fc;
-            font-weight: 700;
-          }
-
-          h3 {
-            margin: 0 0 4px;
-            font-size: 1.08rem;
-            color: #f8fafc;
-          }
-
-          .teamRow__pitcher {
-            color: #94a3b8;
-            font-size: 0.92rem;
-          }
-
-          .analyticsBlock__row {
-            display: flex;
-            flex-direction: column;
-            gap: 4px;
-          }
-
-          .teamRow__probability {
-            font-size: clamp(1.45rem, 2vw, 1.8rem);
-            font-weight: 800;
-            color: #f8fafc;
-            letter-spacing: -0.03em;
-            text-align: right;
-          }
-
-          @media (max-width: 980px) {
-            .heroPanel {
-              grid-template-columns: 1fr;
-            }
-
-            .sectionHeading {
-              align-items: flex-start;
-              flex-direction: column;
-            }
-
-            .sectionHeading__copy {
-              max-width: none;
-            }
+          .tagRow--tight {
+            justify-content: flex-start;
           }
         }
 
         @media (max-width: 640px) {
           .dashboard {
-            padding: 32px 16px 48px;
+            padding: 24px 16px 48px;
           }
 
-          .hero__stats,
-          .cardMetrics,
-          .topPlayCard__stats {
-            grid-template-columns: 1fr;
-          }
-
-          .topPlays,
-          .filterBar {
+          .hero,
+          .boardSection,
+          .gameCard,
+          .emptyState {
             padding: 20px;
-          }
-
-          .loadingBanner {
-            display: flex;
-            width: auto;
           }
         }
       `}</style>
