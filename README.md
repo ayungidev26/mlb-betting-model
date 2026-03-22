@@ -11,6 +11,7 @@ The model evaluates each MLB game using a combination of:
 * Historical team strength (Elo rating system)
 * Starting pitcher performance
 * Bullpen strength
+* Team offense strength (season, split, rolling-form, and expected-contact inputs)
 * Home field advantage
 * Sportsbook betting odds
 
@@ -199,7 +200,54 @@ mlb:stats:bullpen
 
 ---
 
-### 5. Run Prediction Model
+### 5. Collect Team Offense Statistics
+
+`/api/fetchTeamOffenseStats`
+
+Retrieves team-level offense metrics and contextual splits for every MLB club.
+
+Operational access:
+
+* Requires `POST`
+* Requires `Authorization: Bearer <ADMIN_API_SECRET>`
+
+Metrics collected:
+
+* Runs per game
+* Team batting average
+* On-base percentage (OBP)
+* Slugging percentage (SLG)
+* OPS
+* Isolated Power (ISO)
+* Strikeout rate (K%)
+* Walk rate (BB%)
+* Weighted On-Base Average (wOBA)
+* Weighted Runs Created Plus (`wRC+` approximation when a direct team field is unavailable)
+* Expected batting average (`xBA`)
+* Expected slugging (`xSLG`)
+* Expected weighted On-Base Average (`xwOBA`)
+* Hard Hit%
+* Barrel%
+* Season splits vs right-handed pitchers and vs left-handed pitchers
+* Home and away offense splits
+* Rolling last-7-day and last-14-day offense snapshots built from team game logs
+
+Source and mapping notes:
+
+* Core team totals and split slash/rate stats come from the MLB Stats API `teams/{teamId}/stats` hitting payload.
+* `wOBA`, `xBA`, `xSLG`, `xwOBA`, `Hard Hit%`, and `Barrel%` are merged from a team-weighted Baseball Savant batter leaderboard export.
+* The current team stats payload does not expose a direct team `wRC+` field consistently, so the pipeline stores a league-indexed `wOBA` approximation in the `weightedRunsCreatedPlus` field and labels that mapping in the cached payload.
+* Percentage fields are normalized to decimals in storage and model inputs (for example, `0.338` for `33.8%`).
+
+Stored in Redis:
+
+```
+mlb:stats:offense
+```
+
+---
+
+### 6. Run Prediction Model
 
 `/api/runModel`
 
@@ -214,8 +262,16 @@ Operational access:
 Team Elo Rating
 + Starting Pitcher Rating
 + Bullpen Strength
++ Team Offense Strength
 + Home Field Advantage
 ```
+
+The offense model now contributes season baseline production plus contextual features derived from the cached splits, including:
+
+* `offense_vs_handedness`
+* `recent_offense_form`
+* `power_score`
+* `plate_discipline_score`
 
 Predictions are stored in Redis:
 
@@ -226,7 +282,7 @@ mlb:predictions:YYYY-MM-DD
 
 ---
 
-### 6. Detect Betting Edges
+### 7. Detect Betting Edges
 
 `/api/findEdges`
 
@@ -247,7 +303,7 @@ mlb:edges:today
 
 ---
 
-### 7. Run the Full Daily Pipeline
+### 8. Run the Full Daily Pipeline
 
 `/api/runPipeline`
 
@@ -263,6 +319,7 @@ fetchGames
 fetchOdds
 fetchPitcherStats
 fetchBullpenStats
+fetchTeamOffenseStats
 runModel
 findEdges
 ```
@@ -390,6 +447,7 @@ mlb:odds:today
 mlb:ratings:teams
 mlb:stats:pitchers
 mlb:stats:bullpen
+mlb:stats:offense
 mlb:predictions:today
 mlb:predictions:YYYY-MM-DD
 mlb:edges:today
@@ -407,6 +465,7 @@ fetchGames
 fetchOdds
 fetchPitcherStats
 fetchBullpenStats
+fetchTeamOffenseStats
 runModel
 findEdges
 ```
@@ -420,6 +479,7 @@ This produces a list of betting opportunities for the current MLB slate.
 ✔ 10+ years of historical team ratings  
 ✔ Starting pitcher strength modeling  
 ✔ Bullpen strength modeling  
+✔ Team offense and split modeling  
 ✔ Home field advantage  
 ✔ Sportsbook odds comparison  
 ✔ Automated edge detection  
@@ -482,13 +542,19 @@ Use the existing admin-only routes to validate the expanded pitcher pipeline end
 
 2. Set the required environment variables in `.env.local` (`UPSTASH_REDIS_REST_URL`, `UPSTASH_REDIS_REST_TOKEN`, `ODDS_API_KEY`, `ADMIN_API_SECRET`, and optionally `CRON_SECRET`).
 
-3. Load the daily data and advanced pitcher stats:
+3. Load the daily data, pitching inputs, bullpen inputs, and offense inputs:
 
    ```bash
    curl -X POST http://localhost:3000/api/fetchGames \
      -H "Authorization: Bearer $ADMIN_API_SECRET"
 
    curl -X POST http://localhost:3000/api/fetchPitcherStats \
+     -H "Authorization: Bearer $ADMIN_API_SECRET"
+
+   curl -X POST http://localhost:3000/api/fetchBullpenStats \
+     -H "Authorization: Bearer $ADMIN_API_SECRET"
+
+   curl -X POST http://localhost:3000/api/fetchTeamOffenseStats \
      -H "Authorization: Bearer $ADMIN_API_SECRET"
    ```
 
@@ -508,16 +574,40 @@ Use the existing admin-only routes to validate the expanded pitcher pipeline end
    * `barrelRate`
    * `averageExitVelocity`
 
-5. Run the rest of the pipeline and inspect the prediction output:
+5. Verify the cached offense payload in Redis under `mlb:stats:offense`. Each team record now includes:
+
+   * `runsPerGame`
+   * `battingAverage`
+   * `onBasePercentage`
+   * `sluggingPercentage`
+   * `ops`
+   * `isolatedPower`
+   * `strikeoutRate`
+   * `walkRate`
+   * `weightedOnBaseAverage`
+   * `weightedRunsCreatedPlus`
+   * `expectedBattingAverage`
+   * `expectedSlugging`
+   * `expectedWeightedOnBaseAverage`
+   * `hardHitRate`
+   * `barrelRate`
+   * `splits.vsRightHanded`
+   * `splits.vsLeftHanded`
+   * `splits.home`
+   * `splits.away`
+   * `splits.last7Days`
+   * `splits.last14Days`
+
+6. Run the rest of the pipeline and inspect the prediction output:
 
    ```bash
    curl -X POST http://localhost:3000/api/runPipeline \
      -H "Authorization: Bearer $ADMIN_API_SECRET"
    ```
 
-   `mlb:predictions:today` now includes both a `pitcherModel` block and a `bullpenModel` block with the stored stat snapshots and per-feature scoring components used during edge generation.
+   `mlb:predictions:today` now includes `pitcherModel`, `bullpenModel`, and `offenseModel` blocks with stored stat snapshots, split snapshots, contextual offense-derived features, and per-feature scoring components used during edge generation.
 
-6. Verify the cached bullpen payload in Redis under `mlb:stats:bullpen`. Each team record should now include:
+7. Verify the cached bullpen payload in Redis under `mlb:stats:bullpen`. Each team record should now include:
 
    * `era`
    * `whip`

@@ -36,6 +36,7 @@ function createPitcherStatSnapshot(pitcher = null) {
   }
 
   return {
+    throwingHand: pitcher.throwingHand ?? null,
     era: pitcher.era ?? null,
     whip: pitcher.whip ?? null,
     strikeouts: pitcher.strikeouts ?? null,

@@ -71,7 +71,8 @@ async function resolvePitcherDirectory(games) {
 
       pitcherDirectory[name] = {
         id: searchData.people[0].id,
-        name: searchData.people[0].fullName || name
+        name: searchData.people[0].fullName || name,
+        throwingHand: searchData.people[0].pitchHand?.code || null
       }
     }
   }
@@ -137,6 +138,7 @@ export default async function handler(req, res) {
 
       pitcherStats[requestedName] = {
         pitcherId: pitcherMeta.id,
+        throwingHand: pitcherMeta.throwingHand || null,
         ...normalizePitcherStatRecord(stat, advancedStat, leagueContext)
       }
     }

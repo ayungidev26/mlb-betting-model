@@ -3,6 +3,7 @@ import fetchGamesHandler from "./fetchGames.js"
 import fetchOddsHandler from "./fetchOdds.js"
 import fetchPitcherStatsHandler from "./fetchPitcherStats.js"
 import fetchBullpenStatsHandler from "./fetchBullpenStats.js"
+import fetchTeamOffenseStatsHandler from "./fetchTeamOffenseStats.js"
 import runModelHandler from "./runModel.js"
 import findEdgesHandler from "./findEdges.js"
 import { redis } from "../../lib/upstash.js"
@@ -116,6 +117,10 @@ export default async function handler(req, res) {
         handler: fetchBullpenStatsHandler
       },
       {
+        name: "fetchTeamOffenseStats",
+        handler: fetchTeamOffenseStatsHandler
+      },
+      {
         name: "runModel",
         handler: runModelHandler
       },
@@ -152,6 +157,7 @@ export default async function handler(req, res) {
             odds: "mlb:odds:today",
             pitcherStats: "mlb:stats:pitchers",
             bullpenStats: "mlb:stats:bullpen",
+            offenseStats: "mlb:stats:offense",
             predictions: "mlb:predictions:today",
             edges: "mlb:edges:today"
           }
@@ -168,6 +174,7 @@ export default async function handler(req, res) {
         odds: "mlb:odds:today",
         pitcherStats: "mlb:stats:pitchers",
         bullpenStats: "mlb:stats:bullpen",
+        offenseStats: "mlb:stats:offense",
         predictions: "mlb:predictions:today",
         edges: "mlb:edges:today"
       }

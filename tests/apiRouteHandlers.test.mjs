@@ -13,6 +13,7 @@ const ROUTE_CASES = [
   ["fetchGames", "../pages/api/fetchGames.js"],
   ["fetchOdds", "../pages/api/fetchOdds.js"],
   ["fetchPitcherStats", "../pages/api/fetchPitcherStats.js"],
+  ["fetchTeamOffenseStats", "../pages/api/fetchTeamOffenseStats.js"],
   ["findEdges", "../pages/api/findEdges.js"],
   ["loadHistorical", "../pages/api/loadHistorical.js"],
   ["runModel", "../pages/api/runModel.js"],
@@ -472,6 +473,127 @@ test("fetchPitcherStats enforces the per-IP rate limit", { concurrency: false },
   })
 })
 
+test("fetchTeamOffenseStats stores season, split, recent, and expected offense metrics", { concurrency: false }, async () => {
+  process.env.ADMIN_API_SECRET = "test-admin-secret"
+  process.env.ODDS_API_KEY = "test-odds-key"
+
+  const handler = await importRoute("../pages/api/fetchTeamOffenseStats.js")
+  const redisMock = createMockRedis()
+
+  await withPatchedRedis(redisMock, async () => withMockedFetch(
+    async (url) => {
+      const target = String(url)
+
+      if (target.includes("/api/v1/teams?sportId=1")) {
+        return createJsonResponse({
+          body: {
+            teams: [
+              { id: 147, name: "New York Yankees" },
+              { id: 111, name: "Boston Red Sox" }
+            ]
+          }
+        })
+      }
+
+      if (target.includes("baseballsavant.mlb.com/leaderboard/custom")) {
+        return createTextResponse({
+          body: [
+            'team_id,team,pa,woba,xwoba,xba,xslg,hard_hit_percent,barrel_batted_rate',
+            '147,New York Yankees,120,0.351,0.362,0.271,0.458,42.0,9.0',
+            '147,New York Yankees,80,0.341,0.356,0.264,0.441,40.0,8.0',
+            '111,Boston Red Sox,110,0.318,0.329,0.248,0.411,37.0,7.0',
+            '111,Boston Red Sox,90,0.311,0.321,0.241,0.403,35.0,6.0'
+          ].join('\n')
+        })
+      }
+
+      const statPayloads = {
+        '147:overall': { gamesPlayed: 20, runs: 110, hits: 190, atBats: 700, baseOnBalls: 80, strikeOuts: 150, avg: '.271', obp: '.349', slg: '.455', ops: '.804', iso: '.184', plateAppearances: 800 },
+        '147:vr': { gamesPlayed: 16, runs: 88, hits: 150, atBats: 560, baseOnBalls: 60, strikeOuts: 120, avg: '.268', obp: '.344', slg: '.448', ops: '.792', iso: '.180', plateAppearances: 640 },
+        '147:vl': { gamesPlayed: 4, runs: 22, hits: 40, atBats: 140, baseOnBalls: 20, strikeOuts: 30, avg: '.286', obp: '.371', slg: '.486', ops: '.857', iso: '.200', plateAppearances: 160 },
+        '147:home': { gamesPlayed: 10, runs: 60, hits: 98, atBats: 350, baseOnBalls: 44, strikeOuts: 70, avg: '.280', obp: '.358', slg: '.470', ops: '.828', iso: '.190', plateAppearances: 400 },
+        '147:away': { gamesPlayed: 10, runs: 50, hits: 92, atBats: 350, baseOnBalls: 36, strikeOuts: 80, avg: '.263', obp: '.340', slg: '.440', ops: '.780', iso: '.177', plateAppearances: 400 },
+        '111:overall': { gamesPlayed: 20, runs: 92, hits: 175, atBats: 705, baseOnBalls: 62, strikeOuts: 168, avg: '.248', obp: '.317', slg: '.402', ops: '.719', iso: '.154', plateAppearances: 790 },
+        '111:vr': { gamesPlayed: 15, runs: 65, hits: 130, atBats: 530, baseOnBalls: 44, strikeOuts: 126, avg: '.245', obp: '.311', slg: '.390', ops: '.701', iso: '.145', plateAppearances: 590 },
+        '111:vl': { gamesPlayed: 5, runs: 27, hits: 45, atBats: 175, baseOnBalls: 18, strikeOuts: 42, avg: '.257', obp: '.334', slg: '.438', ops: '.772', iso: '.181', plateAppearances: 200 },
+        '111:home': { gamesPlayed: 10, runs: 48, hits: 90, atBats: 352, baseOnBalls: 34, strikeOuts: 80, avg: '.256', obp: '.325', slg: '.418', ops: '.743', iso: '.162', plateAppearances: 395 },
+        '111:away': { gamesPlayed: 10, runs: 44, hits: 85, atBats: 353, baseOnBalls: 28, strikeOuts: 88, avg: '.241', obp: '.309', slg: '.386', ops: '.695', iso: '.145', plateAppearances: 395 }
+      }
+
+      const statMatch = target.match(/\/teams\/(147|111)\/stats\?stats=season&group=hitting(?:&(sitCodes=vr|sitCodes=vl|homeRoad=H|homeRoad=A))?/) 
+      if (statMatch) {
+        const teamId = statMatch[1]
+        const splitKey = statMatch[2] === 'sitCodes=vr'
+          ? 'vr'
+          : statMatch[2] === 'sitCodes=vl'
+            ? 'vl'
+            : statMatch[2] === 'homeRoad=H'
+              ? 'home'
+              : statMatch[2] === 'homeRoad=A'
+                ? 'away'
+                : 'overall'
+        return createJsonResponse({
+          body: {
+            stats: [{
+              splits: [{
+                stat: statPayloads[`${teamId}:${splitKey}`]
+              }]
+            }]
+          }
+        })
+      }
+
+      if (target.includes('/teams/147/stats?stats=gameLog&group=hitting&season=')) {
+        return createJsonResponse({
+          body: {
+            stats: [{
+              splits: [
+                { date: '2026-03-21', stat: { runs: 6, hits: 10, atBats: 34, baseOnBalls: 4, strikeOuts: 7, doubles: 2, triples: 0, homeRuns: 1, totalBases: 15 } },
+                { date: '2026-03-20', stat: { runs: 5, hits: 9, atBats: 33, baseOnBalls: 3, strikeOuts: 8, doubles: 1, triples: 0, homeRuns: 2, totalBases: 16 } },
+                { date: '2026-03-15', stat: { runs: 4, hits: 8, atBats: 32, baseOnBalls: 2, strikeOuts: 6, doubles: 2, triples: 0, homeRuns: 1, totalBases: 13 } },
+                { date: '2026-03-10', stat: { runs: 3, hits: 7, atBats: 31, baseOnBalls: 2, strikeOuts: 9, doubles: 1, triples: 0, homeRuns: 0, totalBases: 8 } }
+              ]
+            }]
+          }
+        })
+      }
+
+      if (target.includes('/teams/111/stats?stats=gameLog&group=hitting&season=')) {
+        return createJsonResponse({
+          body: {
+            stats: [{
+              splits: [
+                { date: '2026-03-21', stat: { runs: 4, hits: 8, atBats: 35, baseOnBalls: 2, strikeOuts: 8, doubles: 1, triples: 0, homeRuns: 1, totalBases: 12 } },
+                { date: '2026-03-18', stat: { runs: 3, hits: 7, atBats: 34, baseOnBalls: 3, strikeOuts: 9, doubles: 2, triples: 0, homeRuns: 0, totalBases: 9 } },
+                { date: '2026-03-11', stat: { runs: 5, hits: 9, atBats: 34, baseOnBalls: 4, strikeOuts: 10, doubles: 1, triples: 0, homeRuns: 2, totalBases: 16 } }
+              ]
+            }]
+          }
+        })
+      }
+
+      return createJsonResponse({ body: {} })
+    },
+    async () => {
+      const res = createMockResponse()
+      await handler(createRequest(), res)
+
+      assert.equal(res.statusCode, 200)
+      const payload = redisMock.snapshot('mlb:stats:offense')
+      assert.equal(Object.keys(payload).length, 2)
+      assert.equal(payload['New York Yankees'].runsPerGame, 5.5)
+      assert.equal(payload['New York Yankees'].weightedOnBaseAverage, 0.347)
+      assert.equal(payload['New York Yankees'].expectedWeightedOnBaseAverage, 0.36)
+      assert.equal(payload['New York Yankees'].hardHitRate, 0.412)
+      assert.equal(payload['New York Yankees'].barrelRate, 0.086)
+      assert.equal(payload['New York Yankees'].weightedRunsCreatedPlus, 104.8)
+      assert.equal(payload['New York Yankees'].splits.vsLeftHanded.ops, 0.857)
+      assert.equal(payload['New York Yankees'].splits.last7Days.gamesPlayed, 2)
+      assert.equal(payload['Boston Red Sox'].splits.last14Days.gamesPlayed, 3)
+    }
+  ))
+})
+
 test("runPipeline returns a redacted failed-step payload when a child route fails", { concurrency: false }, async () => {
   process.env.ADMIN_API_SECRET = "test-admin-secret"
   process.env.ODDS_API_KEY = "test-odds-key"
@@ -696,6 +818,7 @@ test("fetchPitcherStats stores advanced pitcher metrics and computed K-BB%, FIP,
       const payload = redisMock.snapshot("mlb:stats:pitchers")
       assert.equal(Object.keys(payload).length, 2)
       assert.equal(payload["Home Pitcher"].pitcherId, 2)
+      assert.equal(payload["Home Pitcher"].throwingHand, null)
       assert.equal(payload["Home Pitcher"].xera, 2.98)
       assert.equal(payload["Home Pitcher"].strikeoutRate, 0.312)
       assert.ok(Math.abs(payload["Home Pitcher"].walkRate - 0.054) < 1e-9)
