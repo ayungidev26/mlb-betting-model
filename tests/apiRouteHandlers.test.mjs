@@ -667,6 +667,66 @@ test("operational routes return 503 when the admin secret is not configured", { 
   }
 })
 
+test("fetchGames stores venue-level ballpark factors on each game", { concurrency: false }, async () => {
+  process.env.ADMIN_API_SECRET = "test-admin-secret"
+  process.env.ODDS_API_KEY = "test-odds-key"
+
+  const handler = await importRoute("../pages/api/fetchGames.js")
+  const redisMock = createMockRedis()
+  const res = createMockResponse()
+
+  await withPatchedRedis(redisMock, async () => withMockedFetch(
+    async (url) => {
+      const target = String(url)
+
+      assert.match(target, /statsapi\.mlb\.com\/api\/v1\/schedule/)
+
+      return createJsonResponse({
+        body: {
+          dates: [
+            {
+              games: [
+                {
+                  gamePk: 123,
+                  gameDate: "2025-04-10T23:10:00Z",
+                  gameType: "R",
+                  teams: {
+                    home: {
+                      team: { name: "New York Yankees" },
+                      probablePitcher: { fullName: "Gerrit Cole" }
+                    },
+                    away: {
+                      team: { name: "Boston Red Sox" },
+                      probablePitcher: { fullName: "Tanner Houck" }
+                    }
+                  },
+                  venue: {
+                    id: 3313,
+                    name: "Yankee Stadium"
+                  },
+                  status: {
+                    detailedState: "Scheduled"
+                  }
+                }
+              ]
+            }
+          ]
+        }
+      })
+    },
+    async () => {
+      await handler(createRequest(), res)
+    }
+  ))
+
+  assert.equal(res.statusCode, 200)
+  assert.equal(res.body.gamesToday, 1)
+  assert.equal(redisMock.snapshot("mlb:games:today")[0].venueId, 3313)
+  assert.equal(redisMock.snapshot("mlb:games:today")[0].ballpark.classification, "neutral")
+  assert.equal(redisMock.snapshot("mlb:games:today")[0].ballpark.homeRunFactor, 1.12)
+  assert.equal(redisMock.snapshot("mlb:ballparkFactors:current").ballparks.length > 0, true)
+})
+
 
 test("fetchPitcherStats stores advanced pitcher metrics and computed K-BB%, FIP, and xFIP", { concurrency: false }, async () => {
   process.env.ADMIN_API_SECRET = "test-admin-secret"

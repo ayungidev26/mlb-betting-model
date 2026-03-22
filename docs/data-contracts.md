@@ -59,12 +59,14 @@ Represents a scheduled or historical MLB game after ingestion from the MLB sched
 | `homePitcher` | `string \| null` | Probable starter if known. |
 | `awayPitcher` | `string \| null` | Probable starter if known. |
 | `venue` | `string \| null` | Venue name if present. |
+| `venueId` | `number \| null` | MLB venue identifier if present. |
+| `ballpark` | `object \| null` | Normalized park-factor context attached by schedule ingestion. |
 | `homeScore` | `number` | Required only once a game is final / historical. |
 | `awayScore` | `number` | Required only once a game is final / historical. |
 
 #### Stage requirements
 
-- **Schedule ingestion (`fetchGames`)**: all required fields except `season`; `homePitcher`, `awayPitcher`, and `venue` are optional; scores are not expected.
+- **Schedule ingestion (`fetchGames`)**: all required fields except `season`; `homePitcher`, `awayPitcher`, `venue`, `venueId`, and `ballpark` are optional; scores are not expected.
 - **Historical ingestion (`loadHistorical`)**: `season`, `homeScore`, and `awayScore` become required in addition to the base required fields.
 - **Prediction input (`runModel`)**: must include `gameId`, `matchKey`, `date`, `homeTeam`, `awayTeam`, and `seasonType`; pitchers are optional but strongly recommended.
 
@@ -125,6 +127,9 @@ Represents one model output for a single game.
 | `awayPitcher` | `string \| null` | Probable starter included in the model input/output. |
 | `pitcherModel` | `object` | Optional detail block containing stored pitcher stats and scoring components. |
 | `bullpenModel` | `object` | Optional detail block containing stored bullpen stats, fatigue features, and scoring components. |
+| `venue` | `string \| null` | Venue name carried forward for display/debugging. |
+| `ballpark` | `object` | Normalized park factors for the venue, including run/HR/hit environment and classification. |
+| `ballparkModel` | `object` | Derived offense-side adjustments showing how the venue changed the rating inputs. |
 | `modelVersion` | `string` | Optional metadata for reproducibility. |
 | `generatedAt` | `string` | Optional prediction timestamp. |
 
@@ -179,6 +184,21 @@ Represents a betting edge discovered by comparing a prediction with canonical od
 ## Implementation note
 
 If a provider exposes different names or IDs, normalize them at the API boundary and preserve the canonical contract internally.
+
+## Ballpark factor contract
+
+When present on a `Game` or `Prediction`, `ballpark` should use normalized factors where `1.00` is league average.
+
+| Field | Type | Notes |
+| --- | --- | --- |
+| `venue` | `string \| null` | Human-readable venue name. |
+| `classification` | `"pitcher-friendly" \| "neutral" \| "hitter-friendly"` | Derived from `runFactor`. |
+| `runFactor` | `number` | Overall run environment multiplier. |
+| `homeRunFactor` | `number` | Home run multiplier. |
+| `hitsFactor` | `number` | Hit environment multiplier. |
+| `doublesTriplesFactor` | `number` | Doubles/triples multiplier when available. |
+| `leftHandedHitterFactor` | `number` | Optional handedness split for left-handed hitters. |
+| `rightHandedHitterFactor` | `number` | Optional handedness split for right-handed hitters. |
 
 ## Odds normalization strategy
 

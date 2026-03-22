@@ -50,6 +50,23 @@ function formatMetricValue(value, digits = 2) {
     : "N/A"
 }
 
+function formatFactor(value) {
+  return typeof value === "number"
+    ? `${value.toFixed(2)}x`
+    : "1.00x"
+}
+
+function formatClassification(value) {
+  if (!value) {
+    return "Neutral"
+  }
+
+  return value
+    .split("-")
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(" ")
+}
+
 function formatGameTime(value) {
   if (!value) {
     return "Time TBD"
@@ -192,6 +209,31 @@ function getOddsComparison(game) {
       ? formatMoneyline(modelOdds)
       : "N/A"
   }
+}
+
+function getBallparkSummary(ballpark) {
+  if (!ballpark) {
+    return "Neutral park baseline"
+  }
+
+  return [
+    ballpark.venue || "Unknown park",
+    formatClassification(ballpark.classification),
+    `Run ${formatFactor(ballpark.runFactor)}`,
+    `HR ${formatFactor(ballpark.homeRunFactor)}`
+  ].join(" • ")
+}
+
+function getBallparkAdjustmentSummary(details) {
+  if (!details) {
+    return "Neutral park adjustment"
+  }
+
+  return [
+    `Expected runs ${formatMetricValue(details.expectedRuns)}`,
+    `Rating adj ${typeof details.ratingAdjustment === "number" ? (details.ratingAdjustment > 0 ? "+" : "") + details.ratingAdjustment.toFixed(1) : "0.0"}`,
+    `Handedness ${formatFactor(details.factors?.handednessFactor)}`
+  ].join(" • ")
 }
 
 function DashboardStat({ label, value, emphasis = false, tone = "default" }) {
@@ -647,6 +689,7 @@ export default function Home({ games = [], summary, error = "" }) {
             const homePitcherDetails = game.pitcherModel?.home || null
             const awayBullpenDetails = game.bullpenModel?.away || null
             const homeBullpenDetails = game.bullpenModel?.home || null
+            const ballparkModel = game.ballparkModel || null
             const oddsComparison = getOddsComparison(game)
             const betType = getGameBetType(game)
 
@@ -655,18 +698,19 @@ export default function Home({ games = [], summary, error = "" }) {
                 className={`gameCard gameCard--${edgeTier.tone}`}
                 key={game.matchKey || game.gameId || `${game.homeTeam}-${game.awayTeam}-${index}`}
               >
-                <div className="gameCard__header">
-                  <div>
-                    <p className="gameCard__meta">{formatGameTime(game.date)}</p>
-                    <h2 className="gameCard__title">
-                      <span>{game.awayTeam}</span>
-                      <span className="vs">@</span>
-                      <span>{game.homeTeam}</span>
-                    </h2>
-                  </div>
-                  <div className="tagRow tagRow--tight">
-                    <span className="tag tag--muted">{formatBetTypeLabel(betType)}</span>
-                    <span className={`tag tag--${edgeTier.tone}`}>{edgeTier.label}</span>
+                  <div className="gameCard__header">
+                    <div>
+                      <p className="gameCard__meta">{formatGameTime(game.date)}</p>
+                      <h2 className="gameCard__title">
+                        <span>{game.awayTeam}</span>
+                        <span className="vs">@</span>
+                        <span>{game.homeTeam}</span>
+                      </h2>
+                      <p className="gameCard__submeta">{getBallparkSummary(game.ballpark)}</p>
+                    </div>
+                    <div className="tagRow tagRow--tight">
+                      <span className="tag tag--muted">{formatBetTypeLabel(betType)}</span>
+                      <span className={`tag tag--${edgeTier.tone}`}>{edgeTier.label}</span>
                   </div>
                 </div>
 
@@ -711,6 +755,33 @@ export default function Home({ games = [], summary, error = "" }) {
                         items={[
                           { label: `${game.awayTeam} bullpen`, value: getBullpenSummary(awayBullpenDetails) },
                           { label: `${game.homeTeam} bullpen`, value: getBullpenSummary(homeBullpenDetails) }
+                        ]}
+                      />
+                    </div>
+                  </SectionBlock>
+
+                  <SectionBlock
+                    kicker="Environment"
+                    title="Ballpark factors"
+                    subtitle="Venue-adjusted offense context"
+                  >
+                    <div className="stack">
+                      <InfoList
+                        items={[
+                          { label: "Venue", value: game.ballpark?.venue || game.venue || "Unknown park" },
+                          { label: "Classification", value: formatClassification(game.ballpark?.classification) },
+                          { label: "Run factor", value: formatFactor(game.ballpark?.runFactor) },
+                          { label: "HR factor", value: formatFactor(game.ballpark?.homeRunFactor) },
+                          { label: "Hits factor", value: formatFactor(game.ballpark?.hitsFactor) },
+                          { label: "2B/3B factor", value: formatFactor(game.ballpark?.doublesTriplesFactor) }
+                        ]}
+                      />
+                      <InfoList
+                        items={[
+                          { label: `${game.awayTeam} park impact`, value: getBallparkAdjustmentSummary(ballparkModel?.away) },
+                          { label: `${game.homeTeam} park impact`, value: getBallparkAdjustmentSummary(ballparkModel?.home) },
+                          { label: "LHH factor", value: formatFactor(game.ballpark?.leftHandedHitterFactor) },
+                          { label: "RHH factor", value: formatFactor(game.ballpark?.rightHandedHitterFactor) }
                         ]}
                       />
                     </div>
@@ -1070,6 +1141,12 @@ export default function Home({ games = [], summary, error = "" }) {
           align-items: center;
           line-height: 1.25;
           color: #f8fafc;
+        }
+
+        .gameCard__submeta {
+          margin: 8px 0 0;
+          color: #cbd5e1;
+          font-size: 0.92rem;
         }
 
         .summaryCard__title {

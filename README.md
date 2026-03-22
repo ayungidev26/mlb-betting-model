@@ -12,6 +12,7 @@ The model evaluates each MLB game using a combination of:
 * Starting pitcher performance
 * Bullpen strength
 * Team offense strength (season, split, rolling-form, and expected-contact inputs)
+* Ballpark factors (run, HR, hit, doubles/triples, and handedness splits when available)
 * Home field advantage
 * Sportsbook betting odds
 
@@ -51,6 +52,7 @@ Do **not** hardcode bearer tokens in the repo, client-side code, or test fixture
 | `ADMIN_API_SECRET` | Yes | Secures the admin-only operational API routes. |
 | `CRON_SECRET` | Yes | Secures the public cron endpoint that Vercel invokes automatically. |
 | `SCHEDULER_BASE_URL` | Local/manual only | Base URL used by `npm run test:scheduler` for manual verification. Defaults to `http://localhost:3000`. |
+| `BALLPARK_FACTORS_URL` | Optional | External JSON or CSV feed for normalized ballpark factors. When omitted, the app falls back to the bundled baseline dataset in `data/ballparkFactors.js`. |
 
 ---
 
@@ -81,7 +83,25 @@ Data includes:
 * Game date
 * Probable starting pitchers
 * Venue
+* Venue ID
+* Ballpark factors (`runFactor`, `homeRunFactor`, `hitsFactor`, `doublesTriplesFactor`, handedness splits, and derived classification)
 * Season type (spring / regular / playoffs)
+
+Ballpark source notes:
+
+* The app first checks `BALLPARK_FACTORS_URL` for a normalized JSON or CSV feed.
+* If no external feed is configured, it uses the bundled baseline in `data/ballparkFactors.js`.
+* All factors are normalized to `1.00 = league average`.
+* Park classification is derived from `runFactor`:
+  * `< 0.95` → pitcher-friendly
+  * `0.95 - 1.05` → neutral
+  * `> 1.05` → hitter-friendly
+
+The current ballpark lookup cache is also written to Redis:
+
+```
+mlb:ballparkFactors:current
+```
 
 ---
 
@@ -263,6 +283,7 @@ Team Elo Rating
 + Starting Pitcher Rating
 + Bullpen Strength
 + Team Offense Strength
++ Ballpark Adjustment
 + Home Field Advantage
 ```
 
@@ -272,6 +293,14 @@ The offense model now contributes season baseline production plus contextual fea
 * `recent_offense_form`
 * `power_score`
 * `plate_discipline_score`
+
+Ballpark factors are applied in the model as follows:
+
+* `runFactor` adjusts each offense's expected scoring environment.
+* `homeRunFactor` amplifies or suppresses power based on team quality of contact plus the opposing starter's HR/fly-ball exposure.
+* `hitsFactor` and `doublesTriplesFactor` nudge contact-oriented run creation up or down.
+* `leftHandedHitterFactor` / `rightHandedHitterFactor` are used when available, with the opposing starter's throwing hand acting as a same-day proxy for which side of the lineup is most likely to benefit.
+* The resulting venue adjustments are stored in `ballparkModel.home` and `ballparkModel.away` so the UI can show how the park moved each side's rating.
 
 Predictions are stored in Redis:
 
@@ -327,6 +356,7 @@ findEdges
 The orchestration route forces a fresh odds refresh, then leaves the latest outputs in Redis under the existing daily keys, including:
 
 ```
+mlb:ballparkFactors:current
 mlb:predictions:today
 mlb:edges:today
 ```
@@ -531,7 +561,7 @@ Sports betting involves risk and should be done responsibly.
 
 ## Manual Pipeline Testing
 
-Use the existing admin-only routes to validate the expanded pitcher pipeline end to end.
+Use the existing admin-only routes to validate the full pipeline, including ballpark enrichment, end to end.
 
 1. Start the app locally:
 
@@ -540,7 +570,7 @@ Use the existing admin-only routes to validate the expanded pitcher pipeline end
    npm run dev
    ```
 
-2. Set the required environment variables in `.env.local` (`UPSTASH_REDIS_REST_URL`, `UPSTASH_REDIS_REST_TOKEN`, `ODDS_API_KEY`, `ADMIN_API_SECRET`, and optionally `CRON_SECRET`).
+2. Set the required environment variables in `.env.local` (`UPSTASH_REDIS_REST_URL`, `UPSTASH_REDIS_REST_TOKEN`, `ODDS_API_KEY`, `ADMIN_API_SECRET`, and optionally `CRON_SECRET` / `BALLPARK_FACTORS_URL`).
 
 3. Load the daily data, pitching inputs, bullpen inputs, and offense inputs:
 
@@ -558,7 +588,21 @@ Use the existing admin-only routes to validate the expanded pitcher pipeline end
      -H "Authorization: Bearer $ADMIN_API_SECRET"
    ```
 
-4. Verify the cached pitcher payload in Redis under `mlb:stats:pitchers`. Each pitcher record should now include:
+4. Verify the cached schedule payload in Redis under `mlb:games:today`. Each game should now include:
+
+   * `venue`
+   * `venueId`
+   * `ballpark.runFactor`
+   * `ballpark.homeRunFactor`
+   * `ballpark.hitsFactor`
+   * `ballpark.doublesTriplesFactor`
+   * `ballpark.leftHandedHitterFactor`
+   * `ballpark.rightHandedHitterFactor`
+   * `ballpark.classification`
+
+   The shared lookup cache should also exist under `mlb:ballparkFactors:current`.
+
+5. Verify the cached pitcher payload in Redis under `mlb:stats:pitchers`. Each pitcher record should now include:
 
    * `xera`
    * `fip`
@@ -574,7 +618,7 @@ Use the existing admin-only routes to validate the expanded pitcher pipeline end
    * `barrelRate`
    * `averageExitVelocity`
 
-5. Verify the cached offense payload in Redis under `mlb:stats:offense`. Each team record now includes:
+6. Verify the cached offense payload in Redis under `mlb:stats:offense`. Each team record now includes:
 
    * `runsPerGame`
    * `battingAverage`
@@ -598,16 +642,16 @@ Use the existing admin-only routes to validate the expanded pitcher pipeline end
    * `splits.last7Days`
    * `splits.last14Days`
 
-6. Run the rest of the pipeline and inspect the prediction output:
+7. Run the rest of the pipeline and inspect the prediction output:
 
    ```bash
    curl -X POST http://localhost:3000/api/runPipeline \
      -H "Authorization: Bearer $ADMIN_API_SECRET"
    ```
 
-   `mlb:predictions:today` now includes `pitcherModel`, `bullpenModel`, and `offenseModel` blocks with stored stat snapshots, split snapshots, contextual offense-derived features, and per-feature scoring components used during edge generation.
+   `mlb:predictions:today` now includes `pitcherModel`, `bullpenModel`, `offenseModel`, `ballpark`, and `ballparkModel` blocks with stored stat snapshots, split snapshots, venue factors, and per-side ballpark adjustments used during edge generation.
 
-7. Verify the cached bullpen payload in Redis under `mlb:stats:bullpen`. Each team record should now include:
+8. Verify the cached bullpen payload in Redis under `mlb:stats:bullpen`. Each team record should now include:
 
    * `era`
    * `whip`
@@ -627,9 +671,10 @@ Use the existing admin-only routes to validate the expanded pitcher pipeline end
    * `usage.relieversUsedYesterday`
    * `usage.keyRelieversBackToBack`
 
-7. Mapping assumptions for manual verification:
+9. Mapping assumptions for manual verification:
 
    * MLB Stats API `avg` is treated as bullpen opponent batting average.
    * MLB Stats API `leftOnBasePercentage` is treated as bullpen `LOB%`.
    * The fatigue metrics are derived from the previous five days of boxscore pitcher usage, using the first listed pitcher as the starter and the remaining pitchers as relievers.
-
+   * When no external park-factor feed is configured, the bundled baseline dataset is used as a stable fallback.
+   * Handedness-specific park factors use the opposing starter's throwing hand as a proxy because same-day confirmed batting-order handedness is not available during schedule ingestion.

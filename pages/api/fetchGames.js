@@ -5,6 +5,7 @@ import { validateExternalMlbSchedulePayload } from "../../lib/payloadValidation.
 import { requireOperationalRouteAccess } from "../../lib/apiSecurity.js"
 import { sendRouteError } from "../../lib/apiErrors.js"
 import { fetchJsonWithRetry } from "../../lib/upstreamFetch.js"
+import { getBallparkFactorIndex, resolveBallparkFactors } from "../../lib/ballparkFactors.js"
 
 export default async function handler(req, res) {
   if (!requireOperationalRouteAccess(req, res)) {
@@ -12,6 +13,7 @@ export default async function handler(req, res) {
   }
 
   try {
+    const ballparkFactorIndex = await getBallparkFactorIndex()
 
     const today = new Date().toISOString().split("T")[0]
 
@@ -33,7 +35,7 @@ export default async function handler(req, res) {
 
     }
 
-    const games = data.dates[0].games.map(game => {
+    const games = await Promise.all(data.dates[0].games.map(async (game) => {
 
       let seasonType = "regular"
 
@@ -47,6 +49,11 @@ export default async function handler(req, res) {
 
       const homeTeam = game.teams.home.team.name
       const awayTeam = game.teams.away.team.name
+      const venue = game.venue?.name || null
+      const ballpark = await resolveBallparkFactors({
+        venue,
+        homeTeam
+      }, ballparkFactorIndex)
 
       return {
         gameId: game.gamePk,
@@ -58,14 +65,20 @@ export default async function handler(req, res) {
         homePitcher: game.teams.home.probablePitcher?.fullName || null,
         awayPitcher: game.teams.away.probablePitcher?.fullName || null,
 
-        venue: game.venue?.name || null,
+        venue,
+        venueId: game.venue?.id ?? null,
+        ballpark,
         status: game.status.detailedState,
         seasonType
       }
 
-    })
+    }))
 
     await redis.set("mlb:games:today", games)
+    await redis.set("mlb:ballparkFactors:current", {
+      source: ballparkFactorIndex.source,
+      ballparks: ballparkFactorIndex.records
+    })
 
     res.status(200).json({
       gamesToday: games.length,
