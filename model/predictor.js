@@ -1,16 +1,24 @@
 import { getPitcherRatingDetails } from "./pitcherRatings.js"
 import { getBullpenRatingDetails } from "./bullpenRatings.js"
+import { getOffenseRatingDetails } from "./offenseRatings.js"
 
-export async function predictGame(game, teamRatings, bullpenStats, pitcherStats = null) {
+function resolveOpposingPitcherHand(pitcherName, pitcherStats) {
+  if (!pitcherName || !pitcherStats || typeof pitcherStats !== "object") {
+    return null
+  }
+
+  const throwingHand = pitcherStats?.[pitcherName]?.throwingHand || null
+  return typeof throwingHand === "string" && throwingHand.length > 0 ? throwingHand : null
+}
+
+export async function predictGame(game, teamRatings, bullpenStats, pitcherStats = null, offenseStats = null) {
   try {
     const homeTeam = game.homeTeam
     const awayTeam = game.awayTeam
 
-    // Team base ratings
     const homeTeamRating = teamRatings?.[homeTeam] || 1500
     const awayTeamRating = teamRatings?.[awayTeam] || 1500
 
-    // Pitcher ratings and feature inputs
     const homePitcherDetails =
       await getPitcherRatingDetails(game.homePitcher, pitcherStats)
     const awayPitcherDetails =
@@ -19,7 +27,6 @@ export async function predictGame(game, teamRatings, bullpenStats, pitcherStats 
     const homePitcherRating = homePitcherDetails.rating
     const awayPitcherRating = awayPitcherDetails.rating
 
-    // Bullpen ratings
     const homeBullpenDetails =
       getBullpenRatingDetails(homeTeam, bullpenStats)
 
@@ -29,23 +36,35 @@ export async function predictGame(game, teamRatings, bullpenStats, pitcherStats 
     const homeBullpenRating = homeBullpenDetails.rating
     const awayBullpenRating = awayBullpenDetails.rating
 
-    // Home field advantage
+    const homeOffenseDetails = getOffenseRatingDetails(homeTeam, offenseStats, {
+      isHomeTeam: true,
+      opposingPitcherHand: resolveOpposingPitcherHand(game.awayPitcher, pitcherStats)
+    })
+    const awayOffenseDetails = getOffenseRatingDetails(awayTeam, offenseStats, {
+      isHomeTeam: false,
+      opposingPitcherHand: resolveOpposingPitcherHand(game.homePitcher, pitcherStats)
+    })
+
+    const homeOffenseRating = homeOffenseDetails.rating
+    const awayOffenseRating = awayOffenseDetails.rating
+
     const HOME_FIELD = 25
 
     const homeRating =
       homeTeamRating +
       homePitcherRating +
       homeBullpenRating +
+      homeOffenseRating +
       HOME_FIELD
 
     const awayRating =
       awayTeamRating +
       awayPitcherRating +
-      awayBullpenRating
+      awayBullpenRating +
+      awayOffenseRating
 
     const ratingDiff = homeRating - awayRating
 
-    // Elo probability formula
     const homeWinProbability =
       1 / (1 + Math.pow(10, (-ratingDiff / 400)))
 
@@ -91,6 +110,21 @@ export async function predictGame(game, teamRatings, bullpenStats, pitcherStats 
           rating: awayBullpenRating,
           stats: awayBullpenDetails.stats,
           components: awayBullpenDetails.components
+        }
+      },
+
+      offenseModel: {
+        home: {
+          rating: homeOffenseRating,
+          stats: homeOffenseDetails.stats,
+          components: homeOffenseDetails.components,
+          derived: homeOffenseDetails.derived
+        },
+        away: {
+          rating: awayOffenseRating,
+          stats: awayOffenseDetails.stats,
+          components: awayOffenseDetails.components,
+          derived: awayOffenseDetails.derived
         }
       },
 

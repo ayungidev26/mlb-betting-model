@@ -475,7 +475,7 @@ test("cron route runs the existing pipeline once per Eastern day and skips dupli
       assert.equal(firstRun.statusCode, 200)
       assert.equal(firstRun.body.ok, true)
       assert.equal(firstRun.body.pipeline.ok, true)
-      assert.equal(firstRun.body.pipeline.completedSteps, 6)
+      assert.equal(firstRun.body.pipeline.completedSteps, 7)
 
       const secondRun = createMockResponse()
       await handler(createRequest(), secondRun)

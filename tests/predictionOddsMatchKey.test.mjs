@@ -61,6 +61,7 @@ test('predictGame carries matchKey forward from the game object', async () => {
       'Oakland Athletics': 1500,
       'Los Angeles Dodgers': 1550
     },
+    null,
     null
   )
 

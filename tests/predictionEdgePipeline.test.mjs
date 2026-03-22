@@ -51,6 +51,10 @@ test('prediction to edge pipeline stores predictions and edges from mocked Redis
       'Oakland Athletics': { era: 4.25, whip: 1.31 },
       'Los Angeles Dodgers': { era: 3.15, whip: 1.14 }
     },
+    'mlb:stats:offense': {
+      'Oakland Athletics': { runsPerGame: 4.1, battingAverage: 0.239, onBasePercentage: 0.31, sluggingPercentage: 0.39, ops: 0.7, isolatedPower: 0.151, strikeoutRate: 0.23, walkRate: 0.082, weightedOnBaseAverage: 0.305, weightedRunsCreatedPlus: 93, splits: {} },
+      'Los Angeles Dodgers': { runsPerGame: 5.4, battingAverage: 0.267, onBasePercentage: 0.342, sluggingPercentage: 0.455, ops: 0.797, isolatedPower: 0.188, strikeoutRate: 0.205, walkRate: 0.098, weightedOnBaseAverage: 0.344, weightedRunsCreatedPlus: 118, splits: {} }
+    },
     'mlb:odds:today': [
       {
         gameId: 'odds-1',
@@ -136,6 +140,7 @@ test('prediction pipeline only fetches pitcher stats once for multiple games in 
       'Seattle Mariners': 1520
     },
     'mlb:stats:bullpen': null,
+    'mlb:stats:offense': null,
     'mlb:stats:pitchers': {
       'Pitcher A': { era: 2.9, whip: 1.0, strikeouts: 120, innings: 95 },
       'Pitcher B': { era: 3.2, whip: 1.1, strikeouts: 110, innings: 100 },
@@ -233,18 +238,29 @@ test('prediction output includes advanced pitcher feature inputs for scoring', a
       'Los Angeles Dodgers': 1600
     },
     'mlb:stats:bullpen': null,
+    'mlb:stats:offense': null,
     'mlb:stats:pitchers': {
       'Pitcher A': {
-        era: 2.9, whip: 1.0, strikeouts: 120, innings: 95, xera: 3.05, fip: 3.12, xfip: 3.2,
+        throwingHand: 'R', era: 2.9, whip: 1.0, strikeouts: 120, innings: 95, xera: 3.05, fip: 3.12, xfip: 3.2,
         strikeoutRate: 0.31, walkRate: 0.06, strikeoutMinusWalkRate: 0.25, battingAverageAgainst: 0.211,
         expectedBattingAverageAgainst: 0.219, sluggingAgainst: 0.338, expectedSluggingAgainst: 0.349,
         hardHitRate: 0.32, barrelRate: 0.07, averageExitVelocity: 88.1
       },
       'Pitcher B': {
-        era: 4.2, whip: 1.29, strikeouts: 95, innings: 98, xera: 4.05, fip: 4.12, xfip: 4.2,
+        throwingHand: 'L', era: 4.2, whip: 1.29, strikeouts: 95, innings: 98, xera: 4.05, fip: 4.12, xfip: 4.2,
         strikeoutRate: 0.23, walkRate: 0.08, strikeoutMinusWalkRate: 0.15, battingAverageAgainst: 0.251,
         expectedBattingAverageAgainst: 0.244, sluggingAgainst: 0.412, expectedSluggingAgainst: 0.401,
         hardHitRate: 0.4, barrelRate: 0.09, averageExitVelocity: 90.4
+      }
+    },
+    'mlb:stats:offense': {
+      'Oakland Athletics': {
+        runsPerGame: 4.05, battingAverage: 0.241, onBasePercentage: 0.309, sluggingPercentage: 0.394, ops: 0.703, isolatedPower: 0.153, strikeoutRate: 0.239, walkRate: 0.079, weightedOnBaseAverage: 0.307, weightedRunsCreatedPlus: 95, expectedBattingAverage: 0.244, expectedSlugging: 0.401, expectedWeightedOnBaseAverage: 0.311, hardHitRate: 0.368, barrelRate: 0.074,
+        splits: { vsRightHanded: { ops: 0.694, weightedRunsCreatedPlus: 91 }, vsLeftHanded: { ops: 0.742, weightedRunsCreatedPlus: 103 }, home: { ops: 0.716 }, away: { ops: 0.689 }, last7Days: { runsPerGame: 4.5, ops: 0.735 }, last14Days: { runsPerGame: 4.2, ops: 0.719 } }
+      },
+      'Los Angeles Dodgers': {
+        runsPerGame: 5.62, battingAverage: 0.272, onBasePercentage: 0.351, sluggingPercentage: 0.472, ops: 0.823, isolatedPower: 0.2, strikeoutRate: 0.207, walkRate: 0.101, weightedOnBaseAverage: 0.356, weightedRunsCreatedPlus: 121, expectedBattingAverage: 0.279, expectedSlugging: 0.485, expectedWeightedOnBaseAverage: 0.362, hardHitRate: 0.441, barrelRate: 0.101,
+        splits: { vsRightHanded: { ops: 0.818, weightedRunsCreatedPlus: 119 }, vsLeftHanded: { ops: 0.838, weightedRunsCreatedPlus: 126 }, home: { ops: 0.829 }, away: { ops: 0.816 }, last7Days: { runsPerGame: 5.8, ops: 0.847 }, last14Days: { runsPerGame: 5.5, ops: 0.831 } }
       }
     }
   })
@@ -259,4 +275,7 @@ test('prediction output includes advanced pitcher feature inputs for scoring', a
   assert.equal(Array.isArray(prediction.pitcherModel.home.components), true)
   assert.equal(prediction.bullpenModel.home.rating >= 0, true)
   assert.equal(Array.isArray(prediction.bullpenModel.home.components), true)
+  assert.equal(prediction.offenseModel.away.rating > prediction.offenseModel.home.rating, true)
+  assert.equal(prediction.offenseModel.home.derived.opposingPitcherHand, 'L')
+  assert.equal(prediction.offenseModel.away.stats.overall.weightedRunsCreatedPlus, 121)
 })
