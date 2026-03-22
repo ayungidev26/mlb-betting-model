@@ -2,7 +2,7 @@
 import { redis } from "../../lib/upstash.js"
 import { requireOperationalRouteAccess } from "../../lib/apiSecurity.js"
 import { sendRouteError } from "../../lib/apiErrors.js"
-import { fetchJsonWithRetry } from "../../lib/upstreamFetch.js"
+import { fetchBullpenStatsByTeam } from "../../lib/bullpenStats.js"
 import {
   enforceIpRateLimit,
   enforceJobLock,
@@ -39,34 +39,13 @@ export default async function handler(req, res) {
       return
     }
 
-    const url =
-      "https://statsapi.mlb.com/api/v1/teams?sportId=1"
-
-    const data = await fetchJsonWithRetry(url)
-    const bullpenStats = {}
-
-    for (const team of data.teams) {
-      const statsUrl =
-        `https://statsapi.mlb.com/api/v1/teams/${team.id}/stats?stats=season&group=pitching`
-
-      const statsData = await fetchJsonWithRetry(statsUrl)
-
-      const stat =
-        statsData.stats?.[0]?.splits?.[0]?.stat
-
-      if (!stat) continue
-
-      bullpenStats[team.name] = {
-        era: parseFloat(stat.era),
-        whip: parseFloat(stat.whip)
-      }
-    }
+    const bullpenStats = await fetchBullpenStatsByTeam()
 
     await redis.set("mlb:stats:bullpen", bullpenStats)
 
     res.status(200).json({
       teamsCollected: Object.keys(bullpenStats).length,
-      sample: Object.entries(bullpenStats).slice(0,3)
+      sample: Object.entries(bullpenStats).slice(0, 3)
     })
   } catch (error) {
     return sendRouteError(res, "fetchBullpenStats", error)

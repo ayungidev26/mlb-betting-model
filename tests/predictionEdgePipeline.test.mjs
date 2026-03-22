@@ -257,4 +257,6 @@ test('prediction output includes advanced pitcher feature inputs for scoring', a
   assert.equal(prediction.pitcherModel.home.stats.xera, 3.05)
   assert.equal(prediction.pitcherModel.home.stats.strikeoutMinusWalkRate, 0.25)
   assert.equal(Array.isArray(prediction.pitcherModel.home.components), true)
+  assert.equal(prediction.bullpenModel.home.rating >= 0, true)
+  assert.equal(Array.isArray(prediction.bullpenModel.home.components), true)
 })

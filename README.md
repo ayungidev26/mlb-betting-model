@@ -164,8 +164,32 @@ Operational access:
 
 Metrics collected:
 
-* Team ERA
-* Team WHIP
+* Team bullpen ERA
+* Team bullpen WHIP
+* Team bullpen FIP
+* Team bullpen xFIP
+* Team bullpen K%
+* Team bullpen BB%
+* Team bullpen K-BB%
+* Team bullpen HR/9
+* Team bullpen opponent batting average
+* Team bullpen LOB%
+* Team bullpen Hard Hit%
+* Team bullpen Barrel%
+* Team bullpen average exit velocity
+* Bullpen innings pitched over the last 3 days
+* Bullpen innings pitched over the last 5 days
+* Number of relievers used yesterday
+* Whether key relievers appeared on back-to-back days
+
+Source and mapping notes:
+
+* Relief-only season aggregates are requested from the MLB Stats API with `sitCodes=rp` and fall back to the full team pitching split if the relief split is unavailable.
+* `FIP` prefers a native field when present and otherwise is calculated from bullpen HR, BB, HBP, K, and innings.
+* `xFIP` prefers a native field when present and otherwise is calculated from bullpen fly balls plus a league HR/FB context derived from current-season team pitching totals.
+* `K-BB%` is stored as `strikeoutRate - walkRate` when the upstream payload does not expose it directly.
+* `Hard Hit%`, `Barrel%`, and `Average Exit Velocity` are aggregated from Baseball Savant reliever-level Statcast metrics and weighted by reliever workload.
+* Percentage fields continue to be stored as decimals (for example, `0.274` for `27.4%`).
 
 Stored in Redis:
 
@@ -491,5 +515,31 @@ Use the existing admin-only routes to validate the expanded pitcher pipeline end
      -H "Authorization: Bearer $ADMIN_API_SECRET"
    ```
 
-   `mlb:predictions:today` now includes a `pitcherModel` block with the stored pitcher stats and per-feature scoring components used during edge generation.
+   `mlb:predictions:today` now includes both a `pitcherModel` block and a `bullpenModel` block with the stored stat snapshots and per-feature scoring components used during edge generation.
+
+6. Verify the cached bullpen payload in Redis under `mlb:stats:bullpen`. Each team record should now include:
+
+   * `era`
+   * `whip`
+   * `fip`
+   * `xfip`
+   * `strikeoutRate`
+   * `walkRate`
+   * `strikeoutMinusWalkRate`
+   * `homeRunsPer9`
+   * `battingAverageAgainst`
+   * `leftOnBaseRate`
+   * `hardHitRate`
+   * `barrelRate`
+   * `averageExitVelocity`
+   * `usage.inningsLast3Days`
+   * `usage.inningsLast5Days`
+   * `usage.relieversUsedYesterday`
+   * `usage.keyRelieversBackToBack`
+
+7. Mapping assumptions for manual verification:
+
+   * MLB Stats API `avg` is treated as bullpen opponent batting average.
+   * MLB Stats API `leftOnBasePercentage` is treated as bullpen `LOB%`.
+   * The fatigue metrics are derived from the previous five days of boxscore pitcher usage, using the first listed pitcher as the starter and the remaining pitchers as relievers.
 
