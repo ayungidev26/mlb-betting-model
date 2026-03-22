@@ -1,5 +1,5 @@
 import { getPitcherRatingDetails } from "./pitcherRatings.js"
-import { getBullpenRating } from "./bullpenRatings.js"
+import { getBullpenRatingDetails } from "./bullpenRatings.js"
 
 export async function predictGame(game, teamRatings, bullpenStats, pitcherStats = null) {
   try {
@@ -20,11 +20,14 @@ export async function predictGame(game, teamRatings, bullpenStats, pitcherStats 
     const awayPitcherRating = awayPitcherDetails.rating
 
     // Bullpen ratings
-    const homeBullpenRating =
-      getBullpenRating(homeTeam, bullpenStats)
+    const homeBullpenDetails =
+      getBullpenRatingDetails(homeTeam, bullpenStats)
 
-    const awayBullpenRating =
-      getBullpenRating(awayTeam, bullpenStats)
+    const awayBullpenDetails =
+      getBullpenRatingDetails(awayTeam, bullpenStats)
+
+    const homeBullpenRating = homeBullpenDetails.rating
+    const awayBullpenRating = awayBullpenDetails.rating
 
     // Home field advantage
     const HOME_FIELD = 25
@@ -75,6 +78,19 @@ export async function predictGame(game, teamRatings, bullpenStats, pitcherStats 
           rating: awayPitcherRating,
           stats: awayPitcherDetails.stats,
           components: awayPitcherDetails.components
+        }
+      },
+
+      bullpenModel: {
+        home: {
+          rating: homeBullpenRating,
+          stats: homeBullpenDetails.stats,
+          components: homeBullpenDetails.components
+        },
+        away: {
+          rating: awayBullpenRating,
+          stats: awayBullpenDetails.stats,
+          components: awayBullpenDetails.components
         }
       },
 

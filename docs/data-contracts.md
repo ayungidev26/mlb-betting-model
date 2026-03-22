@@ -123,6 +123,8 @@ Represents one model output for a single game.
 | --- | --- | --- |
 | `homePitcher` | `string \| null` | Probable starter included in the model input/output. |
 | `awayPitcher` | `string \| null` | Probable starter included in the model input/output. |
+| `pitcherModel` | `object` | Optional detail block containing stored pitcher stats and scoring components. |
+| `bullpenModel` | `object` | Optional detail block containing stored bullpen stats, fatigue features, and scoring components. |
 | `modelVersion` | `string` | Optional metadata for reproducibility. |
 | `generatedAt` | `string` | Optional prediction timestamp. |
 
