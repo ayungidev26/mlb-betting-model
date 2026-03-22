@@ -1,7 +1,11 @@
 import test from "node:test"
 import assert from "node:assert/strict"
 
-import { redis } from "../lib/upstash.js"
+process.env.UPSTASH_REDIS_REST_URL = "https://example-upstash.test"
+process.env.UPSTASH_REDIS_REST_TOKEN = "test-token"
+
+const { redis } = await import("../lib/upstash.js")
+
 
 const ROUTE_CASES = [
   ["buildRatings", "../pages/api/buildRatings.js"],
