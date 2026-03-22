@@ -76,6 +76,7 @@ function DashboardStat({ label, value, emphasis = false, tone = "default" }) {
 
 export default function Home({ games, summary, error }) {
   const recommendationCount = summary?.recommendedBets ?? 0
+  const topPlays = games.slice(0, Math.min(5, games.length))
 
   return (
     <main className="dashboard">
@@ -112,6 +113,55 @@ export default function Home({ games, summary, error }) {
 
       {!error && summary?.message && games.length === 0 && (
         <p className="notice">{summary.message}</p>
+      )}
+
+      {!error && topPlays.length > 0 && (
+        <section className="topPlays" aria-label="Top Plays">
+          <div className="topPlays__header">
+            <div>
+              <p className="eyebrow topPlays__eyebrow">Best bets</p>
+              <h2 className="sectionTitle">Top Plays</h2>
+            </div>
+            <p className="topPlays__copy">
+              The highest-edge matchups are pinned here first so the strongest plays
+              stand out immediately.
+            </p>
+          </div>
+
+          <div className="topPlays__grid">
+            {topPlays.map((game, index) => {
+              const edgeTier = getEdgeTier(game.edge)
+              const recommendedSide = game.recommendedBet || edgeTier.recommendation
+
+              return (
+                <article
+                  className={`topPlayCard topPlayCard--${edgeTier.tone}`}
+                  key={`top-play-${game.matchKey || game.gameId || `${game.homeTeam}-${game.awayTeam}-${index}`}`}
+                >
+                  <div className="topPlayCard__rank">#{index + 1}</div>
+                  <div className="topPlayCard__header">
+                    <div>
+                      <p className="gameCard__meta">{formatGameTime(game.date)}</p>
+                      <h3 className="topPlayCard__teams">
+                        <span>{game.awayTeam}</span>
+                        <span className="vs">@</span>
+                        <span>{game.homeTeam}</span>
+                      </h3>
+                    </div>
+                    <span className={`pill pill--${edgeTier.tone}`}>
+                      {edgeTier.label}
+                    </span>
+                  </div>
+
+                  <div className="topPlayCard__stats">
+                    <DashboardStat label="Edge" value={formatEdge(game.edge)} emphasis tone={edgeTier.tone} />
+                    <DashboardStat label="Bet recommendation" value={recommendedSide} tone={edgeTier.tone} />
+                  </div>
+                </article>
+              )
+            })}
+          </div>
+        </section>
       )}
 
       {!error && games.length > 0 && (
@@ -291,6 +341,120 @@ export default function Home({ games, summary, error }) {
           border-color: rgba(248, 113, 113, 0.36);
         }
 
+        .topPlays {
+          margin-bottom: 28px;
+          padding: 24px;
+          border-radius: 28px;
+          border: 1px solid rgba(96, 165, 250, 0.28);
+          background:
+            linear-gradient(135deg, rgba(30, 64, 175, 0.3), rgba(15, 23, 42, 0.92) 45%),
+            rgba(15, 23, 42, 0.9);
+          box-shadow: 0 24px 48px rgba(15, 23, 42, 0.34);
+        }
+
+        .topPlays__header {
+          display: flex;
+          justify-content: space-between;
+          align-items: flex-end;
+          gap: 20px;
+          margin-bottom: 20px;
+        }
+
+        .topPlays__eyebrow {
+          margin-bottom: 10px;
+        }
+
+        .sectionTitle {
+          margin: 0;
+          font-size: clamp(1.7rem, 3vw, 2.4rem);
+        }
+
+        .topPlays__copy {
+          margin: 0;
+          max-width: 420px;
+          color: #cbd5e1;
+          line-height: 1.7;
+        }
+
+        .topPlays__grid {
+          display: grid;
+          gap: 18px;
+          grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+        }
+
+        .topPlayCard {
+          position: relative;
+          overflow: hidden;
+          min-height: 220px;
+          padding: 24px;
+          border-radius: 24px;
+          border: 1px solid rgba(148, 163, 184, 0.24);
+          background: rgba(15, 23, 42, 0.88);
+          box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05), 0 18px 36px rgba(2, 6, 23, 0.34);
+          display: flex;
+          flex-direction: column;
+          gap: 18px;
+        }
+
+        .topPlayCard::after {
+          content: "";
+          position: absolute;
+          inset: 0;
+          background: linear-gradient(180deg, rgba(255, 255, 255, 0.05), transparent 40%);
+          pointer-events: none;
+        }
+
+        .topPlayCard--success {
+          border-color: rgba(74, 222, 128, 0.36);
+          background: linear-gradient(180deg, rgba(20, 83, 45, 0.32), rgba(15, 23, 42, 0.92) 24%);
+        }
+
+        .topPlayCard--warning {
+          border-color: rgba(250, 204, 21, 0.32);
+          background: linear-gradient(180deg, rgba(133, 77, 14, 0.34), rgba(15, 23, 42, 0.92) 24%);
+        }
+
+        .topPlayCard--danger {
+          border-color: rgba(248, 113, 113, 0.3);
+          background: linear-gradient(180deg, rgba(127, 29, 29, 0.32), rgba(15, 23, 42, 0.92) 24%);
+        }
+
+        .topPlayCard__rank {
+          align-self: flex-start;
+          padding: 7px 12px;
+          border-radius: 999px;
+          background: rgba(191, 219, 254, 0.16);
+          border: 1px solid rgba(191, 219, 254, 0.18);
+          color: #dbeafe;
+          font-size: 0.82rem;
+          font-weight: 800;
+          letter-spacing: 0.08em;
+        }
+
+        .topPlayCard__header {
+          display: flex;
+          justify-content: space-between;
+          gap: 16px;
+          align-items: flex-start;
+        }
+
+        .topPlayCard__teams {
+          margin: 0;
+          font-size: 1.5rem;
+          line-height: 1.3;
+          display: flex;
+          align-items: center;
+          gap: 10px;
+          flex-wrap: wrap;
+        }
+
+        .topPlayCard__stats {
+          display: grid;
+          gap: 14px;
+          grid-template-columns: repeat(2, minmax(0, 1fr));
+          margin-top: auto;
+        }
+
         .gamesGrid {
           display: grid;
           gap: 20px;
@@ -440,6 +604,11 @@ export default function Home({ games, summary, error }) {
           .hero {
             grid-template-columns: 1fr;
           }
+
+          .topPlays__header {
+            flex-direction: column;
+            align-items: flex-start;
+          }
         }
 
         @media (max-width: 640px) {
@@ -448,18 +617,24 @@ export default function Home({ games, summary, error }) {
           }
 
           .hero__stats,
-          .cardMetrics {
+          .cardMetrics,
+          .topPlayCard__stats {
             grid-template-columns: 1fr;
           }
 
           .gameCard__header,
-          .teamRow {
+          .teamRow,
+          .topPlayCard__header {
             flex-direction: column;
             align-items: flex-start;
           }
 
           .teamRow__probability {
             text-align: left;
+          }
+
+          .topPlays {
+            padding: 20px;
           }
         }
       `}</style>
