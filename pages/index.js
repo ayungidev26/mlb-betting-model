@@ -1,10 +1,10 @@
-import { buildHomePageProps } from "../lib/homePageProps"
+import {
+  buildHomePageProps,
+  loadCachedPredictionsFromApi
+} from "../lib/homePageProps"
 
-export async function getServerSideProps() {
-  return buildHomePageProps(async () => {
-    const { redis } = await import("../lib/upstash.js")
-    return redis.get("mlb:predictions:today")
-  })
+export async function getServerSideProps(context) {
+  return buildHomePageProps(() => loadCachedPredictionsFromApi(context.req))
 }
 
 export default function Home({ games, summary, error }) {
