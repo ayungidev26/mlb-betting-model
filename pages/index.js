@@ -27,6 +27,12 @@ function formatMoneyline(value) {
   return value > 0 ? `+${value}` : `${value}`
 }
 
+function formatMetricValue(value, digits = 2) {
+  return typeof value === "number"
+    ? value.toFixed(digits)
+    : "N/A"
+}
+
 function formatGameTime(value) {
   if (!value) {
     return "Time TBD"
@@ -39,6 +45,18 @@ function formatGameTime(value) {
     hour: "numeric",
     minute: "2-digit"
   })
+}
+
+function probabilityToMoneyline(probability) {
+  if (typeof probability !== "number" || probability <= 0 || probability >= 1) {
+    return null
+  }
+
+  if (probability >= 0.5) {
+    return Math.round((-probability / (1 - probability)) * 100)
+  }
+
+  return Math.round(((1 - probability) / probability) * 100)
 }
 
 function getEdgeTier(edge) {
@@ -65,11 +83,111 @@ function getEdgeTier(edge) {
   }
 }
 
+function getPitcherStatLine(stats) {
+  if (!stats) {
+    return "ERA N/A • FIP N/A • xERA N/A"
+  }
+
+  return [
+    `ERA ${formatMetricValue(stats.era)}`,
+    `FIP ${formatMetricValue(stats.fip)}`,
+    `xERA ${formatMetricValue(stats.xera)}`
+  ].join(" • ")
+}
+
+function getBullpenLabel(rating) {
+  if (typeof rating !== "number") {
+    return "No bullpen read"
+  }
+
+  if (rating >= 100) {
+    return "Elite bullpen"
+  }
+
+  if (rating >= 80) {
+    return "Above-average bullpen"
+  }
+
+  if (rating >= 60) {
+    return "Stable bullpen"
+  }
+
+  if (rating >= 40) {
+    return "Mixed bullpen form"
+  }
+
+  return "Volatile bullpen"
+}
+
+function getBullpenSummary(details) {
+  if (!details?.stats && typeof details?.rating !== "number") {
+    return "Bullpen data pending"
+  }
+
+  const stats = details?.stats || {}
+  const rating = typeof details?.rating === "number"
+    ? Math.round(details.rating)
+    : null
+
+  return [
+    rating !== null ? `${getBullpenLabel(details.rating)} (${rating})` : getBullpenLabel(details?.rating),
+    `ERA ${formatMetricValue(stats.era)}`,
+    `FIP ${formatMetricValue(stats.fip)}`
+  ].join(" • ")
+}
+
+function getRecommendedSideProbability(game) {
+  if (!game?.recommendedBet) {
+    return null
+  }
+
+  if (game.recommendedBet === game.homeTeam) {
+    return game.homeWinProbability
+  }
+
+  if (game.recommendedBet === game.awayTeam) {
+    return game.awayWinProbability
+  }
+
+  return null
+}
+
+function getOddsComparison(game) {
+  const modelProbability = getRecommendedSideProbability(game)
+  const modelOdds = probabilityToMoneyline(modelProbability)
+
+  return {
+    bookOdds: typeof game?.recommendedOdds === "number"
+      ? formatMoneyline(game.recommendedOdds)
+      : "N/A",
+    modelOdds: modelOdds !== null
+      ? formatMoneyline(modelOdds)
+      : "N/A"
+  }
+}
+
 function DashboardStat({ label, value, emphasis = false, tone = "default" }) {
   return (
     <div className={`stat stat--${tone} ${emphasis ? "stat--emphasis" : ""}`}>
       <span className="stat__label">{label}</span>
       <strong className="stat__value">{value}</strong>
+    </div>
+  )
+}
+
+function PitcherPanel({ side, team, pitcher, probability, details }) {
+  return (
+    <div className="pitcherPanel">
+      <div className="pitcherPanel__header">
+        <div>
+          <p className="teamRow__label">{side}</p>
+          <h3>{team}</h3>
+        </div>
+        <div className="teamRow__probability">{formatPercent(probability)}</div>
+      </div>
+
+      <p className="pitcherPanel__name">{pitcher || "TBD"}</p>
+      <p className="pitcherPanel__stats">{getPitcherStatLine(details?.stats)}</p>
     </div>
   )
 }
@@ -85,7 +203,7 @@ export default function Home({ games, summary, error }) {
           <p className="eyebrow">MLB model dashboard</p>
           <h1>Today&apos;s betting board</h1>
           <p className="hero__copy">
-            Scan projected winners, starting pitchers, and the strongest model edges
+            Scan projected winners, starters, bullpen context, and pricing gaps
             in a card-based layout built for quick decision-making.
           </p>
         </div>
@@ -169,6 +287,11 @@ export default function Home({ games, summary, error }) {
           {games.map((game, index) => {
             const edgeTier = getEdgeTier(game.edge)
             const recommendedSide = game.recommendedBet || edgeTier.recommendation
+            const awayPitcherDetails = game.pitcherModel?.away || null
+            const homePitcherDetails = game.pitcherModel?.home || null
+            const awayBullpenDetails = game.bullpenModel?.away || null
+            const homeBullpenDetails = game.bullpenModel?.home || null
+            const oddsComparison = getOddsComparison(game)
 
             return (
               <article
@@ -189,31 +312,80 @@ export default function Home({ games, summary, error }) {
                   </span>
                 </div>
 
-                <div className="teams">
-                  <div className="teamRow">
-                    <div>
-                      <p className="teamRow__label">Away</p>
-                      <h3>{game.awayTeam}</h3>
-                      <p className="teamRow__pitcher">SP: {game.awayPitcher || "TBD"}</p>
+                <div className="gameCard__body">
+                  <section className="gameCard__column gameCard__column--matchup" aria-label="Matchup overview">
+                    <div className="gameCard__sectionHeader">
+                      <span className="sectionKicker">Matchup</span>
+                      <span className="gameCard__subtle">Left side snapshot</span>
                     </div>
-                    <div className="teamRow__probability">{formatPercent(game.awayWinProbability)}</div>
-                  </div>
 
-                  <div className="teamRow">
-                    <div>
-                      <p className="teamRow__label">Home</p>
-                      <h3>{game.homeTeam}</h3>
-                      <p className="teamRow__pitcher">SP: {game.homePitcher || "TBD"}</p>
+                    <PitcherPanel
+                      side="Away"
+                      team={game.awayTeam}
+                      pitcher={game.awayPitcher}
+                      probability={game.awayWinProbability}
+                      details={awayPitcherDetails}
+                    />
+
+                    <PitcherPanel
+                      side="Home"
+                      team={game.homeTeam}
+                      pitcher={game.homePitcher}
+                      probability={game.homeWinProbability}
+                      details={homePitcherDetails}
+                    />
+                  </section>
+
+                  <section className="gameCard__column gameCard__column--analytics" aria-label="Pitching and bullpen context">
+                    <div className="gameCard__sectionHeader">
+                      <span className="sectionKicker">Pitching context</span>
+                      <span className="gameCard__subtle">Starter and bullpen read</span>
                     </div>
-                    <div className="teamRow__probability">{formatPercent(game.homeWinProbability)}</div>
-                  </div>
-                </div>
 
-                <div className="cardMetrics">
-                  <DashboardStat label="Model edge" value={formatEdge(game.edge)} emphasis tone={edgeTier.tone} />
-                  <DashboardStat label="Recommended bet" value={recommendedSide} tone={edgeTier.tone} />
-                  <DashboardStat label="Line" value={formatMoneyline(game.recommendedOdds)} />
-                  <DashboardStat label="Sportsbook" value={game.sportsbook || "Awaiting odds"} />
+                    <div className="analyticsBlock">
+                      <div className="analyticsBlock__row">
+                        <span className="analyticsBlock__team">{game.awayTeam}</span>
+                        <span className="analyticsBlock__text">{getPitcherStatLine(awayPitcherDetails?.stats)}</span>
+                      </div>
+                      <div className="analyticsBlock__row">
+                        <span className="analyticsBlock__team">{game.homeTeam}</span>
+                        <span className="analyticsBlock__text">{getPitcherStatLine(homePitcherDetails?.stats)}</span>
+                      </div>
+                    </div>
+
+                    <div className="analyticsBlock analyticsBlock--bullpen">
+                      <div className="analyticsBlock__row analyticsBlock__row--stacked">
+                        <span className="analyticsBlock__team">{game.awayTeam} bullpen</span>
+                        <span className="analyticsBlock__text">{getBullpenSummary(awayBullpenDetails)}</span>
+                      </div>
+                      <div className="analyticsBlock__row analyticsBlock__row--stacked">
+                        <span className="analyticsBlock__team">{game.homeTeam} bullpen</span>
+                        <span className="analyticsBlock__text">{getBullpenSummary(homeBullpenDetails)}</span>
+                      </div>
+                    </div>
+                  </section>
+
+                  <section className="gameCard__column gameCard__column--edge" aria-label="Betting edge and recommendation">
+                    <div className="gameCard__sectionHeader">
+                      <span className="sectionKicker">Edge</span>
+                      <span className="gameCard__subtle">Recommendation summary</span>
+                    </div>
+
+                    <div className="recommendationCard">
+                      <p className="recommendationCard__label">Recommended side</p>
+                      <h3 className="recommendationCard__team">{recommendedSide}</h3>
+                      <p className="recommendationCard__supporting">
+                        {game.sportsbook ? `Best book: ${game.sportsbook}` : "Sportsbook line pending"}
+                      </p>
+                    </div>
+
+                    <div className="cardMetrics">
+                      <DashboardStat label="Model edge" value={formatEdge(game.edge)} emphasis tone={edgeTier.tone} />
+                      <DashboardStat label="Book odds" value={oddsComparison.bookOdds} tone={edgeTier.tone} />
+                      <DashboardStat label="Model fair odds" value={oddsComparison.modelOdds} tone="muted" />
+                      <DashboardStat label="Recommendation" value={game.recommendation || recommendedSide} tone={edgeTier.tone} />
+                    </div>
+                  </section>
                 </div>
               </article>
             )
@@ -234,7 +406,7 @@ export default function Home({ games, summary, error }) {
         .dashboard {
           min-height: 100vh;
           padding: 48px 24px 64px;
-          max-width: 1280px;
+          max-width: 1360px;
           margin: 0 auto;
         }
 
@@ -293,6 +465,7 @@ export default function Home({ games, summary, error }) {
           display: flex;
           flex-direction: column;
           gap: 8px;
+          min-height: 88px;
         }
 
         .stat__label {
@@ -458,7 +631,7 @@ export default function Home({ games, summary, error }) {
         .gamesGrid {
           display: grid;
           gap: 20px;
-          grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+          grid-template-columns: 1fr;
         }
 
         .gameCard {
@@ -498,6 +671,46 @@ export default function Home({ games, summary, error }) {
           justify-content: space-between;
           gap: 16px;
           align-items: flex-start;
+        }
+
+        .gameCard__body {
+          display: grid;
+          gap: 18px;
+          grid-template-columns: minmax(0, 1.1fr) minmax(0, 1.25fr) minmax(300px, 0.9fr);
+          align-items: stretch;
+        }
+
+        .gameCard__column {
+          display: flex;
+          flex-direction: column;
+          gap: 14px;
+          min-width: 0;
+        }
+
+        .gameCard__column--analytics,
+        .gameCard__column--edge {
+          padding-left: 18px;
+          border-left: 1px solid rgba(148, 163, 184, 0.12);
+        }
+
+        .gameCard__sectionHeader {
+          display: flex;
+          justify-content: space-between;
+          gap: 12px;
+          align-items: baseline;
+        }
+
+        .sectionKicker {
+          text-transform: uppercase;
+          letter-spacing: 0.12em;
+          font-size: 0.72rem;
+          font-weight: 800;
+          color: #93c5fd;
+        }
+
+        .gameCard__subtle {
+          color: #64748b;
+          font-size: 0.84rem;
         }
 
         .gameCard__meta {
@@ -554,25 +767,26 @@ export default function Home({ games, summary, error }) {
           border-color: rgba(148, 163, 184, 0.24);
         }
 
-        .teams {
-          display: grid;
-          gap: 14px;
-        }
-
-        .teamRow {
-          display: flex;
-          justify-content: space-between;
-          gap: 16px;
-          align-items: center;
+        .pitcherPanel,
+        .analyticsBlock,
+        .recommendationCard {
           padding: 16px 18px;
           border-radius: 18px;
           background: rgba(30, 41, 59, 0.68);
           border: 1px solid rgba(148, 163, 184, 0.14);
         }
 
-        .teamRow__label,
-        .teamRow__pitcher {
-          margin: 0;
+        .pitcherPanel {
+          display: flex;
+          flex-direction: column;
+          gap: 8px;
+        }
+
+        .pitcherPanel__header {
+          display: flex;
+          justify-content: space-between;
+          gap: 14px;
+          align-items: flex-start;
         }
 
         .teamRow__label {
@@ -580,24 +794,100 @@ export default function Home({ games, summary, error }) {
           text-transform: uppercase;
           letter-spacing: 0.08em;
           color: #93c5fd;
-          margin-bottom: 6px;
+          margin: 0 0 6px;
         }
 
         h3 {
-          margin: 0 0 4px;
+          margin: 0;
           font-size: 1.08rem;
         }
 
-        .teamRow__pitcher {
+        .pitcherPanel__name {
+          margin: 0;
+          color: #f8fafc;
+          font-weight: 700;
+        }
+
+        .pitcherPanel__stats,
+        .analyticsBlock__text,
+        .recommendationCard__supporting {
+          margin: 0;
           color: #94a3b8;
           font-size: 0.92rem;
+          line-height: 1.55;
         }
 
         .teamRow__probability {
-          font-size: 1.7rem;
+          font-size: 1.35rem;
           font-weight: 800;
           color: #f8fafc;
           text-align: right;
+          white-space: nowrap;
+        }
+
+        .analyticsBlock {
+          display: flex;
+          flex-direction: column;
+          gap: 12px;
+        }
+
+        .analyticsBlock__row {
+          display: grid;
+          grid-template-columns: minmax(120px, auto) minmax(0, 1fr);
+          gap: 14px;
+          align-items: baseline;
+        }
+
+        .analyticsBlock__row--stacked {
+          grid-template-columns: 1fr;
+        }
+
+        .analyticsBlock__team {
+          color: #e2e8f0;
+          font-weight: 700;
+        }
+
+        .analyticsBlock--bullpen {
+          background: rgba(15, 23, 42, 0.56);
+        }
+
+        .recommendationCard {
+          background:
+            linear-gradient(180deg, rgba(59, 130, 246, 0.16), rgba(30, 41, 59, 0.78));
+        }
+
+        .recommendationCard__label {
+          margin: 0 0 8px;
+          text-transform: uppercase;
+          letter-spacing: 0.08em;
+          font-size: 0.72rem;
+          color: #93c5fd;
+        }
+
+        .recommendationCard__team {
+          margin: 0 0 6px;
+          font-size: 1.35rem;
+        }
+
+        @media (max-width: 1100px) {
+          .gameCard__body {
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+          }
+
+          .gameCard__column--edge {
+            grid-column: 1 / -1;
+          }
+
+          .gameCard__column--edge,
+          .gameCard__column--analytics {
+            padding-left: 0;
+            border-left: 0;
+          }
+
+          .gameCard__column--edge {
+            padding-top: 4px;
+            border-top: 1px solid rgba(148, 163, 184, 0.12);
+          }
         }
 
         @media (max-width: 900px) {
@@ -611,6 +901,44 @@ export default function Home({ games, summary, error }) {
           }
         }
 
+        @media (max-width: 760px) {
+          .gameCard__body {
+            grid-template-columns: 1fr;
+          }
+
+          .gameCard__column--analytics,
+          .gameCard__column--edge {
+            padding-left: 0;
+            border-left: 0;
+          }
+
+          .gameCard__column--analytics,
+          .gameCard__column--edge {
+            padding-top: 4px;
+            border-top: 1px solid rgba(148, 163, 184, 0.12);
+          }
+
+          .gameCard__sectionHeader,
+          .pitcherPanel__header,
+          .analyticsBlock__row,
+          .gameCard__header,
+          .topPlayCard__header {
+            grid-template-columns: 1fr;
+            flex-direction: column;
+            align-items: flex-start;
+          }
+
+          .analyticsBlock__row {
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+          }
+
+          .teamRow__probability {
+            text-align: left;
+          }
+        }
+
         @media (max-width: 640px) {
           .dashboard {
             padding: 32px 16px 48px;
@@ -620,17 +948,6 @@ export default function Home({ games, summary, error }) {
           .cardMetrics,
           .topPlayCard__stats {
             grid-template-columns: 1fr;
-          }
-
-          .gameCard__header,
-          .teamRow,
-          .topPlayCard__header {
-            flex-direction: column;
-            align-items: flex-start;
-          }
-
-          .teamRow__probability {
-            text-align: left;
           }
 
           .topPlays {
