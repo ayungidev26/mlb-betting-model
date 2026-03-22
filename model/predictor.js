@@ -1,10 +1,8 @@
-import { getPitcherRating } from "./pitcherRatings.js"
+import { getPitcherRatingDetails } from "./pitcherRatings.js"
 import { getBullpenRating } from "./bullpenRatings.js"
 
 export async function predictGame(game, teamRatings, bullpenStats, pitcherStats = null) {
-
   try {
-
     const homeTeam = game.homeTeam
     const awayTeam = game.awayTeam
 
@@ -12,12 +10,14 @@ export async function predictGame(game, teamRatings, bullpenStats, pitcherStats 
     const homeTeamRating = teamRatings?.[homeTeam] || 1500
     const awayTeamRating = teamRatings?.[awayTeam] || 1500
 
-    // Pitcher ratings
-    const homePitcherRating =
-      await getPitcherRating(game.homePitcher, pitcherStats)
+    // Pitcher ratings and feature inputs
+    const homePitcherDetails =
+      await getPitcherRatingDetails(game.homePitcher, pitcherStats)
+    const awayPitcherDetails =
+      await getPitcherRatingDetails(game.awayPitcher, pitcherStats)
 
-    const awayPitcherRating =
-      await getPitcherRating(game.awayPitcher, pitcherStats)
+    const homePitcherRating = homePitcherDetails.rating
+    const awayPitcherRating = awayPitcherDetails.rating
 
     // Bullpen ratings
     const homeBullpenRating =
@@ -63,16 +63,27 @@ export async function predictGame(game, teamRatings, bullpenStats, pitcherStats 
       homeRating,
       awayRating,
 
+      pitcherModel: {
+        home: {
+          name: game.homePitcher || null,
+          rating: homePitcherRating,
+          stats: homePitcherDetails.stats,
+          components: homePitcherDetails.components
+        },
+        away: {
+          name: game.awayPitcher || null,
+          rating: awayPitcherRating,
+          stats: awayPitcherDetails.stats,
+          components: awayPitcherDetails.components
+        }
+      },
+
       homeWinProbability: Number(homeWinProbability.toFixed(4)),
       awayWinProbability: Number(awayWinProbability.toFixed(4))
     }
-
   } catch (error) {
-
     console.error("Prediction error:", error)
 
     return null
-
   }
-
 }
