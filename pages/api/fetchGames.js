@@ -1,9 +1,9 @@
 // Data contract reference: see docs/data-contracts.md for canonical Game, OddsRecord, Prediction, Edge, and matchKey shapes.
-import { redis } from "../../lib/upstash"
-import { buildMatchKey } from "../../lib/matchKey"
-import { validateExternalMlbSchedulePayload } from "../../lib/payloadValidation"
-import { requireOperationalRouteAccess } from "../../lib/apiSecurity"
-import { sendRouteError } from "../../lib/apiErrors"
+import { redis } from "../../lib/upstash.js"
+import { buildMatchKey } from "../../lib/matchKey.js"
+import { validateExternalMlbSchedulePayload } from "../../lib/payloadValidation.js"
+import { requireOperationalRouteAccess } from "../../lib/apiSecurity.js"
+import { sendRouteError } from "../../lib/apiErrors.js"
 import { fetchJsonWithRetry } from "../../lib/upstreamFetch.js"
 
 export default async function handler(req, res) {
