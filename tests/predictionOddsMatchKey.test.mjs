@@ -2,7 +2,10 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 
 import { normalizeOddsGame } from '../lib/normalizeOdds.js'
-import { predictGame } from '../model/predictor.js'
+process.env.UPSTASH_REDIS_REST_URL = 'https://example-upstash.test'
+process.env.UPSTASH_REDIS_REST_TOKEN = 'test-token'
+
+const { predictGame } = await import('../model/predictor.js')
 
 test('normalizeOddsGame stores the canonical matchKey for an odds record', () => {
   const normalized = normalizeOddsGame({

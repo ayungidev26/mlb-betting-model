@@ -1,7 +1,10 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 
-import { generateEdges, generatePredictions } from '../lib/pipeline.js'
+process.env.UPSTASH_REDIS_REST_URL = 'https://example-upstash.test'
+process.env.UPSTASH_REDIS_REST_TOKEN = 'test-token'
+
+const { generateEdges, generatePredictions } = await import('../lib/pipeline.js')
 import { ValidationError } from '../lib/payloadValidation.js'
 
 function createMockRedis(seed = {}) {
