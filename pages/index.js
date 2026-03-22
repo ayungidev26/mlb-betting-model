@@ -41,6 +41,30 @@ function formatGameTime(value) {
   })
 }
 
+function getEdgeTier(edge) {
+  if (typeof edge !== "number" || edge < 0.02) {
+    return {
+      tone: "danger",
+      label: "No edge",
+      recommendation: "Pass"
+    }
+  }
+
+  if (edge > 0.05) {
+    return {
+      tone: "success",
+      label: "Strong edge",
+      recommendation: "Best bet"
+    }
+  }
+
+  return {
+    tone: "warning",
+    label: "Moderate edge",
+    recommendation: "Worth a look"
+  }
+}
+
 function DashboardStat({ label, value, emphasis = false, tone = "default" }) {
   return (
     <div className={`stat stat--${tone} ${emphasis ? "stat--emphasis" : ""}`}>
@@ -93,12 +117,12 @@ export default function Home({ games, summary, error }) {
       {!error && games.length > 0 && (
         <section className="gamesGrid" aria-label="Model predictions dashboard">
           {games.map((game, index) => {
-            const recommendedSide = game.recommendedBet || "No bet"
-            const edgeTone = typeof game.edge === "number" ? "success" : "muted"
+            const edgeTier = getEdgeTier(game.edge)
+            const recommendedSide = game.recommendedBet || edgeTier.recommendation
 
             return (
               <article
-                className="gameCard"
+                className={`gameCard gameCard--${edgeTier.tone}`}
                 key={game.matchKey || game.gameId || `${game.homeTeam}-${game.awayTeam}-${index}`}
               >
                 <div className="gameCard__header">
@@ -110,8 +134,8 @@ export default function Home({ games, summary, error }) {
                       <span>{game.homeTeam}</span>
                     </h2>
                   </div>
-                  <span className={`pill pill--${edgeTone}`}>
-                    {typeof game.edge === "number" ? "Model edge" : "No edge"}
+                  <span className={`pill pill--${edgeTier.tone}`}>
+                    {edgeTier.label}
                   </span>
                 </div>
 
@@ -136,8 +160,8 @@ export default function Home({ games, summary, error }) {
                 </div>
 
                 <div className="cardMetrics">
-                  <DashboardStat label="Model edge" value={formatEdge(game.edge)} emphasis tone={edgeTone} />
-                  <DashboardStat label="Recommended bet" value={recommendedSide} tone={edgeTone} />
+                  <DashboardStat label="Model edge" value={formatEdge(game.edge)} emphasis tone={edgeTier.tone} />
+                  <DashboardStat label="Recommended bet" value={recommendedSide} tone={edgeTier.tone} />
                   <DashboardStat label="Line" value={formatMoneyline(game.recommendedOdds)} />
                   <DashboardStat label="Sportsbook" value={game.sportsbook || "Awaiting odds"} />
                 </div>
@@ -243,6 +267,11 @@ export default function Home({ games, summary, error }) {
           background: rgba(20, 83, 45, 0.28);
         }
 
+        .stat--warning {
+          border-color: rgba(250, 204, 21, 0.35);
+          background: rgba(113, 63, 18, 0.26);
+        }
+
         .stat--danger {
           border-color: rgba(248, 113, 113, 0.3);
           background: rgba(127, 29, 29, 0.25);
@@ -271,6 +300,7 @@ export default function Home({ games, summary, error }) {
         .gameCard {
           background: rgba(15, 23, 42, 0.78);
           border: 1px solid rgba(148, 163, 184, 0.18);
+          border-left-width: 4px;
           border-radius: 24px;
           padding: 22px;
           box-shadow: 0 16px 36px rgba(15, 23, 42, 0.28);
@@ -278,6 +308,25 @@ export default function Home({ games, summary, error }) {
           flex-direction: column;
           gap: 20px;
           backdrop-filter: blur(14px);
+          transition: border-color 160ms ease, box-shadow 160ms ease, background 160ms ease;
+        }
+
+        .gameCard--success {
+          border-color: rgba(74, 222, 128, 0.34);
+          box-shadow: 0 16px 36px rgba(15, 23, 42, 0.28), inset 0 1px 0 rgba(74, 222, 128, 0.08);
+          background: linear-gradient(180deg, rgba(22, 101, 52, 0.15), rgba(15, 23, 42, 0.78) 18%);
+        }
+
+        .gameCard--warning {
+          border-color: rgba(250, 204, 21, 0.34);
+          box-shadow: 0 16px 36px rgba(15, 23, 42, 0.28), inset 0 1px 0 rgba(250, 204, 21, 0.08);
+          background: linear-gradient(180deg, rgba(161, 98, 7, 0.14), rgba(15, 23, 42, 0.78) 18%);
+        }
+
+        .gameCard--danger {
+          border-color: rgba(248, 113, 113, 0.3);
+          box-shadow: 0 16px 36px rgba(15, 23, 42, 0.28), inset 0 1px 0 rgba(248, 113, 113, 0.06);
+          background: linear-gradient(180deg, rgba(127, 29, 29, 0.14), rgba(15, 23, 42, 0.78) 18%);
         }
 
         .gameCard__header {
@@ -321,6 +370,18 @@ export default function Home({ games, summary, error }) {
           background: rgba(34, 197, 94, 0.18);
           color: #86efac;
           border-color: rgba(74, 222, 128, 0.36);
+        }
+
+        .pill--warning {
+          background: rgba(250, 204, 21, 0.16);
+          color: #fde68a;
+          border-color: rgba(250, 204, 21, 0.3);
+        }
+
+        .pill--danger {
+          background: rgba(248, 113, 113, 0.14);
+          color: #fca5a5;
+          border-color: rgba(248, 113, 113, 0.3);
         }
 
         .pill--muted {
