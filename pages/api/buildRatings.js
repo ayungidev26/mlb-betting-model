@@ -1,8 +1,8 @@
 // Data contract reference: see docs/data-contracts.md for canonical Game, OddsRecord, Prediction, Edge, and matchKey shapes.
-import { redis } from "../../lib/upstash"
-import { calculateElo } from "../../model/eloRatings"
-import { requireOperationalRouteAccess } from "../../lib/apiSecurity"
-import { sendRouteError } from "../../lib/apiErrors"
+import { redis } from "../../lib/upstash.js"
+import { calculateElo } from "../../model/eloRatings.js"
+import { requireOperationalRouteAccess } from "../../lib/apiSecurity.js"
+import { sendRouteError } from "../../lib/apiErrors.js"
 
 export default async function handler(req, res) {
   if (!requireOperationalRouteAccess(req, res)) {
