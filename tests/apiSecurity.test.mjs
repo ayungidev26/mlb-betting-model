@@ -1,7 +1,10 @@
 import test from "node:test"
 import assert from "node:assert/strict"
 
-import { requireOperationalRouteAccess } from "../lib/apiSecurity.js"
+import {
+  requireCronRouteAccess,
+  requireOperationalRouteAccess
+} from "../lib/apiSecurity.js"
 
 function createMockResponse() {
   return {
@@ -85,6 +88,43 @@ test("requireOperationalRouteAccess accepts the configured bearer token", () => 
   const res = createMockResponse()
 
   const allowed = requireOperationalRouteAccess(req, res)
+
+  assert.equal(allowed, true)
+  assert.equal(res.statusCode, 200)
+  assert.equal(res.body, null)
+})
+
+
+test("requireCronRouteAccess rejects requests when CRON_SECRET is missing", () => {
+  delete process.env.CRON_SECRET
+
+  const req = {
+    method: "GET",
+    headers: {
+      authorization: "Bearer missing-secret"
+    }
+  }
+  const res = createMockResponse()
+
+  const allowed = requireCronRouteAccess(req, res)
+
+  assert.equal(allowed, false)
+  assert.equal(res.statusCode, 503)
+  assert.equal(res.body.error, "CRON_SECRET is not configured")
+})
+
+test("requireCronRouteAccess accepts the configured cron bearer token", () => {
+  process.env.CRON_SECRET = "cron-secret"
+
+  const req = {
+    method: "GET",
+    headers: {
+      authorization: "Bearer cron-secret"
+    }
+  }
+  const res = createMockResponse()
+
+  const allowed = requireCronRouteAccess(req, res)
 
   assert.equal(allowed, true)
   assert.equal(res.statusCode, 200)

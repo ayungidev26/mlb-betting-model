@@ -34,11 +34,22 @@ Operational auth and provider credentials must be stored in environment-variable
 
 Recommended locations:
 
-* **Production / Preview:** Vercel Project Settings → Environment Variables (store `ADMIN_API_SECRET` and any provider credentials there).
-* **Scheduled jobs / cron:** Use the same Vercel-managed secret or a separately rotated `CRON_SECRET`.
+* **Production / Preview:** Vercel Project Settings → Environment Variables (store `ADMIN_API_SECRET`, `CRON_SECRET`, and provider credentials there).
+* **Scheduled jobs / cron:** Use the Vercel-managed `CRON_SECRET` so Vercel automatically adds the expected bearer token when invoking the cron route.
 * **Local development only:** `.env.local` on your machine, which must stay uncommitted.
 
 Do **not** hardcode bearer tokens in the repo, client-side code, or test fixtures meant for deployment. If a token is exposed, rotate it immediately.
+
+### Required Environment Variables
+
+| Variable | Required | Purpose |
+| --- | --- | --- |
+| `UPSTASH_REDIS_REST_URL` | Yes | Upstash Redis REST endpoint. |
+| `UPSTASH_REDIS_REST_TOKEN` | Yes | Upstash Redis REST token. |
+| `ODDS_API_KEY` | Yes | Auth for The Odds API. |
+| `ADMIN_API_SECRET` | Yes | Secures the admin-only operational API routes. |
+| `CRON_SECRET` | Yes | Secures the public cron endpoint that Vercel invokes automatically. |
+| `SCHEDULER_BASE_URL` | Local/manual only | Base URL used by `npm run test:scheduler` for manual verification. Defaults to `http://localhost:3000`. |
 
 ---
 
@@ -226,6 +237,87 @@ Both require `POST` plus `Authorization: Bearer <ADMIN_API_SECRET>`.
 
 ---
 
+## Daily Scheduler
+
+### Scheduled Endpoint
+
+`/api/cron/runDailyPipeline`
+
+This endpoint is the production scheduler entrypoint. It does **not** duplicate the pipeline logic; it securely invokes the existing `/api/runPipeline` orchestration route in-process.
+
+Security and behavior:
+
+* Accepts `GET` for Vercel Cron and secure manual testing.
+* Requires `Authorization: Bearer <CRON_SECRET>`.
+* Uses `America/New_York` to evaluate whether the current local hour is `10`.
+* Stores a daily idempotency marker in Redis so duplicate cron deliveries do not rerun the pipeline for the same Eastern date.
+* Leaves the existing `runPipeline` Redis lock in place to prevent overlapping executions.
+* Supports `?force=true` for manual verification while still requiring the cron bearer token.
+
+Redis key used by the scheduler:
+
+```
+mlb:cron:dailyPipeline:YYYY-MM-DD
+```
+
+### Why There Are Two Cron Expressions
+
+Vercel cron schedules are UTC-based. To guarantee a 10:00 AM run in `America/New_York` across daylight saving transitions, this project schedules **both** of the UTC hours that can map to 10:00 AM Eastern:
+
+* `0 14 * * *` → 10:00 AM during Eastern Daylight Time
+* `0 15 * * *` → 10:00 AM during Eastern Standard Time
+
+The cron route itself then verifies the local New York hour before running the pipeline, so only the correct daily invocation proceeds.
+
+> **Important:** this DST-safe setup needs a Vercel plan that supports more than one cron job per day and minute-level cron timing. Vercel Hobby cron jobs only run once per day and may fire at any point within the configured hour, which is not sufficient for a production-grade 10:00 AM Eastern schedule.
+
+### Cron Configuration
+
+The project uses `vercel.json`:
+
+```json
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "crons": [
+    {
+      "path": "/api/cron/runDailyPipeline",
+      "schedule": "0 14 * * *"
+    },
+    {
+      "path": "/api/cron/runDailyPipeline",
+      "schedule": "0 15 * * *"
+    }
+  ]
+}
+```
+
+### Manual Testing
+
+Secure manual verification options:
+
+1. Run the local helper script:
+
+   ```bash
+   CRON_SECRET=your-secret SCHEDULER_BASE_URL=http://localhost:3000 npm run test:scheduler
+   ```
+
+   The helper calls:
+
+   ```
+   GET /api/cron/runDailyPipeline?force=true
+   Authorization: Bearer <CRON_SECRET>
+   ```
+
+2. Or call the endpoint directly:
+
+   ```bash
+   curl -X GET \
+     -H "Authorization: Bearer $CRON_SECRET" \
+     "http://localhost:3000/api/cron/runDailyPipeline?force=true"
+   ```
+
+---
+
 ## Example Model Output
 
 ```
@@ -255,6 +347,7 @@ mlb:stats:bullpen
 mlb:predictions:today
 mlb:predictions:YYYY-MM-DD
 mlb:edges:today
+mlb:cron:dailyPipeline:YYYY-MM-DD
 ```
 
 ---
@@ -278,13 +371,50 @@ This produces a list of betting opportunities for the current MLB slate.
 
 ## Current Model Features
 
-✔ 10+ years of historical team ratings
-✔ Starting pitcher strength modeling
-✔ Bullpen strength modeling
-✔ Home field advantage
-✔ Sportsbook odds comparison
-✔ Automated edge detection
-✔ Prediction history storage
+✔ 10+ years of historical team ratings  
+✔ Starting pitcher strength modeling  
+✔ Bullpen strength modeling  
+✔ Home field advantage  
+✔ Sportsbook odds comparison  
+✔ Automated edge detection  
+✔ Prediction history storage  
+✔ Automated daily scheduling at 10:00 AM America/New_York
+
+---
+
+## Deploy and Verify
+
+### Deploy
+
+1. Add or confirm the required Vercel environment variables:
+   * `UPSTASH_REDIS_REST_URL`
+   * `UPSTASH_REDIS_REST_TOKEN`
+   * `ODDS_API_KEY`
+   * `ADMIN_API_SECRET`
+   * `CRON_SECRET`
+2. Deploy the project to Vercel on a plan that supports the two cron jobs in `vercel.json`.
+3. After deployment, confirm the cron jobs appear in **Project Settings → Cron Jobs**.
+
+### Verify
+
+1. Trigger a secure manual run:
+
+   ```bash
+   curl -X GET \
+     -H "Authorization: Bearer $CRON_SECRET" \
+     "https://<your-deployment>/api/cron/runDailyPipeline?force=true"
+   ```
+
+2. Confirm the response reports `ok: true` and includes the nested pipeline summary.
+3. Check Vercel runtime logs for `/api/cron/runDailyPipeline` and `/api/runPipeline`.
+4. Confirm the latest Redis keys were refreshed:
+   * `mlb:games:today`
+   * `mlb:odds:today`
+   * `mlb:stats:pitchers`
+   * `mlb:stats:bullpen`
+   * `mlb:predictions:today`
+   * `mlb:edges:today`
+5. On the next scheduled production run, confirm the cron invocation succeeds around 10:00 AM New York local time.
 
 ---
 
