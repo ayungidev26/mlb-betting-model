@@ -120,6 +120,28 @@ Metrics collected:
 * WHIP
 * Strikeouts
 * Innings pitched
+* xERA
+* FIP
+* xFIP
+* K%
+* BB%
+* K-BB%
+* BAA (batting average against)
+* xBAA (expected batting average against)
+* SLG against
+* xSLG against
+* Hard Hit%
+* Barrel%
+* Average exit velocity allowed
+
+Source notes:
+
+* Traditional season totals continue to come from the MLB Stats API `people/{id}/stats` pitching payload.
+* Statcast / expected metrics (`xERA`, `xBAA`, `xSLG`, `Hard Hit%`, `Barrel%`, `Average Exit Velocity`, plus direct `K%` and `BB%` when present) are merged from the Baseball Savant custom leaderboard export for pitchers.
+* `FIP` is calculated locally from the MLB season totals when the upstream payload does not expose a native `fip` field.
+* `xFIP` is calculated locally from MLB season totals plus a league HR/FB context derived from current-season team pitching totals.
+* `K-BB%` is calculated as `K% - BB%` whenever the API does not provide it directly.
+* Percentage fields are normalized to decimals in storage and model inputs (for example, `0.312` for `31.2%`).
 
 Stored in Redis:
 
@@ -422,3 +444,52 @@ This produces a list of betting opportunities for the current MLB slate.
 
 This project is for educational and analytical purposes only.
 Sports betting involves risk and should be done responsibly.
+
+## Manual Pipeline Testing
+
+Use the existing admin-only routes to validate the expanded pitcher pipeline end to end.
+
+1. Start the app locally:
+
+   ```bash
+   npm install
+   npm run dev
+   ```
+
+2. Set the required environment variables in `.env.local` (`UPSTASH_REDIS_REST_URL`, `UPSTASH_REDIS_REST_TOKEN`, `ODDS_API_KEY`, `ADMIN_API_SECRET`, and optionally `CRON_SECRET`).
+
+3. Load the daily data and advanced pitcher stats:
+
+   ```bash
+   curl -X POST http://localhost:3000/api/fetchGames \
+     -H "Authorization: Bearer $ADMIN_API_SECRET"
+
+   curl -X POST http://localhost:3000/api/fetchPitcherStats \
+     -H "Authorization: Bearer $ADMIN_API_SECRET"
+   ```
+
+4. Verify the cached pitcher payload in Redis under `mlb:stats:pitchers`. Each pitcher record should now include:
+
+   * `xera`
+   * `fip`
+   * `xfip`
+   * `strikeoutRate`
+   * `walkRate`
+   * `strikeoutMinusWalkRate`
+   * `battingAverageAgainst`
+   * `expectedBattingAverageAgainst`
+   * `sluggingAgainst`
+   * `expectedSluggingAgainst`
+   * `hardHitRate`
+   * `barrelRate`
+   * `averageExitVelocity`
+
+5. Run the rest of the pipeline and inspect the prediction output:
+
+   ```bash
+   curl -X POST http://localhost:3000/api/runPipeline \
+     -H "Authorization: Bearer $ADMIN_API_SECRET"
+   ```
+
+   `mlb:predictions:today` now includes a `pitcherModel` block with the stored pitcher stats and per-feature scoring components used during edge generation.
+

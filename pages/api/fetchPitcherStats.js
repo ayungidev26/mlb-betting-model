@@ -4,6 +4,12 @@ import { requireOperationalRouteAccess } from "../../lib/apiSecurity.js"
 import { sendRouteError } from "../../lib/apiErrors.js"
 import { fetchJsonWithRetry } from "../../lib/upstreamFetch.js"
 import {
+  buildLeaguePitchingContext,
+  fetchSavantPitcherStatMap,
+  getAdvancedPitcherStats,
+  normalizePitcherStatRecord
+} from "../../lib/pitcherStats.js"
+import {
   enforceIpRateLimit,
   enforceJobLock,
   releaseJobLock
@@ -19,6 +25,58 @@ const FETCH_PITCHER_STATS_LOCK = {
   key: "mlb:lock:fetchPitcherStats",
   ttlSeconds: 180,
   routeName: "fetchPitcherStats"
+}
+
+async function fetchTeamPitchingStats() {
+  const teamsUrl = "https://statsapi.mlb.com/api/v1/teams?sportId=1"
+  const teamsData = await fetchJsonWithRetry(teamsUrl)
+  const teamStats = []
+
+  for (const team of teamsData.teams || []) {
+    const statsUrl =
+      `https://statsapi.mlb.com/api/v1/teams/${team.id}/stats?stats=season&group=pitching`
+
+    const statsData = await fetchJsonWithRetry(statsUrl)
+    const stat = statsData.stats?.[0]?.splits?.[0]?.stat
+
+    if (stat) {
+      teamStats.push(stat)
+    }
+  }
+
+  return teamStats
+}
+
+async function resolvePitcherDirectory(games) {
+  const pitcherDirectory = {}
+
+  for (const game of games) {
+    const pitchers = [
+      game.homePitcher,
+      game.awayPitcher
+    ]
+
+    for (const name of pitchers) {
+      if (!name || pitcherDirectory[name]) {
+        continue
+      }
+
+      const searchUrl =
+        `https://statsapi.mlb.com/api/v1/people/search?names=${encodeURIComponent(name)}`
+      const searchData = await fetchJsonWithRetry(searchUrl)
+
+      if (!searchData.people || searchData.people.length === 0) {
+        continue
+      }
+
+      pitcherDirectory[name] = {
+        id: searchData.people[0].id,
+        name: searchData.people[0].fullName || name
+      }
+    }
+  }
+
+  return pitcherDirectory
 }
 
 export default async function handler(req, res) {
@@ -48,41 +106,38 @@ export default async function handler(req, res) {
     }
 
     const pitcherStats = {}
+    const season = new Date().getUTCFullYear()
+    const pitcherDirectory = await resolvePitcherDirectory(games)
+    const teamPitchingStats = await fetchTeamPitchingStats()
+    const leagueContext = buildLeaguePitchingContext(teamPitchingStats)
 
-    for (const game of games) {
-      const pitchers = [
-        game.homePitcher,
-        game.awayPitcher
-      ]
+    let savantPitcherStats = null
 
-      for (const name of pitchers) {
-        if (!name || pitcherStats[name]) continue
+    try {
+      savantPitcherStats = await fetchSavantPitcherStatMap(season)
+    } catch (error) {
+      console.warn("fetchPitcherStats: unable to load Baseball Savant metrics", error?.message || error)
+    }
 
-        const searchUrl =
-          `https://statsapi.mlb.com/api/v1/people/search?names=${encodeURIComponent(name)}`
+    for (const [requestedName, pitcherMeta] of Object.entries(pitcherDirectory)) {
+      const statsUrl =
+        `https://statsapi.mlb.com/api/v1/people/${pitcherMeta.id}/stats?stats=season&group=pitching`
+      const statsData = await fetchJsonWithRetry(statsUrl)
+      const stat = statsData.stats?.[0]?.splits?.[0]?.stat
 
-        const searchData = await fetchJsonWithRetry(searchUrl)
+      if (!stat) {
+        continue
+      }
 
-        if (!searchData.people || searchData.people.length === 0) continue
+      const advancedStat = getAdvancedPitcherStats(
+        pitcherMeta.id,
+        pitcherMeta.name,
+        savantPitcherStats
+      )
 
-        const playerId = searchData.people[0].id
-
-        const statsUrl =
-          `https://statsapi.mlb.com/api/v1/people/${playerId}/stats?stats=season&group=pitching`
-
-        const statsData = await fetchJsonWithRetry(statsUrl)
-
-        const stat =
-          statsData.stats?.[0]?.splits?.[0]?.stat
-
-        if (!stat) continue
-
-        pitcherStats[name] = {
-          era: parseFloat(stat.era),
-          whip: parseFloat(stat.whip),
-          strikeouts: parseInt(stat.strikeOuts),
-          innings: parseFloat(stat.inningsPitched)
-        }
+      pitcherStats[requestedName] = {
+        pitcherId: pitcherMeta.id,
+        ...normalizePitcherStatRecord(stat, advancedStat, leagueContext)
       }
     }
 
@@ -90,7 +145,7 @@ export default async function handler(req, res) {
 
     res.status(200).json({
       pitchersCollected: Object.keys(pitcherStats).length,
-      sample: Object.entries(pitcherStats).slice(0,3)
+      sample: Object.entries(pitcherStats).slice(0, 3)
     })
   } catch (error) {
     return sendRouteError(res, "fetchPitcherStats", error)

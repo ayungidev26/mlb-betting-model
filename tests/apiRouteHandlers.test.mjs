@@ -90,6 +90,26 @@ function createJsonResponse({ ok = true, status = 200, body = {}, retryAfter = n
   }
 }
 
+
+function createTextResponse({ ok = true, status = 200, body = "" } = {}) {
+  return {
+    ok,
+    status,
+    headers: {
+      get(name) {
+        if (String(name).toLowerCase() === "content-type") {
+          return "text/csv; charset=utf-8"
+        }
+
+        return null
+      }
+    },
+    async text() {
+      return body
+    }
+  }
+}
+
 function createMockRedis(initialEntries = []) {
   const store = new Map(initialEntries)
   const expiry = new Map()
@@ -523,4 +543,170 @@ test("operational routes return 503 when the admin secret is not configured", { 
       process.env.CRON_SECRET = originalCronSecret
     }
   }
+})
+
+
+test("fetchPitcherStats stores advanced pitcher metrics and computed K-BB%, FIP, and xFIP", { concurrency: false }, async () => {
+  process.env.ADMIN_API_SECRET = "test-admin-secret"
+  process.env.ODDS_API_KEY = "test-odds-key"
+
+  const handler = await importRoute("../pages/api/fetchPitcherStats.js")
+  const redisMock = createMockRedis([
+    ["mlb:games:today", [
+      {
+        gameId: "game-1",
+        homePitcher: "Home Pitcher",
+        awayPitcher: "Away Pitcher"
+      }
+    ]]
+  ])
+
+  await withPatchedRedis(redisMock, async () => withMockedFetch(
+    async (url) => {
+      const target = String(url)
+
+      if (target.includes("/people/search?names=Home%20Pitcher")) {
+        return createJsonResponse({
+          body: { people: [{ id: 2, fullName: "Home Pitcher" }] }
+        })
+      }
+
+      if (target.includes("/people/search?names=Away%20Pitcher")) {
+        return createJsonResponse({
+          body: { people: [{ id: 1, fullName: "Away Pitcher" }] }
+        })
+      }
+
+      if (target.includes("/api/v1/teams?sportId=1")) {
+        return createJsonResponse({
+          body: {
+            teams: [
+              { id: 147, name: "New York Yankees" },
+              { id: 111, name: "Boston Red Sox" }
+            ]
+          }
+        })
+      }
+
+      if (target.includes("/api/v1/teams/147/stats?stats=season&group=pitching")) {
+        return createJsonResponse({
+          body: {
+            stats: [{
+              splits: [{
+                stat: {
+                  era: "3.50",
+                  earnedRuns: "100",
+                  inningsPitched: "257.1",
+                  homeRuns: "30",
+                  baseOnBalls: "80",
+                  hitBatsmen: "8",
+                  strikeOuts: "280",
+                  flyOuts: "210"
+                }
+              }]
+            }]
+          }
+        })
+      }
+
+      if (target.includes("/api/v1/teams/111/stats?stats=season&group=pitching")) {
+        return createJsonResponse({
+          body: {
+            stats: [{
+              splits: [{
+                stat: {
+                  era: "3.80",
+                  earnedRuns: "104",
+                  inningsPitched: "246.0",
+                  homeRuns: "32",
+                  baseOnBalls: "84",
+                  hitBatsmen: "7",
+                  strikeOuts: "255",
+                  flyOuts: "205"
+                }
+              }]
+            }]
+          }
+        })
+      }
+
+      if (target.includes("/people/1/stats")) {
+        return createJsonResponse({
+          body: {
+            stats: [{
+              splits: [{
+                stat: {
+                  era: "3.40",
+                  whip: "1.12",
+                  strikeOuts: 110,
+                  inningsPitched: "95.1",
+                  avg: ".229",
+                  slg: ".377",
+                  homeRuns: "10",
+                  baseOnBalls: "28",
+                  hitBatsmen: "3",
+                  flyOuts: "70"
+                }
+              }]
+            }]
+          }
+        })
+      }
+
+      if (target.includes("/people/2/stats")) {
+        return createJsonResponse({
+          body: {
+            stats: [{
+              splits: [{
+                stat: {
+                  era: "3.10",
+                  whip: "1.05",
+                  strikeOuts: 120,
+                  inningsPitched: "101.0",
+                  avg: ".218",
+                  slg: ".341",
+                  homeRuns: "9",
+                  baseOnBalls: "24",
+                  hitBatsmen: "2",
+                  flyOuts: "82"
+                }
+              }]
+            }]
+          }
+        })
+      }
+
+      if (target.includes("baseballsavant.mlb.com/leaderboard/custom")) {
+        return createTextResponse({
+          body: [
+            'player_id,pitcher,k_percent,bb_percent,xba,xslg,xera,hard_hit_percent,barrel_batted_rate,exit_velocity_avg',
+            '1,Away Pitcher,28.4,7.1,0.221,0.351,3.12,34.5,7.8,88.6',
+            '2,Home Pitcher,31.2,5.4,0.205,0.332,2.98,31.1,6.2,87.4'
+          ].join("\n")
+        })
+      }
+
+      return createJsonResponse({ body: {} })
+    },
+    async () => {
+      const res = createMockResponse()
+      await handler(createRequest(), res)
+
+      assert.equal(res.statusCode, 200)
+      const payload = redisMock.snapshot("mlb:stats:pitchers")
+      assert.equal(Object.keys(payload).length, 2)
+      assert.equal(payload["Home Pitcher"].pitcherId, 2)
+      assert.equal(payload["Home Pitcher"].xera, 2.98)
+      assert.equal(payload["Home Pitcher"].strikeoutRate, 0.312)
+      assert.ok(Math.abs(payload["Home Pitcher"].walkRate - 0.054) < 1e-9)
+      assert.ok(Math.abs(payload["Home Pitcher"].strikeoutMinusWalkRate - 0.258) < 1e-9)
+      assert.equal(payload["Home Pitcher"].expectedBattingAverageAgainst, 0.205)
+      assert.equal(payload["Home Pitcher"].expectedSluggingAgainst, 0.332)
+      assert.equal(payload["Home Pitcher"].hardHitRate, 0.311)
+      assert.equal(payload["Home Pitcher"].barrelRate, 0.062)
+      assert.equal(payload["Home Pitcher"].averageExitVelocity, 87.4)
+      assert.equal(typeof payload["Home Pitcher"].fip, "number")
+      assert.equal(typeof payload["Home Pitcher"].xfip, "number")
+    }
+  ))
 })
