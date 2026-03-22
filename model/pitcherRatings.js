@@ -1,14 +1,22 @@
 import { redis } from "../lib/upstash.js"
 
-export async function getPitcherRating(name) {
+export async function getPitcherStats(stats = null) {
+
+  if (stats) return stats
+
+  return await redis.get("mlb:stats:pitchers")
+
+}
+
+export async function getPitcherRating(name, stats = null) {
 
   if (!name) return 0
 
-  const stats = await redis.get("mlb:stats:pitchers")
+  const pitcherStats = await getPitcherStats(stats)
 
-  if (!stats || !stats[name]) return 0
+  if (!pitcherStats || !pitcherStats[name]) return 0
 
-  const pitcher = stats[name]
+  const pitcher = pitcherStats[name]
 
   let rating = 0
 

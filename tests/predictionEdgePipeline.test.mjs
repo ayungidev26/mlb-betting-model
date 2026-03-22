@@ -9,9 +9,11 @@ import { ValidationError } from '../lib/payloadValidation.js'
 
 function createMockRedis(seed = {}) {
   const store = new Map(Object.entries(seed))
+  const getCounts = new Map()
 
   return {
     async get(key) {
+      getCounts.set(key, (getCounts.get(key) || 0) + 1)
       return store.get(key)
     },
     async set(key, value) {
@@ -20,6 +22,9 @@ function createMockRedis(seed = {}) {
     },
     dump(key) {
       return store.get(key)
+    },
+    getCount(key) {
+      return getCounts.get(key) || 0
     }
   }
 }
@@ -98,6 +103,51 @@ test('prediction pipeline repairs a missing matchKey when the cached game still 
     redis.dump('mlb:games:today')[0].matchKey,
     '2025-04-10|Los Angeles Dodgers|Oakland Athletics'
   )
+})
+
+test('prediction pipeline only fetches pitcher stats once for multiple games in the same run', async () => {
+  const redis = createMockRedis({
+    'mlb:games:today': [
+      {
+        gameId: 'game-1',
+        matchKey: '2025-04-10|Los Angeles Dodgers|Oakland Athletics',
+        date: '2025-04-10T23:10:00Z',
+        homeTeam: 'Oakland Athletics',
+        awayTeam: 'Los Angeles Dodgers',
+        homePitcher: 'Pitcher A',
+        awayPitcher: 'Pitcher B',
+        seasonType: 'regular'
+      },
+      {
+        gameId: 'game-2',
+        matchKey: '2025-04-10|Seattle Mariners|Houston Astros',
+        date: '2025-04-11T00:10:00Z',
+        homeTeam: 'Houston Astros',
+        awayTeam: 'Seattle Mariners',
+        homePitcher: 'Pitcher C',
+        awayPitcher: 'Pitcher D',
+        seasonType: 'regular'
+      }
+    ],
+    'mlb:ratings:teams': {
+      'Oakland Athletics': 1450,
+      'Los Angeles Dodgers': 1600,
+      'Houston Astros': 1540,
+      'Seattle Mariners': 1520
+    },
+    'mlb:stats:bullpen': null,
+    'mlb:stats:pitchers': {
+      'Pitcher A': { era: 2.9, whip: 1.0, strikeouts: 120, innings: 95 },
+      'Pitcher B': { era: 3.2, whip: 1.1, strikeouts: 110, innings: 100 },
+      'Pitcher C': { era: 3.8, whip: 1.18, strikeouts: 90, innings: 88 },
+      'Pitcher D': { era: 4.1, whip: 1.25, strikeouts: 80, innings: 90 }
+    }
+  })
+
+  const result = await generatePredictions(redis)
+
+  assert.equal(result.predictionsCreated, 2)
+  assert.equal(redis.getCount('mlb:stats:pitchers'), 1)
 })
 
 test('prediction pipeline still fails fast when a missing matchKey cannot be reconstructed', async () => {
