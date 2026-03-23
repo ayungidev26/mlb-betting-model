@@ -2,6 +2,7 @@ import {
   buildLogoutCookie,
   buildSessionCookie,
   createSessionToken,
+  getSessionExpirationTimestamp,
   isValidPassword
 } from "../../lib/appAuth.js"
 
@@ -32,5 +33,8 @@ export default async function handler(req, res) {
 
   res.setHeader("Set-Cookie", buildSessionCookie(sessionToken))
 
-  return res.status(200).json({ success: true })
+  return res.status(200).json({
+    success: true,
+    sessionExpiresAt: getSessionExpirationTimestamp(sessionToken)
+  })
 }
