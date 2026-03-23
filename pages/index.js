@@ -50,6 +50,18 @@ function formatMetricValue(value, digits = 2) {
     : "N/A"
 }
 
+function formatOffenseRate(value) {
+  return typeof value === "number"
+    ? `${(value * 100).toFixed(1)}%`
+    : "N/A"
+}
+
+function formatOffenseRatingValue(value) {
+  return typeof value === "number"
+    ? Math.round(value).toString()
+    : "N/A"
+}
+
 function formatFactor(value) {
   return typeof value === "number"
     ? `${value.toFixed(2)}x`
@@ -298,6 +310,83 @@ function InfoList({ items }) {
             <span className="detailList__value">{item.value}</span>
           </div>
         ))}
+      </div>
+    </div>
+  )
+}
+
+function OffenseComparison({ awayTeam, homeTeam, awayOffense, homeOffense }) {
+  const awayStats = awayOffense?.stats?.overall || null
+  const homeStats = homeOffense?.stats?.overall || null
+  const awayDerived = awayOffense?.derived || null
+  const homeDerived = homeOffense?.derived || null
+  const comparisonRows = [
+    {
+      label: "Offense Rating",
+      awayValue: formatOffenseRatingValue(awayOffense?.rating),
+      homeValue: formatOffenseRatingValue(homeOffense?.rating)
+    },
+    {
+      label: "wRC+",
+      awayValue: formatMetricValue(awayStats?.weightedRunsCreatedPlus, 1),
+      homeValue: formatMetricValue(homeStats?.weightedRunsCreatedPlus, 1)
+    },
+    {
+      label: "OPS",
+      awayValue: formatMetricValue(awayStats?.ops, 3),
+      homeValue: formatMetricValue(homeStats?.ops, 3)
+    },
+    {
+      label: "Power (ISO)",
+      awayValue: formatMetricValue(awayStats?.isolatedPower, 3),
+      homeValue: formatMetricValue(homeStats?.isolatedPower, 3)
+    },
+    {
+      label: "Plate Discipline (K% / BB%)",
+      awayValue: `${formatOffenseRate(awayStats?.strikeoutRate)} / ${formatOffenseRate(awayStats?.walkRate)}`,
+      homeValue: `${formatOffenseRate(homeStats?.strikeoutRate)} / ${formatOffenseRate(homeStats?.walkRate)}`
+    }
+  ]
+
+  return (
+    <div className="detailCard detailCard--comparison">
+      <div className="comparisonTable" role="table" aria-label="Team offense comparison">
+        <div className="comparisonTable__header" role="row">
+          <span className="comparisonTable__spacer" aria-hidden="true" />
+          <span className="comparisonTable__team" role="columnheader">{awayTeam}</span>
+          <span className="comparisonTable__team" role="columnheader">{homeTeam}</span>
+        </div>
+
+        <div className="comparisonTable__body" role="rowgroup">
+          {comparisonRows.map((row) => (
+            <div className="comparisonTable__row" role="row" key={row.label}>
+              <span className="comparisonTable__label" role="rowheader">{row.label}</span>
+              <strong className="comparisonTable__value" role="cell">{row.awayValue}</strong>
+              <strong className="comparisonTable__value" role="cell">{row.homeValue}</strong>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      <div className="comparisonHighlights" aria-label="Additional offense context">
+        <div className="comparisonHighlights__item">
+          <span className="detailCard__eyebrow">{awayTeam} split</span>
+          <p className="detailCard__copy">
+            vs {awayDerived?.opposingPitcherHand || "?"}: {formatMetricValue(
+              awayDerived?.offenseVsHandedness,
+              awayDerived?.offenseVsHandedness > 2 ? 1 : 3
+            )} • Recent form {formatOffenseRatingValue(awayDerived?.recentOffenseForm)}
+          </p>
+        </div>
+        <div className="comparisonHighlights__item">
+          <span className="detailCard__eyebrow">{homeTeam} split</span>
+          <p className="detailCard__copy">
+            vs {homeDerived?.opposingPitcherHand || "?"}: {formatMetricValue(
+              homeDerived?.offenseVsHandedness,
+              homeDerived?.offenseVsHandedness > 2 ? 1 : 3
+            )} • Recent form {formatOffenseRatingValue(homeDerived?.recentOffenseForm)}
+          </p>
+        </div>
       </div>
     </div>
   )
@@ -690,6 +779,8 @@ export default function Home({ games = [], summary, error = "" }) {
             const awayBullpenDetails = game.bullpenModel?.away || null
             const homeBullpenDetails = game.bullpenModel?.home || null
             const ballparkModel = game.ballparkModel || null
+            const awayOffenseDetails = game.offenseModel?.away || null
+            const homeOffenseDetails = game.offenseModel?.home || null
             const oddsComparison = getOddsComparison(game)
             const betType = getGameBetType(game)
 
@@ -698,19 +789,19 @@ export default function Home({ games = [], summary, error = "" }) {
                 className={`gameCard gameCard--${edgeTier.tone}`}
                 key={game.matchKey || game.gameId || `${game.homeTeam}-${game.awayTeam}-${index}`}
               >
-                  <div className="gameCard__header">
-                    <div>
-                      <p className="gameCard__meta">{formatGameTime(game.date)}</p>
-                      <h2 className="gameCard__title">
-                        <span>{game.awayTeam}</span>
-                        <span className="vs">@</span>
-                        <span>{game.homeTeam}</span>
-                      </h2>
-                      <p className="gameCard__submeta">{getBallparkSummary(game.ballpark)}</p>
-                    </div>
-                    <div className="tagRow tagRow--tight">
-                      <span className="tag tag--muted">{formatBetTypeLabel(betType)}</span>
-                      <span className={`tag tag--${edgeTier.tone}`}>{edgeTier.label}</span>
+                <div className="gameCard__header">
+                  <div>
+                    <p className="gameCard__meta">{formatGameTime(game.date)}</p>
+                    <h2 className="gameCard__title">
+                      <span>{game.awayTeam}</span>
+                      <span className="vs">@</span>
+                      <span>{game.homeTeam}</span>
+                    </h2>
+                    <p className="gameCard__submeta">{getBallparkSummary(game.ballpark)}</p>
+                  </div>
+                  <div className="tagRow tagRow--tight">
+                    <span className="tag tag--muted">{formatBetTypeLabel(betType)}</span>
+                    <span className={`tag tag--${edgeTier.tone}`}>{edgeTier.label}</span>
                   </div>
                 </div>
 
@@ -737,6 +828,19 @@ export default function Home({ games = [], summary, error = "" }) {
                         details={homePitcherDetails}
                       />
                     </div>
+                  </SectionBlock>
+
+                  <SectionBlock
+                    kicker="Offense"
+                    title="Lineup comparison"
+                    subtitle="Quick team strength snapshot"
+                  >
+                    <OffenseComparison
+                      awayTeam={game.awayTeam}
+                      homeTeam={game.homeTeam}
+                      awayOffense={awayOffenseDetails}
+                      homeOffense={homeOffenseDetails}
+                    />
                   </SectionBlock>
 
                   <SectionBlock
@@ -1207,7 +1311,7 @@ export default function Home({ games = [], summary, error = "" }) {
 
         .gameCard__body {
           display: grid;
-          grid-template-columns: repeat(3, minmax(0, 1fr));
+          grid-template-columns: repeat(4, minmax(0, 1fr));
           gap: 16px;
         }
 
@@ -1286,6 +1390,81 @@ export default function Home({ games = [], summary, error = "" }) {
           font-weight: 800;
           color: #f8fafc;
           white-space: nowrap;
+        }
+
+        .detailCard--comparison {
+          display: flex;
+          flex-direction: column;
+          gap: 14px;
+        }
+
+        .comparisonTable,
+        .comparisonTable__body {
+          display: grid;
+          gap: 10px;
+        }
+
+        .comparisonTable__header,
+        .comparisonTable__row {
+          display: grid;
+          grid-template-columns: minmax(120px, 1.2fr) repeat(2, minmax(0, 1fr));
+          gap: 12px;
+          align-items: center;
+        }
+
+        .comparisonTable__header {
+          padding-bottom: 10px;
+          border-bottom: 1px solid rgba(148, 163, 184, 0.14);
+        }
+
+        .comparisonTable__row {
+          padding: 10px 0;
+          border-bottom: 1px solid rgba(148, 163, 184, 0.08);
+        }
+
+        .comparisonTable__row:last-child {
+          border-bottom: 0;
+          padding-bottom: 0;
+        }
+
+        .comparisonTable__spacer,
+        .comparisonTable__label {
+          color: #cbd5e1;
+          font-size: 0.8rem;
+          line-height: 1.4;
+        }
+
+        .comparisonTable__team {
+          font-size: 0.82rem;
+          font-weight: 800;
+          color: #f8fafc;
+          text-align: center;
+        }
+
+        .comparisonTable__value {
+          display: inline-flex;
+          justify-content: center;
+          align-items: center;
+          min-height: 40px;
+          padding: 8px 10px;
+          border-radius: 14px;
+          background: rgba(15, 23, 42, 0.72);
+          border: 1px solid rgba(148, 163, 184, 0.12);
+          color: #f8fafc;
+          font-size: 0.9rem;
+          text-align: center;
+        }
+
+        .comparisonHighlights {
+          display: grid;
+          grid-template-columns: repeat(2, minmax(0, 1fr));
+          gap: 12px;
+          padding-top: 2px;
+        }
+
+        .comparisonHighlights__item {
+          padding-top: 12px;
+          border-top: 1px solid rgba(148, 163, 184, 0.1);
         }
 
         .detailList {
@@ -1431,7 +1610,8 @@ export default function Home({ games = [], summary, error = "" }) {
 
           .hero__stats,
           .filterGrid,
-          .metricGrid {
+          .metricGrid,
+          .comparisonHighlights {
             grid-template-columns: 1fr;
           }
 
@@ -1450,6 +1630,18 @@ export default function Home({ games = [], summary, error = "" }) {
           .gameCard,
           .emptyState {
             padding: 20px;
+          }
+
+          .comparisonTable__header,
+          .comparisonTable__row {
+            grid-template-columns: minmax(92px, 1fr) repeat(2, minmax(0, 1fr));
+            gap: 8px;
+          }
+
+          .comparisonTable__label,
+          .comparisonTable__team,
+          .comparisonTable__value {
+            font-size: 0.76rem;
           }
         }
       `}</style>
