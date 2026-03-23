@@ -80,9 +80,16 @@ const styles = {
   note: {
     marginTop: "16px",
     color: "#94a3b8",
-    fontSize: "14px"
+    fontSize: "14px",
+    lineHeight: 1.5
+  },
+  code: {
+    fontFamily: '"SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace',
+    color: "#e2e8f0"
   }
 }
+
+const configHelpMessage = "APP_PASSWORD is not configured yet. Create .env.local, copy the values from .env.example, then add APP_PASSWORD=your-test-password and restart npm run dev."
 
 export default function LoginPage() {
   const router = useRouter()
@@ -100,7 +107,7 @@ export default function LoginPage() {
 
   const statusMessage = useMemo(() => {
     if (router.query.error === "config") {
-      return "APP_PASSWORD is not configured yet. Add it to your environment variables before logging in."
+      return configHelpMessage
     }
 
     return ""
@@ -123,7 +130,7 @@ export default function LoginPage() {
       const payload = await response.json().catch(() => ({}))
 
       if (!response.ok) {
-        setError(payload.error || "Unable to log in")
+        setError(payload.error === "APP_PASSWORD is not configured" ? configHelpMessage : (payload.error || "Unable to log in"))
         return
       }
 
@@ -164,7 +171,7 @@ export default function LoginPage() {
           </button>
         </form>
         <p style={styles.note}>
-          Access is granted only after a correct password creates a secure session cookie.
+          For local testing, create <span style={styles.code}>.env.local</span>, copy the keys from <span style={styles.code}>.env.example</span>, set <span style={styles.code}>APP_PASSWORD</span>, and restart <span style={styles.code}>npm run dev</span>.
         </p>
       </section>
     </main>

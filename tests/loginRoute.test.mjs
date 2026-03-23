@@ -57,3 +57,20 @@ test("login route rejects an incorrect password", async () => {
   assert.deepEqual(res.body, { error: "Incorrect password" })
   assert.match(res.headers["Set-Cookie"], /Max-Age=0/)
 })
+
+test("login route reports missing APP_PASSWORD configuration", async () => {
+  delete process.env.APP_PASSWORD
+
+  const req = {
+    method: "POST",
+    body: {
+      password: "dugout"
+    }
+  }
+  const res = createMockResponse()
+
+  await loginHandler(req, res)
+
+  assert.equal(res.statusCode, 500)
+  assert.deepEqual(res.body, { error: "APP_PASSWORD is not configured" })
+})
