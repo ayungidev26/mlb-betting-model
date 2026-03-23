@@ -42,6 +42,22 @@ Recommended locations:
 
 Do **not** hardcode bearer tokens in the repo, client-side code, or test fixtures meant for deployment. If a token is exposed, rotate it immediately.
 
+### App Password Protection
+
+The homepage is protected by a lightweight password gate:
+
+* Anonymous visitors are redirected to `/login` by `middleware.js`.
+* The login form posts the password to `/api/login`.
+* The API route compares the submitted password to `APP_PASSWORD` on the server and, when valid, issues an HTTP-only session cookie.
+* If the password is wrong, the login request is rejected and the app remains hidden.
+
+Local setup:
+
+1. Copy `.env.example` to `.env.local`.
+2. Set `APP_PASSWORD` to the shared password you want to require.
+3. Start the app with `npm run dev`.
+4. Visit the app and enter the password on the login screen.
+
 ### Required Environment Variables
 
 | Variable | Required | Purpose |
@@ -51,6 +67,7 @@ Do **not** hardcode bearer tokens in the repo, client-side code, or test fixture
 | `ODDS_API_KEY` | Yes | Auth for The Odds API. |
 | `ADMIN_API_SECRET` | Yes | Secures the admin-only operational API routes. |
 | `CRON_SECRET` | Yes | Secures the public cron endpoint that Vercel invokes automatically. |
+| `APP_PASSWORD` | Yes | Shared password required to unlock the web app via the lightweight login screen. |
 | `SCHEDULER_BASE_URL` | Local/manual only | Base URL used by `npm run test:scheduler` for manual verification. Defaults to `http://localhost:3000`. |
 | `BALLPARK_FACTORS_URL` | Optional | External JSON or CSV feed for normalized ballpark factors. When omitted, the app falls back to the bundled baseline dataset in `data/ballparkFactors.js`. |
 
