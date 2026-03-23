@@ -54,9 +54,20 @@ The homepage is protected by a lightweight password gate:
 Local setup:
 
 1. Copy `.env.example` to `.env.local`.
-2. Set `APP_PASSWORD` to the shared password you want to require.
-3. Start the app with `npm run dev`.
-4. Visit the app and enter the password on the login screen.
+2. Set `APP_PASSWORD` to the shared password you want to require. Example: `APP_PASSWORD=dugout`.
+3. Fill in the other required local secrets in `.env.local` as needed for the routes you plan to test.
+4. Start or restart the app with `npm run dev` so Next.js reloads the environment file.
+5. Visit the app and enter the password on the login screen.
+
+Quick local password-only smoke test:
+
+```bash
+cp .env.example .env.local
+printf '
+APP_PASSWORD=dugout
+' >> .env.local
+npm run dev
+```
 
 ### Required Environment Variables
 
