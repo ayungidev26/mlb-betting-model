@@ -110,6 +110,10 @@ export default function LoginPage() {
       return configHelpMessage
     }
 
+    if (router.query.error === "expired") {
+      return "Your session expired after 5 minutes. Enter the password again to continue."
+    }
+
     return ""
   }, [router.query.error])
 
@@ -148,7 +152,7 @@ export default function LoginPage() {
         <div style={styles.badge}>Protected app</div>
         <h1 style={styles.heading}>Enter password</h1>
         <p style={styles.copy}>
-          This MLB dashboard is protected by a single shared password. Enter it below to view the app.
+          This MLB dashboard is protected by a single shared password. Sessions automatically sign out after 5 minutes, so enter it below to view the app.
         </p>
         {(statusMessage || error) && (
           <div style={styles.error} role="alert">

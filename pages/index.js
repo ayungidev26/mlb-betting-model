@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useState } from "react"
+import { useCallback, useEffect, useMemo, useState } from "react"
+import { useRouter } from "next/router"
 
 import {
   buildHomePageProps,
@@ -11,6 +12,7 @@ import {
   getAvailableTeams,
   getGameBetType
 } from "../lib/gameFilters"
+import { getSessionExpirationTimestamp, readSessionCookie } from "../lib/appAuth"
 
 const EDGE_FILTER_OPTIONS = [
   { value: 0, label: "Any edge" },
@@ -21,7 +23,16 @@ const EDGE_FILTER_OPTIONS = [
 ]
 
 export async function getServerSideProps(context) {
-  return buildHomePageProps(() => loadHomePageData(context.req))
+  const response = await buildHomePageProps(() => loadHomePageData(context.req))
+  const sessionToken = readSessionCookie(context.req?.headers?.cookie || "")
+
+  return {
+    ...response,
+    props: {
+      ...response.props,
+      sessionExpiresAt: getSessionExpirationTimestamp(sessionToken)
+    }
+  }
 }
 
 function formatPercent(value) {
@@ -524,7 +535,8 @@ async function fetchHomePageData() {
   })
 }
 
-export default function Home({ games = [], summary, error = "" }) {
+export default function Home({ games = [], summary, error = "", sessionExpiresAt = null }) {
+  const router = useRouter()
   const initialViewModel = useMemo(() => ({
     games: Array.isArray(games) ? games : [],
     summary: summary || {
@@ -602,6 +614,44 @@ export default function Home({ games = [], summary, error = "" }) {
   const showFilteredEmptyState = !showInitialLoading && !fetchState.error && hasGames && !hasFilteredGames
   const hasActiveFilters = filters.minimumEdge > 0 || filters.betType !== "all" || filters.team !== "all"
 
+  const handleLogout = useCallback(async (reason = "manual") => {
+    try {
+      setFetchState((currentState) => ({
+        ...currentState,
+        isRefreshing: currentState.isRefreshing || reason === "manual"
+      }))
+
+      await fetch("/api/logout", {
+        method: "POST"
+      })
+    } catch (logoutError) {
+      // Swallow network errors so the redirect still clears the local session view.
+    } finally {
+      await router.push(reason === "expired" ? "/login?error=expired" : "/login")
+    }
+  }, [router])
+
+  useEffect(() => {
+    if (typeof sessionExpiresAt !== "number") {
+      return undefined
+    }
+
+    const remainingMs = sessionExpiresAt - Date.now()
+
+    if (remainingMs <= 0) {
+      handleLogout("expired")
+      return undefined
+    }
+
+    const timeoutId = window.setTimeout(() => {
+      handleLogout("expired")
+    }, remainingMs)
+
+    return () => {
+      window.clearTimeout(timeoutId)
+    }
+  }, [handleLogout, sessionExpiresAt])
+
   useEffect(() => {
     setFilters((currentFilters) => ({
       minimumEdge: currentFilters.minimumEdge,
@@ -631,10 +681,22 @@ export default function Home({ games = [], summary, error = "" }) {
     <main className="dashboard">
       <section className="hero shellCard">
         <div className="hero__content">
-          <p className="eyebrow">MLB model dashboard</p>
+          <div className="hero__toolbar">
+            <p className="eyebrow">MLB model dashboard</p>
+            <button
+              type="button"
+              className="logoutButton"
+              onClick={() => handleLogout("manual")}
+            >
+              Logout
+            </button>
+          </div>
           <h1>Today&apos;s betting board</h1>
           <p className="hero__copy">
             Scan projected winners, starters, bullpen context, and pricing gaps in one clean view built for quick reads.
+          </p>
+          <p className="hero__sessionNote">
+            For security, sessions automatically sign out after 5 minutes.
           </p>
         </div>
 
@@ -1014,6 +1076,37 @@ export default function Home({ games = [], summary, error = "" }) {
           box-sizing: border-box;
         }
 
+        .hero__toolbar {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          gap: 16px;
+          margin-bottom: 12px;
+        }
+
+        .logoutButton {
+          border: 1px solid rgba(148, 163, 184, 0.28);
+          border-radius: 999px;
+          padding: 10px 16px;
+          background: rgba(15, 23, 42, 0.78);
+          color: #e2e8f0;
+          font: inherit;
+          font-weight: 700;
+          cursor: pointer;
+          transition: background 0.2s ease, border-color 0.2s ease, transform 0.2s ease;
+        }
+
+        .logoutButton:hover {
+          background: rgba(30, 41, 59, 0.96);
+          border-color: rgba(96, 165, 250, 0.45);
+          transform: translateY(-1px);
+        }
+
+        .logoutButton:focus-visible {
+          outline: 2px solid rgba(147, 197, 253, 0.9);
+          outline-offset: 3px;
+        }
+
         .hero {
           display: grid;
           grid-template-columns: minmax(0, 1.7fr) minmax(320px, 1fr);
@@ -1065,6 +1158,12 @@ export default function Home({ games = [], summary, error = "" }) {
           max-width: 680px;
           font-size: 1rem;
           color: #cbd5e1;
+        }
+
+        .hero__sessionNote {
+          margin: 14px 0 0;
+          color: #bfdbfe;
+          font-size: 0.95rem;
         }
 
         .hero__stats,

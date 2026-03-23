@@ -36,7 +36,8 @@ test("login route sets a session cookie for a correct password", async () => {
   await loginHandler(req, res)
 
   assert.equal(res.statusCode, 200)
-  assert.deepEqual(res.body, { success: true })
+  assert.equal(res.body.success, true)
+  assert.equal(typeof res.body.sessionExpiresAt, "number")
   assert.match(res.headers["Set-Cookie"], /app_session=/)
 })
 
