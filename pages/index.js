@@ -79,6 +79,18 @@ function formatClassification(value) {
     .join(" ")
 }
 
+function getParkClassificationTone(value) {
+  if (value === "pitcher-friendly") {
+    return "pitcher"
+  }
+
+  if (value === "hitter-friendly") {
+    return "hitter"
+  }
+
+  return "neutral"
+}
+
 function formatGameTime(value) {
   if (!value) {
     return "Time TBD"
@@ -310,6 +322,54 @@ function InfoList({ items }) {
             <span className="detailList__value">{item.value}</span>
           </div>
         ))}
+      </div>
+    </div>
+  )
+}
+
+function ParkClassificationBadge({ classification }) {
+  const tone = getParkClassificationTone(classification)
+
+  return (
+    <span className={`parkBadge parkBadge--${tone}`}>
+      {formatClassification(classification)}
+    </span>
+  )
+}
+
+function BallparkPanel({ ballpark, venue }) {
+  const classification = ballpark?.classification || "neutral"
+  const parkName = ballpark?.venue || venue || "Unknown park"
+
+  return (
+    <div className="detailCard detailCard--compact ballparkPanel">
+      <div className="ballparkPanel__header">
+        <div>
+          <div className="ballparkPanel__eyebrowRow">
+            <span className="detailCard__eyebrow">Ballpark</span>
+            <span
+              className="ballparkPanel__info"
+              role="img"
+              aria-label="Ballpark factors info"
+              title="Park factors compare how a stadium changes scoring and home run output versus league average. 1.00x is neutral."
+            >
+              ⓘ
+            </span>
+          </div>
+          <h4 className="detailCard__title">{parkName}</h4>
+        </div>
+        <ParkClassificationBadge classification={classification} />
+      </div>
+
+      <div className="ballparkPanel__metrics" aria-label="Ballpark factor summary">
+        <div className="ballparkMetric">
+          <span className="ballparkMetric__label">Run factor</span>
+          <strong className="ballparkMetric__value">{formatFactor(ballpark?.runFactor)}</strong>
+        </div>
+        <div className="ballparkMetric">
+          <span className="ballparkMetric__label">Home run factor</span>
+          <strong className="ballparkMetric__value">{formatFactor(ballpark?.homeRunFactor)}</strong>
+        </div>
       </div>
     </div>
   )
@@ -870,16 +930,7 @@ export default function Home({ games = [], summary, error = "" }) {
                     subtitle="Venue-adjusted offense context"
                   >
                     <div className="stack">
-                      <InfoList
-                        items={[
-                          { label: "Venue", value: game.ballpark?.venue || game.venue || "Unknown park" },
-                          { label: "Classification", value: formatClassification(game.ballpark?.classification) },
-                          { label: "Run factor", value: formatFactor(game.ballpark?.runFactor) },
-                          { label: "HR factor", value: formatFactor(game.ballpark?.homeRunFactor) },
-                          { label: "Hits factor", value: formatFactor(game.ballpark?.hitsFactor) },
-                          { label: "2B/3B factor", value: formatFactor(game.ballpark?.doublesTriplesFactor) }
-                        ]}
-                      />
+                      <BallparkPanel ballpark={game.ballpark} venue={game.venue} />
                       <InfoList
                         items={[
                           { label: `${game.awayTeam} park impact`, value: getBallparkAdjustmentSummary(ballparkModel?.away) },
@@ -1398,6 +1449,101 @@ export default function Home({ games = [], summary, error = "" }) {
           gap: 14px;
         }
 
+        .ballparkPanel {
+          gap: 16px;
+        }
+
+        .ballparkPanel__header,
+        .ballparkPanel__eyebrowRow,
+        .ballparkPanel__metrics {
+          display: flex;
+        }
+
+        .ballparkPanel__header {
+          justify-content: space-between;
+          gap: 12px;
+          align-items: flex-start;
+        }
+
+        .ballparkPanel__eyebrowRow {
+          align-items: center;
+          gap: 8px;
+          margin-bottom: 8px;
+        }
+
+        .ballparkPanel__info {
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          width: 20px;
+          height: 20px;
+          border-radius: 999px;
+          border: 1px solid rgba(148, 163, 184, 0.22);
+          color: #cbd5e1;
+          font-size: 0.78rem;
+          cursor: help;
+        }
+
+        .ballparkPanel__metrics {
+          gap: 10px;
+          flex-wrap: wrap;
+        }
+
+        .ballparkMetric {
+          flex: 1 1 140px;
+          min-width: 0;
+          padding: 12px 14px;
+          border-radius: 14px;
+          background: rgba(15, 23, 42, 0.72);
+          border: 1px solid rgba(148, 163, 184, 0.12);
+          display: grid;
+          gap: 6px;
+        }
+
+        .ballparkMetric__label {
+          font-size: 0.76rem;
+          font-weight: 700;
+          letter-spacing: 0.06em;
+          text-transform: uppercase;
+          color: #94a3b8;
+        }
+
+        .ballparkMetric__value {
+          color: #f8fafc;
+          font-size: 1rem;
+        }
+
+        .parkBadge {
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          min-height: 34px;
+          padding: 8px 12px;
+          border-radius: 999px;
+          font-size: 0.8rem;
+          font-weight: 800;
+          white-space: nowrap;
+          border: 1px solid transparent;
+        }
+
+        .parkBadge--pitcher {
+          background: rgba(20, 83, 45, 0.28);
+          border-color: rgba(74, 222, 128, 0.32);
+          color: #86efac;
+        }
+
+        .parkBadge--neutral {
+          background: rgba(51, 65, 85, 0.56);
+          border-color: rgba(148, 163, 184, 0.22);
+          color: #e2e8f0;
+        }
+
+        .parkBadge--hitter {
+          background: rgba(154, 52, 18, 0.32);
+          border-color: rgba(251, 146, 60, 0.34);
+          color: #fdba74;
+        }
+
         .comparisonTable,
         .comparisonTable__body {
           display: grid;
@@ -1604,7 +1750,8 @@ export default function Home({ games = [], summary, error = "" }) {
           .summaryCard__header,
           .gameCard__header,
           .contentBlock__header,
-          .detailCard__row {
+          .detailCard__row,
+          .ballparkPanel__header {
             flex-direction: column;
           }
 
