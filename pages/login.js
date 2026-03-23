@@ -151,9 +151,10 @@ export default function LoginPage() {
       <section style={styles.card}>
         <div style={styles.badge}>Protected app</div>
         <h1 style={styles.heading}>Enter password</h1>
-        <p style={styles.copy}>
-          This MLB dashboard is protected by a single shared password. Sessions automatically sign out after 5 minutes, so enter it below to view the app.
-        </p>
+        {/* Removed per request, but preserved here for future reference:
+            "This MLB dashboard is protected by a single shared password. Sessions automatically sign out after 5 minutes, so enter it below to view the app."
+            "For local testing, create .env.local, copy the keys from .env.example, set APP_PASSWORD, and restart npm run dev."
+        */}
         {(statusMessage || error) && (
           <div style={styles.error} role="alert">
             {error || statusMessage}
@@ -174,9 +175,6 @@ export default function LoginPage() {
             {isSubmitting ? "Checking..." : "Unlock app"}
           </button>
         </form>
-        <p style={styles.note}>
-          For local testing, create <span style={styles.code}>.env.local</span>, copy the keys from <span style={styles.code}>.env.example</span>, set <span style={styles.code}>APP_PASSWORD</span>, and restart <span style={styles.code}>npm run dev</span>.
-        </p>
       </section>
     </main>
   )
