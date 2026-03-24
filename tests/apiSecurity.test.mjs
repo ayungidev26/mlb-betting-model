@@ -130,3 +130,22 @@ test("requireCronRouteAccess accepts the configured cron bearer token", () => {
   assert.equal(res.statusCode, 200)
   assert.equal(res.body, null)
 })
+
+test("requireCronRouteAccess returns actionable message when bearer header is missing", () => {
+  process.env.CRON_SECRET = "cron-secret"
+
+  const req = {
+    method: "GET",
+    headers: {}
+  }
+  const res = createMockResponse()
+
+  const allowed = requireCronRouteAccess(req, res)
+
+  assert.equal(allowed, false)
+  assert.equal(res.statusCode, 401)
+  assert.equal(
+    res.body.error,
+    "Missing Authorization header. Configure CRON_SECRET in Vercel so scheduled cron invocations include Bearer auth."
+  )
+})

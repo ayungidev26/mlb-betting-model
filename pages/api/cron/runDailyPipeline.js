@@ -44,11 +44,11 @@ export default async function handler(req, res) {
   const force = shouldForceRun(req.query)
   const schedulerWindow = isDailyPipelineWindow()
 
-  if (!force && !schedulerWindow.matchesTargetHour) {
+  if (!force && !schedulerWindow.matchesTargetTime) {
     return res.status(202).json({
       ok: true,
       skipped: true,
-      reason: "Outside the 21:00 America/New_York execution window",
+      reason: "Outside the 21:25 America/New_York execution window",
       schedulerWindow,
       currentUtcTime: new Date().toISOString()
     })
