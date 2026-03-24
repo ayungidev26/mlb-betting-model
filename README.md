@@ -423,14 +423,14 @@ mlb:cron:dailyPipeline:YYYY-MM-DD
 
 ### Why There Are Two Cron Expressions
 
-Vercel cron schedules are UTC-based. To guarantee a 10:00 AM run in `America/New_York` across daylight saving transitions, this project schedules **both** of the UTC hours that can map to 10:00 AM Eastern:
+Vercel cron schedules are UTC-based. To guarantee a 9:00 PM run in `America/New_York` across daylight saving transitions, this project schedules **both** of the UTC hours that can map to 9:00 PM Eastern:
 
-* `0 14 * * *` → 10:00 AM during Eastern Daylight Time
-* `0 15 * * *` → 10:00 AM during Eastern Standard Time
+* `0 1 * * *` → 9:00 PM during Eastern Daylight Time
+* `0 2 * * *` → 9:00 PM during Eastern Standard Time
 
 The cron route itself then verifies the local New York hour before running the pipeline, so only the correct daily invocation proceeds.
 
-> **Important:** this DST-safe setup needs a Vercel plan that supports more than one cron job per day and minute-level cron timing. Vercel Hobby cron jobs only run once per day and may fire at any point within the configured hour, which is not sufficient for a production-grade 10:00 AM Eastern schedule.
+> **Important:** this DST-safe setup needs a Vercel plan that supports more than one cron job per day and minute-level cron timing. Vercel Hobby cron jobs only run once per day and may fire at any point within the configured hour, which is not sufficient for a production-grade 9:00 PM Eastern schedule.
 
 ### Cron Configuration
 
@@ -442,11 +442,11 @@ The project uses `vercel.json`:
   "crons": [
     {
       "path": "/api/cron/runDailyPipeline",
-      "schedule": "0 14 * * *"
+      "schedule": "0 1 * * *"
     },
     {
       "path": "/api/cron/runDailyPipeline",
-      "schedule": "0 15 * * *"
+      "schedule": "0 2 * * *"
     }
   ]
 }
@@ -542,7 +542,7 @@ This produces a list of betting opportunities for the current MLB slate.
 ✔ Sportsbook odds comparison  
 ✔ Automated edge detection  
 ✔ Prediction history storage  
-✔ Automated daily scheduling at 10:00 AM America/New_York
+✔ Automated daily scheduling at 9:00 PM America/New_York
 
 ---
 
@@ -578,7 +578,7 @@ This produces a list of betting opportunities for the current MLB slate.
    * `mlb:stats:bullpen`
    * `mlb:predictions:today`
    * `mlb:edges:today`
-5. On the next scheduled production run, confirm the cron invocation succeeds around 10:00 AM New York local time.
+5. On the next scheduled production run, confirm the cron invocation succeeds around 9:00 PM New York local time.
 
 ---
 
