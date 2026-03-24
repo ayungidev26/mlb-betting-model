@@ -228,20 +228,20 @@ function createTextResponse({ ok = true, status = 200, body = "" } = {}) {
   }
 }
 
-test("cron route skips requests outside the 10 AM Eastern execution window", { concurrency: false }, async () => {
+test("cron route skips requests outside the 9 PM Eastern execution window", { concurrency: false }, async () => {
   process.env.CRON_SECRET = "cron-secret"
   process.env.ADMIN_API_SECRET = "admin-secret"
   process.env.ODDS_API_KEY = "test-odds-key"
 
   const handler = await importRoute("../pages/api/cron/runDailyPipeline.js")
 
-  await withPatchedRedis(createMockRedis(), async () => withMockedDate("2026-01-15T14:00:00.000Z", async () => {
+  await withPatchedRedis(createMockRedis(), async () => withMockedDate("2026-01-16T01:00:00.000Z", async () => {
     const res = createMockResponse()
     await handler(createRequest(), res)
 
     assert.equal(res.statusCode, 202)
     assert.equal(res.body.skipped, true)
-    assert.match(res.body.reason, /10:00 America\/New_York/)
+    assert.match(res.body.reason, /21:00 America\/New_York/)
   }))
 })
 
@@ -258,7 +258,7 @@ test("cron route runs the existing pipeline once per Eastern day and skips dupli
     }]
   ])
 
-  await withPatchedRedis(redisMock, async () => withMockedDate("2026-07-01T14:00:00.000Z", async () => withMockedFetch(
+  await withPatchedRedis(redisMock, async () => withMockedDate("2026-07-02T01:00:00.000Z", async () => withMockedFetch(
     async (url) => {
       const target = String(url)
 
