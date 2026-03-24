@@ -228,7 +228,7 @@ function createTextResponse({ ok = true, status = 200, body = "" } = {}) {
   }
 }
 
-test("cron route skips requests outside the 9:25 PM Eastern execution window", { concurrency: false }, async () => {
+test("cron route skips requests outside the 10:00 AM Eastern execution window", { concurrency: false }, async () => {
   process.env.CRON_SECRET = "cron-secret"
   process.env.ADMIN_API_SECRET = "admin-secret"
   process.env.ODDS_API_KEY = "test-odds-key"
@@ -241,7 +241,7 @@ test("cron route skips requests outside the 9:25 PM Eastern execution window", {
 
     assert.equal(res.statusCode, 202)
     assert.equal(res.body.skipped, true)
-    assert.match(res.body.reason, /21:25 America\/New_York/)
+    assert.match(res.body.reason, /10:00 America\/New_York/)
   }))
 })
 
@@ -258,7 +258,7 @@ test("cron route runs the existing pipeline once per Eastern day and skips dupli
     }]
   ])
 
-  await withPatchedRedis(redisMock, async () => withMockedDate("2026-07-02T01:25:00.000Z", async () => withMockedFetch(
+  await withPatchedRedis(redisMock, async () => withMockedDate("2026-07-02T14:00:00.000Z", async () => withMockedFetch(
     async (url) => {
       const target = String(url)
 
@@ -483,7 +483,7 @@ test("cron route runs the existing pipeline once per Eastern day and skips dupli
       assert.equal(secondRun.statusCode, 200)
       assert.equal(secondRun.body.skipped, true)
       assert.match(secondRun.body.reason, /already triggered/)
-      assert.ok(redisMock.snapshot("mlb:cron:dailyPipeline:2026-07-01"))
+      assert.ok(redisMock.snapshot("mlb:cron:dailyPipeline:2026-07-02"))
     }
   )))
 })
