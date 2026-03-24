@@ -6,7 +6,12 @@ import { buildLoginRedirectPath } from "./lib/appAuthGuard.js"
 export async function middleware(req) {
   const { pathname, search } = req.nextUrl
 
-  if (pathname.startsWith("/api/login") || pathname.startsWith("/api/logout") || pathname === "/login") {
+  const isPublicAuthRoute = pathname.startsWith("/api/login")
+    || pathname.startsWith("/api/logout")
+    || pathname === "/login"
+  const isCronApiRoute = pathname.startsWith("/api/cron/")
+
+  if (isPublicAuthRoute || isCronApiRoute) {
     return NextResponse.next()
   }
 
