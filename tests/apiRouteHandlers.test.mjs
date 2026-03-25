@@ -1002,3 +1002,97 @@ test("fetchPitcherStats tolerates transient team and pitcher directory upstream 
     }
   ))
 })
+
+test("fetchBullpenStats tolerates transient team pitching upstream failures", { concurrency: false }, async () => {
+  process.env.ADMIN_API_SECRET = "test-admin-secret"
+  const handler = await importRoute("../pages/api/fetchBullpenStats.js")
+  const redisMock = createMockRedis()
+
+  await withPatchedRedis(redisMock, async () => withMockedFetch(
+    async (url) => {
+      const target = String(url)
+
+      if (target.includes("/api/v1/teams?sportId=1")) {
+        return createJsonResponse({
+          body: {
+            teams: [
+              { id: 147, name: "New York Yankees" },
+              { id: 111, name: "Boston Red Sox" }
+            ]
+          }
+        })
+      }
+
+      if (target.includes("/api/v1/teams/147/stats?stats=season&group=pitching&sitCodes=rp")) {
+        return createJsonResponse({
+          body: {
+            stats: [{
+              splits: [{
+                stat: {
+                  era: "3.50",
+                  whip: "1.12",
+                  inningsPitched: "257.1",
+                  strikeOuts: "280",
+                  baseOnBalls: "80",
+                  homeRuns: "30",
+                  hitBatsmen: "8",
+                  flyOuts: "210"
+                }
+              }]
+            }]
+          }
+        })
+      }
+
+      if (target.includes("/api/v1/teams/147/stats?stats=season&group=pitching")) {
+        return createJsonResponse({
+          body: {
+            stats: [{
+              splits: [{
+                stat: {
+                  era: "3.60",
+                  whip: "1.18",
+                  inningsPitched: "270.0",
+                  strikeOuts: "290",
+                  baseOnBalls: "85",
+                  homeRuns: "33",
+                  hitBatsmen: "9",
+                  flyOuts: "220"
+                }
+              }]
+            }]
+          }
+        })
+      }
+
+      if (target.includes("/api/v1/teams/111/stats?stats=season&group=pitching&sitCodes=rp")) {
+        throw new Error("Temporary MLB API team stats outage")
+      }
+
+      if (target.includes("baseballsavant.mlb.com/leaderboard/custom")) {
+        return createTextResponse({
+          body: "player_id,pitcher,k_percent,bb_percent,xba,xslg,xera,hard_hit_percent,barrel_batted_rate,exit_velocity_avg"
+        })
+      }
+
+      if (target.includes("/roster?")) {
+        return createJsonResponse({ body: { roster: [] } })
+      }
+
+      if (target.includes("/schedule?")) {
+        return createJsonResponse({ body: { dates: [] } })
+      }
+
+      return createJsonResponse({ body: {} })
+    },
+    async () => {
+      const res = createMockResponse()
+      await handler(createRequest(), res)
+
+      assert.equal(res.statusCode, 200)
+      assert.equal(res.body.teamsCollected, 1)
+      const payload = redisMock.snapshot("mlb:stats:bullpen")
+      assert.deepEqual(Object.keys(payload), ["New York Yankees"])
+    }
+  ))
+})
