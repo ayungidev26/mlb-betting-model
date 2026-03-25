@@ -70,37 +70,38 @@ jobs:
             cat "$response_file"
 
             if grep -q '"code":"COOLDOWN_ACTIVE"' "$response_file"; then
-              retry_after_seconds="$(python3 - <<'PY' "$response_file"
-              import json
-              import sys
+              retry_after_seconds="$(
+                python3 - "$response_file" <<'PY'
+import json
+import sys
 
-              payload_path = sys.argv[1]
-              text = open(payload_path, "r", encoding="utf-8").read()
-              retry_after = None
-              decoder = json.JSONDecoder()
-              index = 0
+payload_path = sys.argv[1]
+text = open(payload_path, "r", encoding="utf-8").read()
+retry_after = None
+decoder = json.JSONDecoder()
+index = 0
 
-              while index < len(text):
-                  while index < len(text) and text[index].isspace():
-                      index += 1
-                  if index >= len(text):
-                      break
-                  try:
-                      payload, next_index = decoder.raw_decode(text, index)
-                  except json.JSONDecodeError:
-                      break
-                  index = next_index
-                  for step in payload.get("steps", []):
-                      step_result = step.get("result") or {}
-                      if step_result.get("code") == "COOLDOWN_ACTIVE":
-                          retry_after = step_result.get("retryAfterSeconds")
-                          break
-                  if retry_after is not None:
-                      break
+while index < len(text):
+    while index < len(text) and text[index].isspace():
+        index += 1
+    if index >= len(text):
+        break
+    try:
+        payload, next_index = decoder.raw_decode(text, index)
+    except json.JSONDecodeError:
+        break
+    index = next_index
+    for step in payload.get("steps", []):
+        step_result = step.get("result") or {}
+        if step_result.get("code") == "COOLDOWN_ACTIVE":
+            retry_after = step_result.get("retryAfterSeconds")
+            break
+    if retry_after is not None:
+        break
 
-              if isinstance(retry_after, (int, float)):
-                  print(max(1, int(retry_after)))
-              PY
+if isinstance(retry_after, (int, float)):
+    print(max(1, int(retry_after)))
+PY
               )"
 
               if [[ -z "$retry_after_seconds" ]]; then
