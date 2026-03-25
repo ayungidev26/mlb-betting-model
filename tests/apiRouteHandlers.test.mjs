@@ -893,3 +893,112 @@ test("fetchPitcherStats stores advanced pitcher metrics and computed K-BB%, FIP,
     }
   ))
 })
+
+test("fetchPitcherStats tolerates transient team and pitcher directory upstream failures", { concurrency: false }, async () => {
+  process.env.ADMIN_API_SECRET = "test-admin-secret"
+  const handler = await importRoute("../pages/api/fetchPitcherStats.js")
+  const redisMock = createMockRedis([
+    ["mlb:games:today", [
+      {
+        gameId: "game-1",
+        homePitcher: "Home Pitcher",
+        awayPitcher: "Away Pitcher"
+      }
+    ]]
+  ])
+
+  await withPatchedRedis(redisMock, async () => withMockedFetch(
+    async (url) => {
+      const target = String(url)
+
+      if (target.includes("/people/search?names=Home%20Pitcher")) {
+        return createJsonResponse({
+          body: { people: [{ id: 2, fullName: "Home Pitcher" }] }
+        })
+      }
+
+      if (target.includes("/people/search?names=Away%20Pitcher")) {
+        throw new Error("Temporary MLB API search outage")
+      }
+
+      if (target.includes("/api/v1/teams?sportId=1")) {
+        return createJsonResponse({
+          body: {
+            teams: [
+              { id: 147, name: "New York Yankees" },
+              { id: 111, name: "Boston Red Sox" }
+            ]
+          }
+        })
+      }
+
+      if (target.includes("/api/v1/teams/147/stats?stats=season&group=pitching")) {
+        return createJsonResponse({
+          body: {
+            stats: [{
+              splits: [{
+                stat: {
+                  era: "3.50",
+                  earnedRuns: "100",
+                  inningsPitched: "257.1",
+                  homeRuns: "30",
+                  baseOnBalls: "80",
+                  hitBatsmen: "8",
+                  strikeOuts: "280",
+                  flyOuts: "210"
+                }
+              }]
+            }]
+          }
+        })
+      }
+
+      if (target.includes("/api/v1/teams/111/stats?stats=season&group=pitching")) {
+        throw new Error("Temporary MLB API team stats outage")
+      }
+
+      if (target.includes("/people/2/stats")) {
+        return createJsonResponse({
+          body: {
+            stats: [{
+              splits: [{
+                stat: {
+                  era: "3.10",
+                  whip: "1.05",
+                  strikeOuts: 120,
+                  inningsPitched: "101.0",
+                  avg: ".218",
+                  slg: ".341",
+                  homeRuns: "9",
+                  baseOnBalls: "24",
+                  hitBatsmen: "2",
+                  flyOuts: "82"
+                }
+              }]
+            }]
+          }
+        })
+      }
+
+      if (target.includes("baseballsavant.mlb.com/leaderboard/custom")) {
+        return createTextResponse({
+          body: [
+            "player_id,pitcher,k_percent,bb_percent,xba,xslg,xera,hard_hit_percent,barrel_batted_rate,exit_velocity_avg",
+            "2,Home Pitcher,31.2,5.4,0.205,0.332,2.98,31.1,6.2,87.4"
+          ].join("\n")
+        })
+      }
+
+      return createJsonResponse({ body: {} })
+    },
+    async () => {
+      const res = createMockResponse()
+      await handler(createRequest(), res)
+
+      assert.equal(res.statusCode, 200)
+      assert.equal(res.body.pitchersCollected, 1)
+      const payload = redisMock.snapshot("mlb:stats:pitchers")
+      assert.deepEqual(Object.keys(payload), ["Home Pitcher"])
+    }
+  ))
+})
