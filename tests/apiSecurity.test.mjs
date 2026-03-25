@@ -113,6 +113,25 @@ test("requireOperationalRouteAccess accepts x-admin-secret when Authorization is
   assert.equal(res.body, null)
 })
 
+test("requireOperationalRouteAccess accepts adminSecret in request body when headers are unavailable", () => {
+  process.env.ADMIN_API_SECRET = "top-secret"
+
+  const req = {
+    method: "POST",
+    headers: {},
+    body: {
+      adminSecret: "top-secret"
+    }
+  }
+  const res = createMockResponse()
+
+  const allowed = requireOperationalRouteAccess(req, res)
+
+  assert.equal(allowed, true)
+  assert.equal(res.statusCode, 200)
+  assert.equal(res.body, null)
+})
+
 test("requireCronRouteAccess rejects requests when CRON_SECRET is missing", () => {
   delete process.env.CRON_SECRET
 

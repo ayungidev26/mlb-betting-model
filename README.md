@@ -116,7 +116,7 @@ Does this need to be set in Vercel?
 
 The scheduler does **not** use `APP_PASSWORD` / login credentials. `/api/runPipeline` bypasses login middleware and only validates API headers/secrets.
 
-Tip: set `PIPELINE_BASE_URL` to the final canonical deployment URL (avoid URLs that redirect to another hostname). If you intentionally use a redirecting URL, the workflow is configured to preserve `Authorization` across redirects.
+Tip: set `PIPELINE_BASE_URL` to the final canonical deployment URL (avoid URLs that redirect to another hostname). The workflow calls `/api/runPipeline` directly with both headers and a JSON body fallback (`authToken` + `adminSecret`) so platform proxies that strip auth headers do not break scheduled runs.
 
 This keeps scheduling outside Vercel cron while preserving the route-level auth and lock protections built into the pipeline endpoint.
 

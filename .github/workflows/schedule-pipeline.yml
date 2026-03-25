@@ -57,6 +57,7 @@ jobs:
             --header "Authorization: Bearer ${CLEAN_PIPELINE_AUTH_TOKEN}" \
             --header "x-admin-secret: ${CLEAN_ADMIN_API_SECRET}" \
             --header "Content-Type: application/json" \
+            --data "{\"authToken\":\"${CLEAN_PIPELINE_AUTH_TOKEN}\",\"adminSecret\":\"${CLEAN_ADMIN_API_SECRET}\"}" \
             "$ENDPOINT_URL"
 
       - name: Skip (non-target hour)
