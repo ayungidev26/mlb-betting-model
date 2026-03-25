@@ -95,6 +95,24 @@ test("requireOperationalRouteAccess accepts the configured bearer token", () => 
 })
 
 
+test("requireOperationalRouteAccess accepts x-admin-secret when Authorization is unavailable", () => {
+  process.env.ADMIN_API_SECRET = "top-secret"
+
+  const req = {
+    method: "POST",
+    headers: {
+      "x-admin-secret": "top-secret"
+    }
+  }
+  const res = createMockResponse()
+
+  const allowed = requireOperationalRouteAccess(req, res)
+
+  assert.equal(allowed, true)
+  assert.equal(res.statusCode, 200)
+  assert.equal(res.body, null)
+})
+
 test("requireCronRouteAccess rejects requests when CRON_SECRET is missing", () => {
   delete process.env.CRON_SECRET
 
