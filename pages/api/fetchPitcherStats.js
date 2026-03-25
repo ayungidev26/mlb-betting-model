@@ -33,14 +33,22 @@ async function fetchTeamPitchingStats() {
   const teamStats = []
 
   for (const team of teamsData.teams || []) {
-    const statsUrl =
-      `https://statsapi.mlb.com/api/v1/teams/${team.id}/stats?stats=season&group=pitching`
+    try {
+      const statsUrl =
+        `https://statsapi.mlb.com/api/v1/teams/${team.id}/stats?stats=season&group=pitching`
 
-    const statsData = await fetchJsonWithRetry(statsUrl)
-    const stat = statsData.stats?.[0]?.splits?.[0]?.stat
+      const statsData = await fetchJsonWithRetry(statsUrl)
+      const stat = statsData.stats?.[0]?.splits?.[0]?.stat
 
-    if (stat) {
-      teamStats.push(stat)
+      if (stat) {
+        teamStats.push(stat)
+      }
+    } catch (error) {
+      console.warn(
+        "fetchPitcherStats: unable to fetch team pitching stats",
+        team?.id,
+        error?.message || error
+      )
     }
   }
 
@@ -63,7 +71,18 @@ async function resolvePitcherDirectory(games) {
 
       const searchUrl =
         `https://statsapi.mlb.com/api/v1/people/search?names=${encodeURIComponent(name)}`
-      const searchData = await fetchJsonWithRetry(searchUrl)
+      let searchData = null
+
+      try {
+        searchData = await fetchJsonWithRetry(searchUrl)
+      } catch (error) {
+        console.warn(
+          "fetchPitcherStats: unable to resolve pitcher",
+          name,
+          error?.message || error
+        )
+        continue
+      }
 
       if (!searchData.people || searchData.people.length === 0) {
         continue
