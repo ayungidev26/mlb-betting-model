@@ -96,6 +96,25 @@ Required GitHub repository secrets:
 
 * `PIPELINE_BASE_URL` (example: `https://your-app.vercel.app`)
 * `ADMIN_API_SECRET` (must match Vercel `ADMIN_API_SECRET`)
+* `PIPELINE_AUTH_TOKEN` (optional; falls back to `ADMIN_API_SECRET` when unset)
+
+Where to set these in GitHub:
+
+1. Open your repository → **Settings** → **Secrets and variables** → **Actions**.
+2. Under **Repository secrets**, add `PIPELINE_BASE_URL`, `ADMIN_API_SECRET`, and optionally `PIPELINE_AUTH_TOKEN`.
+3. If the workflow uses a GitHub **Environment**, add the same names under that environment's secrets instead (or in addition), because environment secrets override repository-level values for environment-scoped jobs.
+
+What value to use for `PIPELINE_AUTH_TOKEN`:
+
+* If your deployment has no extra proxy/auth layer, leave `PIPELINE_AUTH_TOKEN` unset so the workflow reuses `ADMIN_API_SECRET`.
+* If an upstream gateway expects a different bearer token in the `Authorization` header, set `PIPELINE_AUTH_TOKEN` to that exact gateway token while keeping `ADMIN_API_SECRET` unchanged for `x-admin-secret`.
+
+Does this need to be set in Vercel?
+
+* `PIPELINE_AUTH_TOKEN`: **No** (GitHub Actions-only secret used by the scheduler workflow).
+* `ADMIN_API_SECRET`: **Yes** in Vercel, because the Next.js API route validates incoming admin access against Vercel runtime env vars.
+
+The scheduler does **not** use `APP_PASSWORD` / login credentials. `/api/runPipeline` bypasses login middleware and only validates API headers/secrets.
 
 Tip: set `PIPELINE_BASE_URL` to the final canonical deployment URL (avoid URLs that redirect to another hostname). If you intentionally use a redirecting URL, the workflow is configured to preserve `Authorization` across redirects.
 
