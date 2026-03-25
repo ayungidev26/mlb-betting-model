@@ -121,25 +121,33 @@ export default async function handler(req, res) {
     }
 
     for (const [requestedName, pitcherMeta] of Object.entries(pitcherDirectory)) {
-      const statsUrl =
-        `https://statsapi.mlb.com/api/v1/people/${pitcherMeta.id}/stats?stats=season&group=pitching`
-      const statsData = await fetchJsonWithRetry(statsUrl)
-      const stat = statsData.stats?.[0]?.splits?.[0]?.stat
+      try {
+        const statsUrl =
+          `https://statsapi.mlb.com/api/v1/people/${pitcherMeta.id}/stats?stats=season&group=pitching`
+        const statsData = await fetchJsonWithRetry(statsUrl)
+        const stat = statsData.stats?.[0]?.splits?.[0]?.stat
 
-      if (!stat) {
-        continue
-      }
+        if (!stat) {
+          continue
+        }
 
-      const advancedStat = getAdvancedPitcherStats(
-        pitcherMeta.id,
-        pitcherMeta.name,
-        savantPitcherStats
-      )
+        const advancedStat = getAdvancedPitcherStats(
+          pitcherMeta.id,
+          pitcherMeta.name,
+          savantPitcherStats
+        )
 
-      pitcherStats[requestedName] = {
-        pitcherId: pitcherMeta.id,
-        throwingHand: pitcherMeta.throwingHand || null,
-        ...normalizePitcherStatRecord(stat, advancedStat, leagueContext)
+        pitcherStats[requestedName] = {
+          pitcherId: pitcherMeta.id,
+          throwingHand: pitcherMeta.throwingHand || null,
+          ...normalizePitcherStatRecord(stat, advancedStat, leagueContext)
+        }
+      } catch (error) {
+        console.warn(
+          "fetchPitcherStats: unable to fetch pitcher",
+          pitcherMeta?.name || requestedName,
+          error?.message || error
+        )
       }
     }
 
