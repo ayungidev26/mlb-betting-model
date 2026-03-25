@@ -97,6 +97,8 @@ Required GitHub repository secrets:
 * `PIPELINE_BASE_URL` (example: `https://your-app.vercel.app`)
 * `ADMIN_API_SECRET` (must match Vercel `ADMIN_API_SECRET`)
 
+Tip: set `PIPELINE_BASE_URL` to the final canonical deployment URL (avoid URLs that redirect to another hostname). If you intentionally use a redirecting URL, the workflow is configured to preserve `Authorization` across redirects.
+
 This keeps scheduling outside Vercel cron while preserving the route-level auth and lock protections built into the pipeline endpoint.
 
 ---
