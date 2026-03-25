@@ -10,8 +10,9 @@ export async function middleware(req) {
     || pathname.startsWith("/api/logout")
     || pathname === "/login"
   const isCronApiRoute = pathname.startsWith("/api/cron/")
+  const isOperationalApiRoute = pathname.startsWith("/api/runPipeline")
 
-  if (isPublicAuthRoute || isCronApiRoute) {
+  if (isPublicAuthRoute || isCronApiRoute || isOperationalApiRoute) {
     return NextResponse.next()
   }
 
