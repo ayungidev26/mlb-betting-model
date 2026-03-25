@@ -77,7 +77,7 @@ npm run dev
 | `UPSTASH_REDIS_REST_TOKEN` | Yes | Upstash Redis REST token. |
 | `ODDS_API_KEY` | Yes | Auth for The Odds API. |
 | `ADMIN_API_SECRET` | Yes | Secures the admin-only operational API routes. |
-| `CRON_SECRET` | Yes | Secures the public cron endpoint that Vercel invokes automatically. |
+| `CRON_SECRET` | Optional (legacy cron route only) | Secret for `/api/cron/runDailyPipeline` if you still use that endpoint manually. |
 | `APP_PASSWORD` | Yes | Shared password required to unlock the web app via the lightweight login screen. |
 | `SCHEDULER_BASE_URL` | Local/manual only | Base URL used by `npm run test:scheduler` for manual verification. Defaults to `http://localhost:3000`. |
 | `BALLPARK_FACTORS_URL` | Optional | External JSON or CSV feed for normalized ballpark factors. When omitted, the app falls back to the bundled baseline dataset in `data/ballparkFactors.js`. |
@@ -438,6 +438,8 @@ Both require `POST` plus `Authorization: Bearer <ADMIN_API_SECRET>`.
 
 ## Daily Scheduler
 
+> **Current production setup:** scheduling is handled by `.github/workflows/schedule-pipeline.yml` (GitHub Actions), not Vercel Cron. The details below are legacy/optional for teams still using `/api/cron/runDailyPipeline`.
+
 ### Scheduled Endpoint
 
 `/api/cron/runDailyPipeline`
@@ -448,7 +450,7 @@ Security and behavior:
 
 * Accepts `GET` for Vercel Cron and secure manual testing.
 * Requires `Authorization: Bearer <CRON_SECRET>`.
-* Uses `America/New_York` to evaluate whether the current local time is `10:00`.
+* Uses `America/New_York` to evaluate whether the current local time is `10:00` or `15:00`.
 * Stores a daily idempotency marker in Redis so duplicate cron deliveries do not rerun the pipeline for the same Eastern date.
 * Leaves the existing `runPipeline` Redis lock in place to prevent overlapping executions.
 * Supports `?force=true` for manual verification while still requiring the cron bearer token.
@@ -459,34 +461,26 @@ Redis key used by the scheduler:
 mlb:cron:dailyPipeline:YYYY-MM-DD
 ```
 
-### Why There Are Two Cron Expressions
+### Why There Are Four Cron Expressions
 
-Vercel cron schedules are UTC-based. To guarantee a 10:00 AM run in `America/New_York` across daylight saving transitions, this project schedules **both** of the UTC hours that can map to 10:00 AM Eastern:
+Vercel cron schedules are UTC-based. To guarantee both 10:00 AM and 3:00 PM runs in `America/New_York` across daylight saving transitions, this project schedules **all** UTC hours that can map to those local times:
 
 * `0 14 * * *` → 10:00 AM during Eastern Daylight Time
 * `0 15 * * *` → 10:00 AM during Eastern Standard Time
+* `0 19 * * *` → 3:00 PM during Eastern Daylight Time
+* `0 20 * * *` → 3:00 PM during Eastern Standard Time
 
-The cron route itself then verifies the local New York hour before running the pipeline, so only the correct daily invocation proceeds.
+The cron route itself then verifies the local New York hour before running the pipeline, so only the correct invocation proceeds.
 
-> **Important:** this DST-safe setup needs a Vercel plan that supports more than one cron job per day and minute-level cron timing. Vercel Hobby cron jobs only run once per day and may fire at any point within the configured hour, which is not sufficient for a production-grade 10:00 AM Eastern schedule.
+> **Important:** this DST-safe setup needs a Vercel plan that supports multiple cron jobs per day and minute-level cron timing. Vercel Hobby cron jobs only run once per day and may fire at any point within the configured hour, which is not sufficient for a production-grade twice-daily schedule.
 
-### Cron Configuration
+### Vercel Configuration
 
-The project uses `vercel.json`:
+`vercel.json` does not define cron jobs in the current setup:
 
 ```json
 {
-  "$schema": "https://openapi.vercel.sh/vercel.json",
-  "crons": [
-    {
-      "path": "/api/cron/runDailyPipeline",
-      "schedule": "0 14 * * *"
-    },
-    {
-      "path": "/api/cron/runDailyPipeline",
-      "schedule": "0 15 * * *"
-    }
-  ]
+  "$schema": "https://openapi.vercel.sh/vercel.json"
 }
 ```
 
@@ -580,7 +574,7 @@ This produces a list of betting opportunities for the current MLB slate.
 ✔ Sportsbook odds comparison  
 ✔ Automated edge detection  
 ✔ Prediction history storage  
-✔ Automated daily scheduling at 10:00 AM America/New_York
+✔ Automated daily scheduling at 10:00 AM and 3:00 PM America/New_York
 
 ---
 
@@ -594,8 +588,8 @@ This produces a list of betting opportunities for the current MLB slate.
    * `ODDS_API_KEY`
    * `ADMIN_API_SECRET`
    * `CRON_SECRET`
-2. Deploy the project to Vercel on a plan that supports the two cron jobs in `vercel.json`.
-3. After deployment, confirm the cron jobs appear in **Project Settings → Cron Jobs**.
+2. Deploy the project to Vercel.
+3. Confirm GitHub Actions has the required scheduler secrets and that the `Schedule Pipeline Refresh` workflow is enabled.
 
 ### Verify
 
@@ -616,7 +610,7 @@ This produces a list of betting opportunities for the current MLB slate.
    * `mlb:stats:bullpen`
    * `mlb:predictions:today`
    * `mlb:edges:today`
-5. On the next scheduled production run, confirm the cron invocation succeeds around 10:00 AM New York local time.
+5. On the next scheduled production runs, confirm the GitHub Actions workflow triggers around 10:00 AM and 3:00 PM New York local time and `/api/runPipeline` succeeds.
 
 ---
 
