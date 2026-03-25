@@ -35,16 +35,18 @@ jobs:
             exit 1
           fi
 
-          curl --fail-with-body --show-error --silent --location --location-trusted \
+          # Avoid auth header stripping on HTTP redirects by calling the final
+          # endpoint directly and treating redirects as configuration issues.
+          ENDPOINT_URL="${PIPELINE_BASE_URL%/}/api/runPipeline"
+
+          curl --fail-with-body --show-error --silent \
             --request POST \
-            --post301 \
-            --post302 \
-            --post303 \
+            --max-redirs 0 \
             --retry 2 \
             --retry-delay 5 \
             --header "Authorization: Bearer ${ADMIN_API_SECRET}" \
             --header "Content-Type: application/json" \
-            "${PIPELINE_BASE_URL%/}/api/runPipeline"
+            "$ENDPOINT_URL"
 
       - name: Skip (non-target hour)
         if: steps.gate.outputs.should_run != 'true'
