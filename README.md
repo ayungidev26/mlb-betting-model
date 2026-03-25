@@ -37,7 +37,7 @@ Operational auth and provider credentials must be stored in environment-variable
 Recommended locations:
 
 * **Production / Preview:** Vercel Project Settings → Environment Variables (store `ADMIN_API_SECRET`, `CRON_SECRET`, and provider credentials there).
-* **Scheduled jobs / cron:** Use the Vercel-managed `CRON_SECRET` so Vercel automatically adds the expected bearer token when invoking the cron route.
+* **Scheduled jobs / automation:** Store `ADMIN_API_SECRET` and `PIPELINE_BASE_URL` in your scheduler's secret manager (for example GitHub Actions repository secrets) and call `POST /api/runPipeline`.
 * **Local development only:** `.env.local` on your machine, which must stay uncommitted.
 
 Do **not** hardcode bearer tokens in the repo, client-side code, or test fixtures meant for deployment. If a token is exposed, rotate it immediately.
@@ -81,6 +81,23 @@ npm run dev
 | `APP_PASSWORD` | Yes | Shared password required to unlock the web app via the lightweight login screen. |
 | `SCHEDULER_BASE_URL` | Local/manual only | Base URL used by `npm run test:scheduler` for manual verification. Defaults to `http://localhost:3000`. |
 | `BALLPARK_FACTORS_URL` | Optional | External JSON or CSV feed for normalized ballpark factors. When omitted, the app falls back to the bundled baseline dataset in `data/ballparkFactors.js`. |
+
+---
+
+### External Scheduling (Recommended)
+
+The repository includes `.github/workflows/schedule-pipeline.yml`, which is designed to replace platform cron limitations:
+
+* GitHub Actions runs hourly.
+* The workflow checks current `America/New_York` time.
+* It only triggers `POST /api/runPipeline` at **10:00 AM ET** and **3:00 PM ET**.
+
+Required GitHub repository secrets:
+
+* `PIPELINE_BASE_URL` (example: `https://your-app.vercel.app`)
+* `ADMIN_API_SECRET` (must match Vercel `ADMIN_API_SECRET`)
+
+This keeps scheduling outside Vercel cron while preserving the route-level auth and lock protections built into the pipeline endpoint.
 
 ---
 
