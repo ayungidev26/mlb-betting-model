@@ -35,7 +35,7 @@ jobs:
             exit 1
           fi
 
-          curl --fail --show-error --silent \
+          curl --fail --show-error --silent --location \
             --request POST \
             --retry 2 \
             --retry-delay 5 \
