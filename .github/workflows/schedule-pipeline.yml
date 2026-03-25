@@ -18,7 +18,7 @@ jobs:
         run: |
           ET_HOUR="$(TZ=America/New_York date +%H)"
 
-          if [[ "$ET_HOUR" == "10" || "$ET_HOUR" == "15" || "$ET_HOUR" == "21" ]]; then
+          if [[ "$ET_HOUR" == "10" || "$ET_HOUR" == "15" || "$ET_HOUR" == "22" ]]; then
             echo "should_run=true" >> "$GITHUB_OUTPUT"
           else
             echo "should_run=false" >> "$GITHUB_OUTPUT"
@@ -62,4 +62,4 @@ jobs:
       - name: Skip (non-target hour)
         if: steps.gate.outputs.should_run != 'true'
         run: |
-          echo "Not 10:00, 15:00, or 21:00 America/New_York; skipping."
+          echo "Not 10:00, 15:00, or 22:00 America/New_York; skipping."
