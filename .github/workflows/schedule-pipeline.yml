@@ -1,0 +1,49 @@
+name: Schedule Pipeline Refresh
+
+on:
+  schedule:
+    - cron: "0 * * * *"
+  workflow_dispatch:
+
+concurrency:
+  group: pipeline-refresh-scheduler
+  cancel-in-progress: false
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Determine whether this is a target Eastern time
+        id: gate
+        run: |
+          ET_HOUR="$(TZ=America/New_York date +%H)"
+
+          if [[ "$ET_HOUR" == "10" || "$ET_HOUR" == "15" ]]; then
+            echo "should_run=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "should_run=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Trigger pipeline
+        if: steps.gate.outputs.should_run == 'true'
+        env:
+          PIPELINE_BASE_URL: ${{ secrets.PIPELINE_BASE_URL }}
+          ADMIN_API_SECRET: ${{ secrets.ADMIN_API_SECRET }}
+        run: |
+          if [[ -z "$PIPELINE_BASE_URL" || -z "$ADMIN_API_SECRET" ]]; then
+            echo "Missing required GitHub Actions secrets: PIPELINE_BASE_URL and/or ADMIN_API_SECRET"
+            exit 1
+          fi
+
+          curl --fail --show-error --silent \
+            --request POST \
+            --retry 2 \
+            --retry-delay 5 \
+            --header "Authorization: Bearer ${ADMIN_API_SECRET}" \
+            --header "Content-Type: application/json" \
+            "${PIPELINE_BASE_URL%/}/api/runPipeline"
+
+      - name: Skip (non-target hour)
+        if: steps.gate.outputs.should_run != 'true'
+        run: |
+          echo "Not 10:00 or 15:00 America/New_York; skipping."

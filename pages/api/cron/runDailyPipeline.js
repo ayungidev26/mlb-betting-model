@@ -45,10 +45,13 @@ export default async function handler(req, res) {
   const schedulerWindow = isDailyPipelineWindow()
 
   if (!force && !schedulerWindow.matchesTargetTime) {
+    const targetHourLabel = String(schedulerWindow.targetHour).padStart(2, "0")
+    const targetMinuteLabel = String(schedulerWindow.targetMinute).padStart(2, "0")
+
     return res.status(202).json({
       ok: true,
       skipped: true,
-      reason: "Outside the 10:00 America/New_York execution window",
+      reason: `Outside the ${targetHourLabel}:${targetMinuteLabel} America/New_York execution window`,
       schedulerWindow,
       currentUtcTime: new Date().toISOString()
     })
