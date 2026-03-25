@@ -594,6 +594,94 @@ test("fetchTeamOffenseStats stores season, split, recent, and expected offense m
   ))
 })
 
+test("fetchTeamOffenseStats tolerates transient team offense upstream failures", { concurrency: false }, async () => {
+  process.env.ADMIN_API_SECRET = "test-admin-secret"
+  const handler = await importRoute("../pages/api/fetchTeamOffenseStats.js")
+  const redisMock = createMockRedis()
+
+  await withPatchedRedis(redisMock, async () => withMockedFetch(
+    async (url) => {
+      const target = String(url)
+
+      if (target.includes("/api/v1/teams?sportId=1")) {
+        return createJsonResponse({
+          body: {
+            teams: [
+              { id: 147, name: "New York Yankees" },
+              { id: 111, name: "Boston Red Sox" }
+            ]
+          }
+        })
+      }
+
+      if (target.includes("baseballsavant.mlb.com/leaderboard/custom")) {
+        return createTextResponse({
+          body: "team_id,team,pa,woba,xwoba,xba,xslg,hard_hit_percent,barrel_batted_rate"
+        })
+      }
+
+      if (target.includes("/api/v1/teams/147/stats?stats=season&group=hitting")) {
+        return createJsonResponse({
+          body: {
+            stats: [{
+              splits: [{
+                stat: {
+                  gamesPlayed: 20,
+                  runs: 110,
+                  hits: 190,
+                  atBats: 700,
+                  baseOnBalls: 80,
+                  strikeOuts: 150,
+                  avg: ".271",
+                  obp: ".349",
+                  slg: ".455",
+                  ops: ".804",
+                  iso: ".184",
+                  plateAppearances: 800
+                }
+              }]
+            }]
+          }
+        })
+      }
+
+      if (target.includes("/api/v1/teams/111/stats?stats=season&group=hitting")) {
+        throw new Error("Temporary MLB API team offense outage")
+      }
+
+      if (target.includes("/api/v1/teams/147/stats?stats=gameLog&group=hitting&season=")) {
+        return createJsonResponse({
+          body: {
+            stats: [{
+              splits: [
+                { date: "2026-03-21", stat: { runs: 6, hits: 10, atBats: 34, baseOnBalls: 4, strikeOuts: 7, doubles: 2, triples: 0, homeRuns: 1, totalBases: 15 } }
+              ]
+            }]
+          }
+        })
+      }
+
+      if (target.includes("/api/v1/teams/111/stats?stats=gameLog&group=hitting&season=")) {
+        return createJsonResponse({ body: { stats: [{ splits: [] }] } })
+      }
+
+      return createJsonResponse({ body: {} })
+    },
+    async () => {
+      const res = createMockResponse()
+      await handler(createRequest(), res)
+
+      assert.equal(res.statusCode, 200)
+      assert.equal(res.body.teamsCollected, 2)
+      const payload = redisMock.snapshot("mlb:stats:offense")
+      assert.deepEqual(Object.keys(payload), ["New York Yankees", "Boston Red Sox"])
+      assert.equal(payload["New York Yankees"].runsPerGame, 5.5)
+      assert.equal(payload["Boston Red Sox"].gamesPlayed, null)
+      assert.equal(payload["Boston Red Sox"].splits.vsRightHanded.gamesPlayed, null)
+    }
+  ))
+})
+
 test("runPipeline returns a redacted failed-step payload when a child route fails", { concurrency: false }, async () => {
   process.env.ADMIN_API_SECRET = "test-admin-secret"
   process.env.ODDS_API_KEY = "test-odds-key"
