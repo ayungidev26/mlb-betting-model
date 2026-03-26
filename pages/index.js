@@ -235,11 +235,19 @@ function getRecommendedSideProbability(game) {
 function getOddsComparison(game) {
   const modelProbability = getRecommendedSideProbability(game)
   const modelOdds = probabilityToMoneyline(modelProbability)
+  const bestSportsbookName = game?.bestSportsbookName || game?.sportsbookName || game?.bestSportsbook || game?.sportsbook || null
 
   return {
-    bookOdds: typeof game?.recommendedOdds === "number"
-      ? formatMoneyline(game.recommendedOdds)
+    bestOdds: typeof game?.bestOdds === "number"
+      ? formatMoneyline(game.bestOdds)
       : "N/A",
+    bestSportsbook: bestSportsbookName || "Sportsbook unavailable",
+    draftKingsOdds: typeof game?.draftKingsOdds === "number"
+      ? formatMoneyline(game.draftKingsOdds)
+      : "Unavailable",
+    fanDuelOdds: typeof game?.fanDuelOdds === "number"
+      ? formatMoneyline(game.fanDuelOdds)
+      : "Unavailable",
     modelOdds: modelOdds !== null
       ? formatMoneyline(modelOdds)
       : "N/A"
@@ -1069,13 +1077,17 @@ export default function Home({ games = [], summary, error = "", sessionExpiresAt
                         <p className="detailCard__eyebrow">Recommended side</p>
                         <h4 className="detailCard__hero">{recommendedSide}</h4>
                         <p className="detailCard__copy">
-                          {game.sportsbook ? `Best book: ${game.sportsbook}` : "Sportsbook line pending"}
+                          {oddsComparison.bestSportsbook
+                            ? `Best book: ${oddsComparison.bestSportsbook}`
+                            : "Sportsbook line pending"}
                         </p>
                       </div>
 
                       <div className="metricGrid">
                         <DashboardStat label="Model edge" value={formatEdge(game.edge)} emphasis tone={edgeTier.tone} />
-                        <DashboardStat label="Book odds" value={oddsComparison.bookOdds} tone={edgeTier.tone} />
+                        <DashboardStat label="Best odds" value={oddsComparison.bestOdds} tone={edgeTier.tone} />
+                        <DashboardStat label="DraftKings" value={oddsComparison.draftKingsOdds} tone="muted" />
+                        <DashboardStat label="FanDuel" value={oddsComparison.fanDuelOdds} tone="muted" />
                         <DashboardStat label="Fair odds" value={oddsComparison.modelOdds} tone="muted" />
                         <DashboardStat label="Recommendation" value={game.recommendation || recommendedSide} tone={edgeTier.tone} />
                       </div>
