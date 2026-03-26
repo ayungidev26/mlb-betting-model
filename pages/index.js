@@ -391,6 +391,32 @@ function OffenseComparison({ awayTeam, homeTeam, awayOffense, homeOffense }) {
   const homeStats = homeOffense?.stats?.overall || null
   const awayDerived = awayOffense?.derived || null
   const homeDerived = homeOffense?.derived || null
+  const buildBarComparison = (awayRaw, homeRaw) => {
+    const awayNumber = typeof awayRaw === "number" && Number.isFinite(awayRaw) ? awayRaw : null
+    const homeNumber = typeof homeRaw === "number" && Number.isFinite(homeRaw) ? homeRaw : null
+
+    if (awayNumber === null || homeNumber === null) {
+      return null
+    }
+
+    const strongestValue = Math.max(awayNumber, homeNumber)
+    if (strongestValue <= 0) {
+      return {
+        awayWidth: 0,
+        homeWidth: 0,
+        awayIsStronger: false,
+        homeIsStronger: false
+      }
+    }
+
+    return {
+      awayWidth: (awayNumber / strongestValue) * 100,
+      homeWidth: (homeNumber / strongestValue) * 100,
+      awayIsStronger: awayNumber > homeNumber,
+      homeIsStronger: homeNumber > awayNumber
+    }
+  }
+
   const comparisonRows = [
     {
       label: "Offense Rating",
@@ -400,17 +426,20 @@ function OffenseComparison({ awayTeam, homeTeam, awayOffense, homeOffense }) {
     {
       label: "wRC+",
       awayValue: formatMetricValue(awayStats?.weightedRunsCreatedPlus, 1),
-      homeValue: formatMetricValue(homeStats?.weightedRunsCreatedPlus, 1)
+      homeValue: formatMetricValue(homeStats?.weightedRunsCreatedPlus, 1),
+      barComparison: buildBarComparison(awayStats?.weightedRunsCreatedPlus, homeStats?.weightedRunsCreatedPlus)
     },
     {
       label: "OPS",
       awayValue: formatMetricValue(awayStats?.ops, 3),
-      homeValue: formatMetricValue(homeStats?.ops, 3)
+      homeValue: formatMetricValue(homeStats?.ops, 3),
+      barComparison: buildBarComparison(awayStats?.ops, homeStats?.ops)
     },
     {
       label: "Power (ISO)",
       awayValue: formatMetricValue(awayStats?.isolatedPower, 3),
-      homeValue: formatMetricValue(homeStats?.isolatedPower, 3)
+      homeValue: formatMetricValue(homeStats?.isolatedPower, 3),
+      barComparison: buildBarComparison(awayStats?.isolatedPower, homeStats?.isolatedPower)
     },
     {
       label: "Plate Discipline (K% / BB%)",
@@ -432,8 +461,34 @@ function OffenseComparison({ awayTeam, homeTeam, awayOffense, homeOffense }) {
           {comparisonRows.map((row) => (
             <div className="comparisonTable__row" role="row" key={row.label}>
               <span className="comparisonTable__label" role="rowheader">{row.label}</span>
-              <strong className="comparisonTable__value" role="cell">{row.awayValue}</strong>
-              <strong className="comparisonTable__value" role="cell">{row.homeValue}</strong>
+              <strong
+                className={`comparisonTable__value${row.barComparison?.awayIsStronger ? " comparisonTable__value--stronger" : ""}`}
+                role="cell"
+              >
+                <span className="comparisonTable__valueText">{row.awayValue}</span>
+                {row.barComparison ? (
+                  <span className="comparisonTable__barTrack" aria-hidden="true">
+                    <span
+                      className={`comparisonTable__barFill${row.barComparison.awayIsStronger ? " comparisonTable__barFill--stronger" : ""}`}
+                      style={{ width: `${row.barComparison.awayWidth}%` }}
+                    />
+                  </span>
+                ) : null}
+              </strong>
+              <strong
+                className={`comparisonTable__value${row.barComparison?.homeIsStronger ? " comparisonTable__value--stronger" : ""}`}
+                role="cell"
+              >
+                <span className="comparisonTable__valueText">{row.homeValue}</span>
+                {row.barComparison ? (
+                  <span className="comparisonTable__barTrack" aria-hidden="true">
+                    <span
+                      className={`comparisonTable__barFill${row.barComparison.homeIsStronger ? " comparisonTable__barFill--stronger" : ""}`}
+                      style={{ width: `${row.barComparison.homeWidth}%` }}
+                    />
+                  </span>
+                ) : null}
+              </strong>
             </div>
           ))}
         </div>
@@ -1687,9 +1742,10 @@ export default function Home({ games = [], summary, error = "", sessionExpiresAt
         }
 
         .comparisonTable__value {
-          display: inline-flex;
+          display: flex;
+          flex-direction: column;
           justify-content: center;
-          align-items: center;
+          align-items: stretch;
           min-height: 40px;
           padding: 8px 10px;
           border-radius: 14px;
@@ -1698,6 +1754,36 @@ export default function Home({ games = [], summary, error = "", sessionExpiresAt
           color: #f8fafc;
           font-size: 0.9rem;
           text-align: center;
+          gap: 6px;
+        }
+
+        .comparisonTable__valueText {
+          display: block;
+        }
+
+        .comparisonTable__value--stronger {
+          border-color: rgba(59, 130, 246, 0.55);
+          box-shadow: inset 0 0 0 1px rgba(59, 130, 246, 0.18);
+        }
+
+        .comparisonTable__barTrack {
+          display: block;
+          width: 100%;
+          height: 6px;
+          border-radius: 999px;
+          background: rgba(148, 163, 184, 0.22);
+          overflow: hidden;
+        }
+
+        .comparisonTable__barFill {
+          display: block;
+          height: 100%;
+          border-radius: inherit;
+          background: rgba(148, 163, 184, 0.58);
+        }
+
+        .comparisonTable__barFill--stronger {
+          background: linear-gradient(90deg, #38bdf8, #3b82f6);
         }
 
         .comparisonHighlights {
