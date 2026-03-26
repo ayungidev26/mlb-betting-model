@@ -1,740 +1,404 @@
 # MLB Betting Model
 
-## Overview
-
-This application is a serverless MLB betting model that collects game data, builds predictive ratings, compares model probabilities to sportsbook odds, and identifies betting edges.
-
-The system runs entirely in the cloud using a modern serverless architecture powered by **Next.js APIs**, **Vercel**, and **Upstash Redis**.
-
-The model evaluates each MLB game using a combination of:
-
-* Historical team strength (Elo rating system)
-* Starting pitcher performance
-* Bullpen strength
-* Team offense strength (season, split, rolling-form, and expected-contact inputs)
-* Ballpark factors (run, HR, hit, doubles/triples, and handedness splits when available)
-* Home field advantage
-* Sportsbook betting odds
-
-By comparing model win probabilities to sportsbook implied probabilities, the system automatically identifies games where the model believes the sportsbook odds are mispriced.
+A password-protected, serverless MLB prediction and betting-edge application built with Next.js API routes, Upstash Redis, and scheduled automation.
 
 ---
 
-## Architecture
+## Project Overview
 
-Cloud stack:
+This project ingests MLB schedule + odds + team/player stats, builds model predictions, and flags moneyline edges where the model's probability exceeds market implied probability.
 
-* Frontend/API hosting: Vercel
-* Serverless API layer: Next.js
-* Database: Upstash Redis
-* Data source: MLB Stats API
-* Odds source: Odds API
+At a high level, the daily workflow is:
 
-### Secret Storage
+1. Fetch today's games (with probable pitchers + ballpark factors)
+2. Fetch sportsbook odds
+3. Fetch pitcher stats
+4. Fetch bullpen stats
+5. Fetch team offense stats
+6. Generate win probabilities
+7. Compare model vs implied odds and store edges
 
-Operational auth and provider credentials must be stored in environment-variable secret managers, not in source control.
+The web UI reads cached predictions/edges from Redis and presents the top opportunities.
 
-Recommended locations:
+---
 
-* **Production / Preview:** Vercel Project Settings → Environment Variables (store `ADMIN_API_SECRET`, `CRON_SECRET`, and provider credentials there).
-* **Scheduled jobs / automation:** Store `ADMIN_API_SECRET` and `PIPELINE_BASE_URL` in your scheduler's secret manager (for example GitHub Actions repository secrets) and call `POST /api/runPipeline`.
-* **Local development only:** `.env.local` on your machine, which must stay uncommitted.
+## Tech Stack & Architecture
 
-Do **not** hardcode bearer tokens in the repo, client-side code, or test fixtures meant for deployment. If a token is exposed, rotate it immediately.
+- **Runtime / framework:** Next.js (Pages Router) serverless functions
+- **Hosting:** Vercel
+- **Data store:** Upstash Redis (REST API)
+- **External data sources:**
+  - MLB Stats API (schedule, team/player stats)
+  - Baseball Savant CSV leaderboard exports (advanced expected/contact metrics)
+  - The Odds API (US moneyline odds)
+- **Scheduler:**
+  - Recommended: GitHub Actions workflow (`.github/workflows/schedule-pipeline.yml`)
+  - Optional legacy route: `/api/cron/runDailyPipeline`
 
-### App Password Protection
+### Request Access Model
 
-The homepage is protected by a lightweight password gate:
+There are three API access tiers:
 
-* Anonymous visitors are redirected to `/login` by `middleware.js`.
-* The login form posts the password to `/api/login`.
-* The API route compares the submitted password to `APP_PASSWORD` on the server and, when valid, issues an HTTP-only session cookie.
-* If the password is wrong, the login request is rejected and the app remains hidden.
+1. **Public cache read routes** (`GET /api/predictions`, `GET /api/edges`)
+2. **Operational/admin routes** (all model/data pipeline mutation routes; require admin secret and `POST`)
+3. **Cron route** (`/api/cron/runDailyPipeline`; requires cron secret; accepts `GET` or `POST`)
 
-Local setup:
+### App Authentication (UI)
 
-1. Copy `.env.example` to `.env.local`.
-2. Set `APP_PASSWORD` to the shared password you want to require. Example: `APP_PASSWORD=dugout`.
-3. Fill in the other required local secrets in `.env.local` as needed for the routes you plan to test.
-4. Start or restart the app with `npm run dev` so Next.js reloads the environment file.
-5. Visit the app and enter the password on the login screen.
+- Middleware redirects anonymous traffic to `/login`.
+- Login posts to `/api/login`, validates against `APP_PASSWORD`, and sets an HTTP-only cookie.
+- Session TTL is **5 minutes**.
+- `/api/login`, `/api/logout`, `/api/runPipeline`, and `/api/cron/*` bypass UI middleware redirect checks.
 
-Quick local password-only smoke test:
+---
+
+## Repository Structure
+
+```text
+pages/
+  index.js                         # main dashboard
+  login.js                         # password gate UI
+  api/
+    fetchGames.js
+    fetchOdds.js
+    fetchPitcherStats.js
+    fetchBullpenStats.js
+    fetchTeamOffenseStats.js
+    runModel.js
+    findEdges.js
+    runPipeline.js
+    loadHistorical.js
+    buildRatings.js
+    predictions.js                 # public cached predictions
+    edges.js                       # public cached edges
+    cron/runDailyPipeline.js       # optional cron trigger
+
+lib/
+  pipeline.js                      # shared prediction/edge pipeline helpers
+  apiSecurity.js                   # route auth and method guards
+  apiGuards.js                     # IP rate limits, locks, cooldowns
+  ballparkFactors.js               # park-factor loading/normalization
+  upstreamFetch.js                 # resilient upstream fetch wrapper
+  ...
+
+model/
+  predictor.js                     # combines Elo + pitcher + bullpen + offense + park + HFA
+  eloRatings.js
+  pitcherRatings.js
+  bullpenRatings.js
+  offenseRatings.js
+
+data/
+  ballparkFactors.js               # bundled fallback park-factor data
+
+docs/
+  data-contracts.md                # canonical payload contracts
+
+scripts/
+  run-daily-scheduler.mjs          # local/manual cron route verification helper
+```
+
+---
+
+## Data Flow (Games → Odds → Model → Predictions)
+
+### 1) Schedule ingestion
+`POST /api/fetchGames`
+
+- Pulls today's MLB schedule.
+- Normalizes teams + builds canonical `matchKey`.
+- Enriches each game with venue and ballpark factors.
+- Stores:
+  - `mlb:games:today`
+  - `mlb:ballparkFactors:current`
+
+### 2) Odds ingestion
+`POST /api/fetchOdds`
+
+- Pulls US h2h moneylines from The Odds API.
+- Normalizes into canonical odds shape and selected primary line.
+- Supports cache-first behavior unless `?refresh=true`.
+- Stores `mlb:odds:today`.
+
+### 3) Pitcher stats ingestion
+`POST /api/fetchPitcherStats`
+
+- Resolves probable starters from today's games.
+- Pulls season stats from MLB API.
+- Merges advanced metrics from Baseball Savant where available.
+- Calculates fallback/derived values (e.g., FIP/xFIP/K-BB%) when needed.
+- Stores `mlb:stats:pitchers`.
+
+### 4) Bullpen stats ingestion
+`POST /api/fetchBullpenStats`
+
+- Pulls bullpen performance + recent usage/fatigue context.
+- Stores `mlb:stats:bullpen`.
+
+### 5) Team offense stats ingestion
+`POST /api/fetchTeamOffenseStats`
+
+- Pulls team offensive baseline + splits + recent form + advanced contact metrics.
+- Stores `mlb:stats:offense`.
+
+### 6) Prediction generation
+`POST /api/runModel`
+
+For each game, model computes composite ratings using:
+
+- Team Elo baseline
+- Starting pitcher component
+- Bullpen component
+- Offense component
+- Ballpark adjustment component
+- Home-field adjustment
+
+Then converts rating differential to win probability and stores:
+
+- `mlb:predictions:today`
+- `mlb:predictions:YYYY-MM-DD`
+
+### 7) Edge detection
+`POST /api/findEdges`
+
+- Converts moneylines to implied probabilities.
+- Compares model probabilities vs implied probabilities.
+- Emits edges when `edge > 0.03` (3%).
+- Stores `mlb:edges:today`.
+
+### 8) End-to-end orchestration
+`POST /api/runPipeline`
+
+Runs all steps in sequence:
+
+```text
+fetchGames
+fetchOdds (forced refresh)
+fetchPitcherStats
+fetchBullpenStats
+fetchTeamOffenseStats
+runModel
+findEdges
+```
+
+Returns step-by-step status and key references.
+
+---
+
+## Environment Variables
+
+Copy `.env.example` to `.env.local` for local development.
+
+| Variable | Required | Used by | Notes |
+| --- | --- | --- | --- |
+| `UPSTASH_REDIS_REST_URL` | Yes | API + UI | Upstash REST endpoint |
+| `UPSTASH_REDIS_REST_TOKEN` | Yes | API + UI | Upstash REST token |
+| `ODDS_API_KEY` | Yes (pipeline) | `/api/fetchOdds` | The Odds API key |
+| `ADMIN_API_SECRET` | Yes (operational routes) | all admin `POST` routes | Required bearer token (`Authorization: Bearer ...`) |
+| `CRON_SECRET` | Required only if using cron route | `/api/cron/runDailyPipeline` | Separate secret for cron endpoint |
+| `APP_PASSWORD` | Yes for UI access | login + middleware | Shared app password |
+| `SCHEDULER_BASE_URL` | Optional local helper | `npm run test:scheduler` | Defaults to `http://localhost:3000` |
+| `BALLPARK_FACTORS_URL` | Optional | ballpark factor loader | Remote JSON/CSV park-factor feed; fallback to bundled data |
+
+Notes:
+
+- Operational routes accept `x-admin-secret` header and JSON body fallbacks (`adminSecret`, `authToken`) in addition to bearer parsing logic used by scheduler workflows.
+- If `ADMIN_API_SECRET` is unset, code falls back to `CRON_SECRET` for operational access, but this is not recommended for production separation of concerns.
+
+---
+
+## Local Setup
+
+### Prerequisites
+
+- Node.js 18+
+- npm
+- Upstash Redis database
+- The Odds API key
+
+### Install
+
+```bash
+npm install
+```
+
+### Configure env
 
 ```bash
 cp .env.example .env.local
-printf '
-APP_PASSWORD=dugout
-' >> .env.local
+```
+
+Fill all required values in `.env.local`.
+
+### Run locally
+
+```bash
 npm run dev
 ```
 
-### Required Environment Variables
-
-| Variable | Required | Purpose |
-| --- | --- | --- |
-| `UPSTASH_REDIS_REST_URL` | Yes | Upstash Redis REST endpoint. |
-| `UPSTASH_REDIS_REST_TOKEN` | Yes | Upstash Redis REST token. |
-| `ODDS_API_KEY` | Yes | Auth for The Odds API. |
-| `ADMIN_API_SECRET` | Yes | Secures the admin-only operational API routes. |
-| `CRON_SECRET` | Optional (legacy cron route only) | Secret for `/api/cron/runDailyPipeline` if you still use that endpoint manually. |
-| `APP_PASSWORD` | Yes | Shared password required to unlock the web app via the lightweight login screen. |
-| `SCHEDULER_BASE_URL` | Local/manual only | Base URL used by `npm run test:scheduler` for manual verification. Defaults to `http://localhost:3000`. |
-| `BALLPARK_FACTORS_URL` | Optional | External JSON or CSV feed for normalized ballpark factors. When omitted, the app falls back to the bundled baseline dataset in `data/ballparkFactors.js`. |
+Open `http://localhost:3000`, sign in with `APP_PASSWORD`.
 
 ---
 
-### External Scheduling (Recommended)
+## API Reference
 
-The repository includes `.github/workflows/schedule-pipeline.yml`, which is designed to replace platform cron limitations:
+### Public read routes
 
-* GitHub Actions runs hourly.
-* The workflow checks current `America/New_York` time.
-* It only triggers `POST /api/runPipeline` at **10:00 AM ET** and **3:00 PM ET**.
+#### `GET /api/predictions`
+Returns cached predictions + summary.
 
-Required GitHub repository secrets:
+#### `GET /api/edges`
+Returns cached edges + summary.
 
-* `PIPELINE_BASE_URL` (example: `https://your-app.vercel.app`)
-* `ADMIN_API_SECRET` (must match Vercel `ADMIN_API_SECRET`)
-* `PIPELINE_AUTH_TOKEN` (optional; falls back to `ADMIN_API_SECRET` when unset)
+### Auth routes
 
-Where to set these in GitHub:
-
-1. Open your repository → **Settings** → **Secrets and variables** → **Actions**.
-2. Under **Repository secrets**, add `PIPELINE_BASE_URL`, `ADMIN_API_SECRET`, and optionally `PIPELINE_AUTH_TOKEN`.
-3. If the workflow uses a GitHub **Environment**, add the same names under that environment's secrets instead (or in addition), because environment secrets override repository-level values for environment-scoped jobs.
-
-What value to use for `PIPELINE_AUTH_TOKEN`:
-
-* If your deployment has no extra proxy/auth layer, leave `PIPELINE_AUTH_TOKEN` unset so the workflow reuses `ADMIN_API_SECRET`.
-* If an upstream gateway expects a different bearer token in the `Authorization` header, set `PIPELINE_AUTH_TOKEN` to that exact gateway token while keeping `ADMIN_API_SECRET` unchanged for `x-admin-secret`.
-
-Does this need to be set in Vercel?
-
-* `PIPELINE_AUTH_TOKEN`: **No** (GitHub Actions-only secret used by the scheduler workflow).
-* `ADMIN_API_SECRET`: **Yes** in Vercel, because the Next.js API route validates incoming admin access against Vercel runtime env vars.
-
-The scheduler does **not** use `APP_PASSWORD` / login credentials. `/api/runPipeline` bypasses login middleware and only validates API headers/secrets.
-
-Tip: set `PIPELINE_BASE_URL` to the final canonical deployment URL (avoid URLs that redirect to another hostname). The workflow calls `/api/runPipeline` directly with both headers and a JSON body fallback (`authToken` + `adminSecret`) so platform proxies that strip auth headers do not break scheduled runs.
-
-This keeps scheduling outside Vercel cron while preserving the route-level auth and lock protections built into the pipeline endpoint.
-
----
-
-## Model Pipeline
-
-The application runs a data pipeline that builds predictions and detects betting edges.
-
-### 1. Fetch Today's MLB Games
-
-`/api/fetchGames`
-
-Pulls the current MLB schedule from the MLB Stats API and stores the games in Redis.
-
-Operational access:
-
-* Requires `POST`
-* Requires `Authorization: Bearer <ADMIN_API_SECRET>`
-
-Stored in Redis:
-
-```
-mlb:games:today
-```
-
-Data includes:
-
-* Teams
-* Game date
-* Probable starting pitchers
-* Venue
-* Venue ID
-* Ballpark factors (`runFactor`, `homeRunFactor`, `hitsFactor`, `doublesTriplesFactor`, handedness splits, and derived classification)
-* Season type (spring / regular / playoffs)
-
-Ballpark source notes:
-
-* The app first checks `BALLPARK_FACTORS_URL` for a normalized JSON or CSV feed.
-* If no external feed is configured, it uses the bundled baseline in `data/ballparkFactors.js`.
-* All factors are normalized to `1.00 = league average`.
-* Park classification is derived from `runFactor`:
-  * `< 0.95` → pitcher-friendly
-  * `0.95 - 1.05` → neutral
-  * `> 1.05` → hitter-friendly
-
-The current ballpark lookup cache is also written to Redis:
-
-```
-mlb:ballparkFactors:current
-```
-
----
-
-### 2. Fetch Sportsbook Odds
-
-`/api/fetchOdds`
-
-Pulls sportsbook moneyline odds and stores them for comparison with model predictions.
-
-Operational access:
-
-* Requires `POST`
-* Requires `Authorization: Bearer <ADMIN_API_SECRET>`
-
-Stored in Redis:
-
-```
-mlb:odds:today
-```
-
----
-
-### 3. Collect Pitcher Statistics
-
-`/api/fetchPitcherStats`
-
-Retrieves season statistics for the probable starting pitchers.
-
-Operational access:
-
-* Requires `POST`
-* Requires `Authorization: Bearer <ADMIN_API_SECRET>`
-
-Metrics collected:
-
-* ERA
-* WHIP
-* Strikeouts
-* Innings pitched
-* xERA
-* FIP
-* xFIP
-* K%
-* BB%
-* K-BB%
-* BAA (batting average against)
-* xBAA (expected batting average against)
-* SLG against
-* xSLG against
-* Hard Hit%
-* Barrel%
-* Average exit velocity allowed
-
-Source notes:
-
-* Traditional season totals continue to come from the MLB Stats API `people/{id}/stats` pitching payload.
-* Statcast / expected metrics (`xERA`, `xBAA`, `xSLG`, `Hard Hit%`, `Barrel%`, `Average Exit Velocity`, plus direct `K%` and `BB%` when present) are merged from the Baseball Savant custom leaderboard export for pitchers.
-* `FIP` is calculated locally from the MLB season totals when the upstream payload does not expose a native `fip` field.
-* `xFIP` is calculated locally from MLB season totals plus a league HR/FB context derived from current-season team pitching totals.
-* `K-BB%` is calculated as `K% - BB%` whenever the API does not provide it directly.
-* Percentage fields are normalized to decimals in storage and model inputs (for example, `0.312` for `31.2%`).
-
-Stored in Redis:
-
-```
-mlb:stats:pitchers
-```
-
----
-
-### 4. Collect Bullpen Statistics
-
-`/api/fetchBullpenStats`
-
-Retrieves pitching statistics for each MLB team's bullpen.
-
-Operational access:
-
-* Requires `POST`
-* Requires `Authorization: Bearer <ADMIN_API_SECRET>`
-
-Metrics collected:
-
-* Team bullpen ERA
-* Team bullpen WHIP
-* Team bullpen FIP
-* Team bullpen xFIP
-* Team bullpen K%
-* Team bullpen BB%
-* Team bullpen K-BB%
-* Team bullpen HR/9
-* Team bullpen opponent batting average
-* Team bullpen LOB%
-* Team bullpen Hard Hit%
-* Team bullpen Barrel%
-* Team bullpen average exit velocity
-* Bullpen innings pitched over the last 3 days
-* Bullpen innings pitched over the last 5 days
-* Number of relievers used yesterday
-* Whether key relievers appeared on back-to-back days
-
-Source and mapping notes:
-
-* Relief-only season aggregates are requested from the MLB Stats API with `sitCodes=rp` and fall back to the full team pitching split if the relief split is unavailable.
-* `FIP` prefers a native field when present and otherwise is calculated from bullpen HR, BB, HBP, K, and innings.
-* `xFIP` prefers a native field when present and otherwise is calculated from bullpen fly balls plus a league HR/FB context derived from current-season team pitching totals.
-* `K-BB%` is stored as `strikeoutRate - walkRate` when the upstream payload does not expose it directly.
-* `Hard Hit%`, `Barrel%`, and `Average Exit Velocity` are aggregated from Baseball Savant reliever-level Statcast metrics and weighted by reliever workload.
-* Percentage fields continue to be stored as decimals (for example, `0.274` for `27.4%`).
-
-Stored in Redis:
-
-```
-mlb:stats:bullpen
-```
-
----
-
-### 5. Collect Team Offense Statistics
-
-`/api/fetchTeamOffenseStats`
-
-Retrieves team-level offense metrics and contextual splits for every MLB club.
-
-Operational access:
-
-* Requires `POST`
-* Requires `Authorization: Bearer <ADMIN_API_SECRET>`
-
-Metrics collected:
-
-* Runs per game
-* Team batting average
-* On-base percentage (OBP)
-* Slugging percentage (SLG)
-* OPS
-* Isolated Power (ISO)
-* Strikeout rate (K%)
-* Walk rate (BB%)
-* Weighted On-Base Average (wOBA)
-* Weighted Runs Created Plus (`wRC+` approximation when a direct team field is unavailable)
-* Expected batting average (`xBA`)
-* Expected slugging (`xSLG`)
-* Expected weighted On-Base Average (`xwOBA`)
-* Hard Hit%
-* Barrel%
-* Season splits vs right-handed pitchers and vs left-handed pitchers
-* Home and away offense splits
-* Rolling last-7-day and last-14-day offense snapshots built from team game logs
-
-Source and mapping notes:
-
-* Core team totals and split slash/rate stats come from the MLB Stats API `teams/{teamId}/stats` hitting payload.
-* `wOBA`, `xBA`, `xSLG`, `xwOBA`, `Hard Hit%`, and `Barrel%` are merged from a team-weighted Baseball Savant batter leaderboard export.
-* The current team stats payload does not expose a direct team `wRC+` field consistently, so the pipeline stores a league-indexed `wOBA` approximation in the `weightedRunsCreatedPlus` field and labels that mapping in the cached payload.
-* Percentage fields are normalized to decimals in storage and model inputs (for example, `0.338` for `33.8%`).
-
-Stored in Redis:
-
-```
-mlb:stats:offense
-```
-
----
-
-### 6. Run Prediction Model
-
-`/api/runModel`
-
-The prediction engine calculates win probabilities for each game using:
-
-Operational access:
-
-* Requires `POST`
-* Requires `Authorization: Bearer <ADMIN_API_SECRET>`
-
-```
-Team Elo Rating
-+ Starting Pitcher Rating
-+ Bullpen Strength
-+ Team Offense Strength
-+ Ballpark Adjustment
-+ Home Field Advantage
-```
-
-The offense model now contributes season baseline production plus contextual features derived from the cached splits, including:
-
-* `offense_vs_handedness`
-* `recent_offense_form`
-* `power_score`
-* `plate_discipline_score`
-
-Ballpark factors are applied in the model as follows:
-
-* `runFactor` adjusts each offense's expected scoring environment.
-* `homeRunFactor` amplifies or suppresses power based on team quality of contact plus the opposing starter's HR/fly-ball exposure.
-* `hitsFactor` and `doublesTriplesFactor` nudge contact-oriented run creation up or down.
-* `leftHandedHitterFactor` / `rightHandedHitterFactor` are used when available, with the opposing starter's throwing hand acting as a same-day proxy for which side of the lineup is most likely to benefit.
-* The resulting venue adjustments are stored in `ballparkModel.home` and `ballparkModel.away` so the UI can show how the park moved each side's rating.
-
-Predictions are stored in Redis:
-
-```
-mlb:predictions:today
-mlb:predictions:YYYY-MM-DD
-```
-
----
-
-### 7. Detect Betting Edges
-
-`/api/findEdges`
-
-The model compares predicted win probabilities to sportsbook implied probabilities.
-
-Operational access:
-
-* Requires `POST`
-* Requires `Authorization: Bearer <ADMIN_API_SECRET>`
-
-If the model probability exceeds sportsbook probability by a threshold, the system identifies a **betting edge**.
-
-Edges are stored in Redis:
-
-```
-mlb:edges:today
-```
-
----
-
-### 8. Run the Full Daily Pipeline
-
-`/api/runPipeline`
-
-Runs the full daily workflow in order and returns a per-step execution summary:
-
-Operational access:
-
-* Requires `POST`
-* Requires `Authorization: Bearer <ADMIN_API_SECRET>`
-
-```
-fetchGames
-fetchOdds
-fetchPitcherStats
-fetchBullpenStats
-fetchTeamOffenseStats
-runModel
-findEdges
-```
-
-The orchestration route forces a fresh odds refresh, then leaves the latest outputs in Redis under the existing daily keys, including:
-
-```
-mlb:ballparkFactors:current
-mlb:predictions:today
-mlb:edges:today
-```
-
-Historical bootstrap and ratings rebuild endpoints are also admin-only:
-
-* `/api/loadHistorical`
-* `/api/buildRatings`
-
-Both require `POST` plus `Authorization: Bearer <ADMIN_API_SECRET>`.
-
----
-
-## Daily Scheduler
-
-> **Current production setup:** scheduling is handled by `.github/workflows/schedule-pipeline.yml` (GitHub Actions), not Vercel Cron. The details below are legacy/optional for teams still using `/api/cron/runDailyPipeline`.
-
-### Scheduled Endpoint
-
-`/api/cron/runDailyPipeline`
-
-This endpoint is the production scheduler entrypoint. It does **not** duplicate the pipeline logic; it securely invokes the existing `/api/runPipeline` orchestration route in-process.
-
-Security and behavior:
-
-* Accepts `GET` for Vercel Cron and secure manual testing.
-* Requires `Authorization: Bearer <CRON_SECRET>`.
-* Uses `America/New_York` to evaluate whether the current local time is `10:00` or `15:00`.
-* Stores a daily idempotency marker in Redis so duplicate cron deliveries do not rerun the pipeline for the same Eastern date.
-* Leaves the existing `runPipeline` Redis lock in place to prevent overlapping executions.
-* Supports `?force=true` for manual verification while still requiring the cron bearer token.
-
-Redis key used by the scheduler:
-
-```
-mlb:cron:dailyPipeline:YYYY-MM-DD
-```
-
-### Why There Are Four Cron Expressions
-
-Vercel cron schedules are UTC-based. To guarantee both 10:00 AM and 3:00 PM runs in `America/New_York` across daylight saving transitions, this project schedules **all** UTC hours that can map to those local times:
-
-* `0 14 * * *` → 10:00 AM during Eastern Daylight Time
-* `0 15 * * *` → 10:00 AM during Eastern Standard Time
-* `0 19 * * *` → 3:00 PM during Eastern Daylight Time
-* `0 20 * * *` → 3:00 PM during Eastern Standard Time
-
-The cron route itself then verifies the local New York hour before running the pipeline, so only the correct invocation proceeds.
-
-> **Important:** this DST-safe setup needs a Vercel plan that supports multiple cron jobs per day and minute-level cron timing. Vercel Hobby cron jobs only run once per day and may fire at any point within the configured hour, which is not sufficient for a production-grade twice-daily schedule.
-
-### Vercel Configuration
-
-`vercel.json` does not define cron jobs in the current setup:
+#### `POST /api/login`
+Body:
 
 ```json
-{
-  "$schema": "https://openapi.vercel.sh/vercel.json"
-}
+{ "password": "..." }
 ```
 
-### Manual Testing
+Sets secure HTTP-only session cookie on success.
 
-Secure manual verification options:
+#### `POST /api/logout`
+Clears session cookie.
 
-1. Run the local helper script:
+### Operational (admin) routes
 
-   ```bash
-   CRON_SECRET=your-secret SCHEDULER_BASE_URL=http://localhost:3000 npm run test:scheduler
-   ```
+All require:
 
-   The helper calls:
+- `POST`
+- `Authorization: Bearer <ADMIN_API_SECRET>` (or equivalent accepted secret header/body fallback)
 
-   ```
-   GET /api/cron/runDailyPipeline?force=true
-   Authorization: Bearer <CRON_SECRET>
-   ```
+Endpoints:
 
-2. Or call the endpoint directly:
+- `/api/fetchGames`
+- `/api/fetchOdds`
+- `/api/fetchPitcherStats`
+- `/api/fetchBullpenStats`
+- `/api/fetchTeamOffenseStats`
+- `/api/runModel`
+- `/api/findEdges`
+- `/api/runPipeline`
+- `/api/loadHistorical`
+- `/api/buildRatings`
 
-   ```bash
-   curl -X GET \
-     -H "Authorization: Bearer $CRON_SECRET" \
-     "http://localhost:3000/api/cron/runDailyPipeline?force=true"
-   ```
+### Cron route (optional)
+
+#### `GET|POST /api/cron/runDailyPipeline`
+
+Requires:
+
+- `Authorization: Bearer <CRON_SECRET>`
+
+Behavior:
+
+- Runs only during the configured New York execution minute unless `?force=true` is supplied.
+- Uses Redis idempotency marker key `mlb:cron:dailyPipeline:YYYY-MM-DD`.
+- Internally invokes `/api/runPipeline`.
 
 ---
 
-## Example Model Output
+## Automation & Scheduling
 
+### Recommended production automation: GitHub Actions
+
+Workflow: `.github/workflows/schedule-pipeline.yml`
+
+Current behavior:
+
+- Runs every hour (`0 * * * *`).
+- Checks current `America/New_York` hour.
+- Triggers pipeline only when ET hour is `10` or `15`.
+- Calls `POST /api/runPipeline` with required auth headers/body.
+
+Required GitHub secrets:
+
+- `PIPELINE_BASE_URL` (example: `https://your-app.vercel.app`)
+- `ADMIN_API_SECRET` (must match deployed app env)
+- `PIPELINE_AUTH_TOKEN` (optional override; defaults to `ADMIN_API_SECRET`)
+
+### Optional cron endpoint path
+
+If you use Vercel Cron or another scheduler directly against `/api/cron/runDailyPipeline`, provide `CRON_SECRET` and ensure schedule timing aligns with the route's time-window check.
+
+> Important: `lib/cronSchedule.js` currently targets **10:00 America/New_York** only.
+
+---
+
+## Deployment (Vercel)
+
+1. Import this repo into Vercel.
+2. Set environment variables in Vercel Project Settings:
+   - `UPSTASH_REDIS_REST_URL`
+   - `UPSTASH_REDIS_REST_TOKEN`
+   - `ODDS_API_KEY`
+   - `ADMIN_API_SECRET`
+   - `APP_PASSWORD`
+   - optional: `CRON_SECRET`, `BALLPARK_FACTORS_URL`
+3. Deploy.
+4. Configure GitHub Actions secrets for scheduler workflow.
+5. Manually verify one pipeline run after deploy.
+
+---
+
+## Manual Verification
+
+### Run full pipeline
+
+```bash
+curl -X POST "http://localhost:3000/api/runPipeline" \
+  -H "Authorization: Bearer $ADMIN_API_SECRET"
 ```
-Atlanta Braves vs Philadelphia Phillies
 
-Model Win Probability:
-ATL 58%
-PHI 42%
+### Check cached outputs
 
-Sportsbook Odds:
-ATL -110 (52.4%)
+- `mlb:games:today`
+- `mlb:odds:today`
+- `mlb:stats:pitchers`
+- `mlb:stats:bullpen`
+- `mlb:stats:offense`
+- `mlb:predictions:today`
+- `mlb:edges:today`
 
-Edge:
-ATL +5.6%
+### Test cron route locally
+
+```bash
+CRON_SECRET=your-secret SCHEDULER_BASE_URL=http://localhost:3000 npm run test:scheduler
 ```
 
 ---
 
-## Redis Data Structure
+## Data Contracts
 
-```
-mlb:games:today
-mlb:odds:today
-mlb:ratings:teams
-mlb:stats:pitchers
-mlb:stats:bullpen
-mlb:stats:offense
-mlb:predictions:today
-mlb:predictions:YYYY-MM-DD
-mlb:edges:today
-mlb:cron:dailyPipeline:YYYY-MM-DD
-```
+Canonical payload schema and naming rules live in:
+
+- `docs/data-contracts.md`
+
+If you modify field names or payload shape in any stage, update that document first and keep all pipeline stages consistent.
 
 ---
 
-## Serverless Workflow
+## Scripts
 
-The model runs the following pipeline:
-
-```
-fetchGames
-fetchOdds
-fetchPitcherStats
-fetchBullpenStats
-fetchTeamOffenseStats
-runModel
-findEdges
-```
-
-This produces a list of betting opportunities for the current MLB slate.
+- `npm run dev` — run local Next.js dev server
+- `npm run build` — production build
+- `npm run start` — run production server
+- `npm test` — Node test suite (`tests/*.test.mjs`)
+- `npm run test:scheduler` — local/manual scheduler endpoint test helper
 
 ---
 
-## Current Model Features
+## Security Notes
 
-✔ 10+ years of historical team ratings  
-✔ Starting pitcher strength modeling  
-✔ Bullpen strength modeling  
-✔ Team offense and split modeling  
-✔ Home field advantage  
-✔ Sportsbook odds comparison  
-✔ Automated edge detection  
-✔ Prediction history storage  
-✔ Automated daily scheduling at 10:00 AM and 3:00 PM America/New_York
-
----
-
-## Deploy and Verify
-
-### Deploy
-
-1. Add or confirm the required Vercel environment variables:
-   * `UPSTASH_REDIS_REST_URL`
-   * `UPSTASH_REDIS_REST_TOKEN`
-   * `ODDS_API_KEY`
-   * `ADMIN_API_SECRET`
-   * `CRON_SECRET`
-2. Deploy the project to Vercel.
-3. Confirm GitHub Actions has the required scheduler secrets and that the `Schedule Pipeline Refresh` workflow is enabled.
-
-### Verify
-
-1. Trigger a secure manual run:
-
-   ```bash
-   curl -X GET \
-     -H "Authorization: Bearer $CRON_SECRET" \
-     "https://<your-deployment>/api/cron/runDailyPipeline?force=true"
-   ```
-
-2. Confirm the response reports `ok: true` and includes the nested pipeline summary.
-3. Check Vercel runtime logs for `/api/cron/runDailyPipeline` and `/api/runPipeline`.
-4. Confirm the latest Redis keys were refreshed:
-   * `mlb:games:today`
-   * `mlb:odds:today`
-   * `mlb:stats:pitchers`
-   * `mlb:stats:bullpen`
-   * `mlb:predictions:today`
-   * `mlb:edges:today`
-5. On the next scheduled production runs, confirm the GitHub Actions workflow triggers around 10:00 AM and 3:00 PM New York local time and `/api/runPipeline` succeeds.
+- Never commit `.env.local` or secrets.
+- Rotate any leaked tokens immediately.
+- Keep `ADMIN_API_SECRET`, `CRON_SECRET`, and `APP_PASSWORD` distinct in production.
+- Public routes should remain read-only and cache-backed.
 
 ---
 
 ## Disclaimer
 
-This project is for educational and analytical purposes only.
-Sports betting involves risk and should be done responsibly.
-
-## Manual Pipeline Testing
-
-Use the existing admin-only routes to validate the full pipeline, including ballpark enrichment, end to end.
-
-1. Start the app locally:
-
-   ```bash
-   npm install
-   npm run dev
-   ```
-
-2. Set the required environment variables in `.env.local` (`UPSTASH_REDIS_REST_URL`, `UPSTASH_REDIS_REST_TOKEN`, `ODDS_API_KEY`, `ADMIN_API_SECRET`, and optionally `CRON_SECRET` / `BALLPARK_FACTORS_URL`).
-
-3. Load the daily data, pitching inputs, bullpen inputs, and offense inputs:
-
-   ```bash
-   curl -X POST http://localhost:3000/api/fetchGames \
-     -H "Authorization: Bearer $ADMIN_API_SECRET"
-
-   curl -X POST http://localhost:3000/api/fetchPitcherStats \
-     -H "Authorization: Bearer $ADMIN_API_SECRET"
-
-   curl -X POST http://localhost:3000/api/fetchBullpenStats \
-     -H "Authorization: Bearer $ADMIN_API_SECRET"
-
-   curl -X POST http://localhost:3000/api/fetchTeamOffenseStats \
-     -H "Authorization: Bearer $ADMIN_API_SECRET"
-   ```
-
-4. Verify the cached schedule payload in Redis under `mlb:games:today`. Each game should now include:
-
-   * `venue`
-   * `venueId`
-   * `ballpark.runFactor`
-   * `ballpark.homeRunFactor`
-   * `ballpark.hitsFactor`
-   * `ballpark.doublesTriplesFactor`
-   * `ballpark.leftHandedHitterFactor`
-   * `ballpark.rightHandedHitterFactor`
-   * `ballpark.classification`
-
-   The shared lookup cache should also exist under `mlb:ballparkFactors:current`.
-
-5. Verify the cached pitcher payload in Redis under `mlb:stats:pitchers`. Each pitcher record should now include:
-
-   * `xera`
-   * `fip`
-   * `xfip`
-   * `strikeoutRate`
-   * `walkRate`
-   * `strikeoutMinusWalkRate`
-   * `battingAverageAgainst`
-   * `expectedBattingAverageAgainst`
-   * `sluggingAgainst`
-   * `expectedSluggingAgainst`
-   * `hardHitRate`
-   * `barrelRate`
-   * `averageExitVelocity`
-
-6. Verify the cached offense payload in Redis under `mlb:stats:offense`. Each team record now includes:
-
-   * `runsPerGame`
-   * `battingAverage`
-   * `onBasePercentage`
-   * `sluggingPercentage`
-   * `ops`
-   * `isolatedPower`
-   * `strikeoutRate`
-   * `walkRate`
-   * `weightedOnBaseAverage`
-   * `weightedRunsCreatedPlus`
-   * `expectedBattingAverage`
-   * `expectedSlugging`
-   * `expectedWeightedOnBaseAverage`
-   * `hardHitRate`
-   * `barrelRate`
-   * `splits.vsRightHanded`
-   * `splits.vsLeftHanded`
-   * `splits.home`
-   * `splits.away`
-   * `splits.last7Days`
-   * `splits.last14Days`
-
-7. Run the rest of the pipeline and inspect the prediction output:
-
-   ```bash
-   curl -X POST http://localhost:3000/api/runPipeline \
-     -H "Authorization: Bearer $ADMIN_API_SECRET"
-   ```
-
-   `mlb:predictions:today` now includes `pitcherModel`, `bullpenModel`, `offenseModel`, `ballpark`, and `ballparkModel` blocks with stored stat snapshots, split snapshots, venue factors, and per-side ballpark adjustments used during edge generation.
-
-8. Verify the cached bullpen payload in Redis under `mlb:stats:bullpen`. Each team record should now include:
-
-   * `era`
-   * `whip`
-   * `fip`
-   * `xfip`
-   * `strikeoutRate`
-   * `walkRate`
-   * `strikeoutMinusWalkRate`
-   * `homeRunsPer9`
-   * `battingAverageAgainst`
-   * `leftOnBaseRate`
-   * `hardHitRate`
-   * `barrelRate`
-   * `averageExitVelocity`
-   * `usage.inningsLast3Days`
-   * `usage.inningsLast5Days`
-   * `usage.relieversUsedYesterday`
-   * `usage.keyRelieversBackToBack`
-
-9. Mapping assumptions for manual verification:
-
-   * MLB Stats API `avg` is treated as bullpen opponent batting average.
-   * MLB Stats API `leftOnBasePercentage` is treated as bullpen `LOB%`.
-   * The fatigue metrics are derived from the previous five days of boxscore pitcher usage, using the first listed pitcher as the starter and the remaining pitchers as relievers.
-   * When no external park-factor feed is configured, the bundled baseline dataset is used as a stable fallback.
-   * Handedness-specific park factors use the opposing starter's throwing hand as a proxy because same-day confirmed batting-order handedness is not available during schedule ingestion.
+This project is for educational and analytical use. Betting carries financial risk—use responsibly and comply with local laws.
