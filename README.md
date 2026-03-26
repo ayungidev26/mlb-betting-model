@@ -308,9 +308,8 @@ Workflow: `.github/workflows/schedule-pipeline.yml`
 
 Current behavior:
 
-- Runs every hour (`0 * * * *`).
-- Checks current `America/New_York` hour.
-- Triggers pipeline only when ET hour is `10` or `15`.
+- Triggers at UTC cron times that map to `10:19 AM`, `2:19 PM`, and `5:19 PM` America/New_York year-round (`19 14`, `19 15`, `19 18`, `19 19`, `19 21`, `19 22` UTC).
+- Uses an ET guard window and only executes when the workflow starts within one of these windows: `10:19–11:49`, `14:19–15:49`, or `17:19–18:49` America/New_York.
 - Calls `POST /api/runPipeline` with required auth headers/body.
 
 Required GitHub secrets:
