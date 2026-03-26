@@ -41,7 +41,22 @@ test('normalizeOddsGame stores the canonical matchKey for an odds record', () =>
       homeMoneyline: 135,
       awayMoneyline: -145,
       sportsbook: 'draftkings',
-      lastUpdated: '2025-04-10T18:00:00Z'
+      lastUpdated: '2025-04-10T18:00:00Z',
+      sportsbooks: [
+        {
+          sportsbook: 'draftkings',
+          sportsbookName: 'draftkings',
+          market: 'h2h',
+          selections: [
+            { name: 'Athletics', price: 135 },
+            { name: 'LA Dodgers', price: -145 }
+          ],
+          lastUpdated: '2025-04-10T18:00:00Z',
+          homeMoneyline: 135,
+          awayMoneyline: -145,
+          hold: 1.017369
+        }
+      ]
     }
   )
 })

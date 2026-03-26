@@ -65,6 +65,12 @@ test('buildHomePageProps merges cached predictions with their strongest edges', 
           recommendedBet: 'Los Angeles Dodgers',
           recommendedOdds: -118,
           sportsbook: 'draftkings',
+          sportsbookName: 'draftkings',
+          bestOdds: -118,
+          bestSportsbook: 'draftkings',
+          bestSportsbookName: 'draftkings',
+          draftKingsOdds: null,
+          fanDuelOdds: null,
           impliedProbability: 0.535,
           recommendation: 'Bet'
         }
