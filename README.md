@@ -218,6 +218,18 @@ Copy `.env.example` to `.env.local` for local development.
 | `SCHEDULER_BASE_URL` | Optional local helper | `npm run test:scheduler` | Defaults to `http://localhost:3000` |
 | `BALLPARK_FACTORS_URL` | Optional | ballpark factor loader | Remote JSON/CSV park-factor feed; fallback to bundled data |
 
+---
+
+## Developer Notes
+
+### Validate GitHub Actions workflow YAML locally
+
+Use Ruby's built-in YAML parser (no extra package install required):
+
+```bash
+ruby -e "require 'yaml'; YAML.load_file('.github/workflows/schedule-pipeline.yml'); puts 'ok'"
+```
+
 Notes:
 
 - Operational routes accept `x-admin-secret` header and JSON body fallbacks (`adminSecret`, `authToken`) in addition to bearer parsing logic used by scheduler workflows.
