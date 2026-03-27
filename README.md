@@ -8,15 +8,10 @@ A password-protected, serverless MLB prediction and betting-edge application bui
 
 This project ingests MLB schedule + odds + team/player stats, builds model predictions, and flags moneyline edges where the model's probability exceeds market implied probability.
 
-At a high level, the daily workflow is:
+At a high level, the system now runs two workflows:
 
-1. Fetch today's games (with probable pitchers + ballpark factors)
-2. Fetch sportsbook odds
-3. Fetch pitcher stats
-4. Fetch bullpen stats
-5. Fetch team offense stats
-6. Generate win probabilities
-7. Compare model vs implied odds and store edges
+1. **Stats pipeline** (early morning ET, once per Eastern day): fetch pitcher, bullpen, and offense stats into Redis cache.
+2. **Market pipeline** (in-day): fetch today's games + odds, run the model from cached stats, and find edges.
 
 The web UI reads cached predictions/edges from Redis and presents the top opportunities.
 
@@ -41,14 +36,14 @@ There are three API access tiers:
 
 1. **Public cache read routes** (`GET /api/predictions`, `GET /api/edges`)
 2. **Operational/admin routes** (all model/data pipeline mutation routes; require admin secret and `POST`)
-3. **Cron route** (`/api/cron/runDailyPipeline`; requires cron secret; accepts `GET` or `POST`)
+3. **Cron routes** (`/api/cron/*`; require cron secret; accept `GET` or `POST`)
 
 ### App Authentication (UI)
 
 - Middleware redirects anonymous traffic to `/login`.
 - Login posts to `/api/login`, validates against `APP_PASSWORD`, and sets an HTTP-only cookie.
 - Session TTL is **5 minutes**.
-- `/api/login`, `/api/logout`, `/api/runPipeline`, and `/api/cron/*` bypass UI middleware redirect checks.
+- `/api/login`, `/api/logout`, `/api/runPipeline`, `/api/runStatsPipeline`, and `/api/cron/*` bypass UI middleware redirect checks.
 
 ---
 
@@ -67,11 +62,13 @@ pages/
     runModel.js
     findEdges.js
     runPipeline.js
+    runStatsPipeline.js
     loadHistorical.js
     buildRatings.js
     predictions.js                 # public cached predictions
     edges.js                       # public cached edges
-    cron/runDailyPipeline.js       # optional cron trigger
+    cron/runDailyPipeline.js       # optional market cron trigger
+    cron/runDailyStatsPipeline.js  # optional stats cron trigger
 
 lib/
   pipeline.js                      # shared prediction/edge pipeline helpers
@@ -166,22 +163,43 @@ Then converts rating differential to win probability and stores:
 - Emits edges when `edge > 0.03` (3%).
 - Stores `mlb:edges:today`.
 
-### 8) End-to-end orchestration
+### 8) Stats orchestration
+`POST /api/runStatsPipeline`
+
+Runs the stats-only steps in sequence:
+
+```text
+fetchPitcherStats
+fetchBullpenStats
+fetchTeamOffenseStats
+```
+
+- Stores daily idempotency marker key `mlb:cron:statsPipeline:YYYY-MM-DD`.
+- Skips repeat runs on the same Eastern date unless `?force=true` is provided.
+- Writes metadata keys:
+  - `mlb:stats:pitchers:meta`
+  - `mlb:stats:bullpen:meta`
+  - `mlb:stats:offense:meta`
+
+### 9) Market orchestration
 `POST /api/runPipeline`
 
-Runs all steps in sequence:
+Runs market/model steps only:
 
 ```text
 fetchGames
 fetchOdds (forced refresh)
-fetchPitcherStats
-fetchBullpenStats
-fetchTeamOffenseStats
 runModel
 findEdges
 ```
 
-Returns step-by-step status and key references.
+`runModel` reads cached stats from:
+
+- `mlb:stats:pitchers`
+- `mlb:stats:bullpen`
+- `mlb:stats:offense`
+
+If stats are missing, it returns a `STATS_PIPELINE_REQUIRED` error.
 
 ---
 
@@ -195,7 +213,7 @@ Copy `.env.example` to `.env.local` for local development.
 | `UPSTASH_REDIS_REST_TOKEN` | Yes | API + UI | Upstash REST token |
 | `ODDS_API_KEY` | Yes (pipeline) | `/api/fetchOdds` | The Odds API key |
 | `ADMIN_API_SECRET` | Yes (operational routes) | all admin `POST` routes | Required bearer token (`Authorization: Bearer ...`) |
-| `CRON_SECRET` | Required only if using cron route | `/api/cron/runDailyPipeline` | Separate secret for cron endpoint |
+| `CRON_SECRET` | Required only if using cron routes | `/api/cron/runDailyPipeline`, `/api/cron/runDailyStatsPipeline` | Separate secret for cron endpoints |
 | `APP_PASSWORD` | Yes for UI access | login + middleware | Shared app password |
 | `SCHEDULER_BASE_URL` | Optional local helper | `npm run test:scheduler` | Defaults to `http://localhost:3000` |
 | `BALLPARK_FACTORS_URL` | Optional | ballpark factor loader | Remote JSON/CSV park-factor feed; fallback to bundled data |
@@ -281,6 +299,7 @@ Endpoints:
 - `/api/runModel`
 - `/api/findEdges`
 - `/api/runPipeline`
+- `/api/runStatsPipeline`
 - `/api/loadHistorical`
 - `/api/buildRatings`
 
@@ -298,6 +317,17 @@ Behavior:
 - Uses Redis idempotency marker key `mlb:cron:dailyPipeline:YYYY-MM-DD`.
 - Internally invokes `/api/runPipeline`.
 
+#### `GET|POST /api/cron/runDailyStatsPipeline`
+
+Requires:
+
+- `Authorization: Bearer <CRON_SECRET>`
+
+Behavior:
+
+- Runs only during `5:30 AM – 8:30 AM` America/New_York unless `?force=true` is supplied.
+- Internally invokes `/api/runStatsPipeline`.
+
 ---
 
 ## Automation & Scheduling
@@ -308,21 +338,21 @@ Workflow: `.github/workflows/schedule-pipeline.yml`
 
 Current behavior:
 
-- Triggers at UTC cron times that map to `10:19 AM`, `2:19 PM`, and `5:19 PM` America/New_York year-round (`19 14`, `19 15`, `19 18`, `19 19`, `19 21`, `19 22` UTC).
-- Uses an ET guard window and only executes when the workflow starts within one of these windows: `10:19–11:49`, `14:19–15:49`, or `17:19–18:49` America/New_York.
-- Calls `POST /api/runPipeline` with required auth headers/body.
+- **Stats refresh schedule:** targets `5:30 AM` ET with a guarded window of `5:30–8:30 AM` ET.
+- **Market refresh schedule:** remains `10:19 AM`, `2:19 PM`, and `5:19 PM` ET windows.
+- Stats job calls `POST /api/cron/runDailyStatsPipeline`.
+- Market job calls `POST /api/runPipeline`.
 
 Required GitHub secrets:
 
 - `PIPELINE_BASE_URL` (example: `https://your-app.vercel.app`)
+- `CRON_SECRET` (used by stats cron endpoint)
 - `ADMIN_API_SECRET` (must match deployed app env)
 - `PIPELINE_AUTH_TOKEN` (optional override; defaults to `ADMIN_API_SECRET`)
 
 ### Optional cron endpoint path
 
-If you use Vercel Cron or another scheduler directly against `/api/cron/runDailyPipeline`, provide `CRON_SECRET` and ensure schedule timing aligns with the route's time-window check.
-
-> Important: `lib/cronSchedule.js` currently targets **10:00 America/New_York** only.
+If you use Vercel Cron or another scheduler directly against `/api/cron/runDailyPipeline` or `/api/cron/runDailyStatsPipeline`, provide `CRON_SECRET` and align schedule timing with each route's time-window check.
 
 ---
 
@@ -348,6 +378,13 @@ If you use Vercel Cron or another scheduler directly against `/api/cron/runDaily
 
 ```bash
 curl -X POST "http://localhost:3000/api/runPipeline" \
+  -H "Authorization: Bearer $ADMIN_API_SECRET"
+```
+
+### Run stats pipeline
+
+```bash
+curl -X POST "http://localhost:3000/api/runStatsPipeline" \
   -H "Authorization: Bearer $ADMIN_API_SECRET"
 ```
 

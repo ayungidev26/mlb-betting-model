@@ -2,8 +2,12 @@ name: Schedule Pipeline Refresh
 
 on:
   schedule:
-    # GitHub Actions cron is UTC; include both EST and EDT UTC offsets so
-    # these remain fixed at 10:19, 14:19, and 17:19 America/New_York year-round.
+    # Stats refresh (early morning ET window coverage)
+    - cron: "30 09 * * *" # 05:30 ET (EDT)
+    - cron: "30 10 * * *" # 05:30 ET (EST)
+    - cron: "30 12 * * *" # 08:30 ET (EDT)
+    - cron: "30 13 * * *" # 08:30 ET (EST)
+    # Market refresh windows (unchanged)
     - cron: "19 14 * * *" # 10:19 ET (EDT)
     - cron: "19 15 * * *" # 10:19 ET (EST)
     - cron: "19 18 * * *" # 14:19 ET (EDT)
@@ -17,10 +21,89 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  refresh:
+  refresh-stats:
     runs-on: ubuntu-latest
     steps:
-      - name: Evaluate ET execution window
+      - name: Evaluate ET execution window (stats)
+        id: gate
+        run: |
+          node <<'NODE'
+          const fs = require("node:fs")
+
+          const now = new Date()
+          const formatter = new Intl.DateTimeFormat("en-US", {
+            timeZone: "America/New_York",
+            year: "numeric",
+            month: "2-digit",
+            day: "2-digit",
+            hour: "2-digit",
+            minute: "2-digit",
+            second: "2-digit",
+            hour12: false
+          })
+
+          const parts = Object.fromEntries(
+            formatter
+              .formatToParts(now)
+              .filter((part) => part.type !== "literal")
+              .map((part) => [part.type, part.value])
+          )
+
+          const hour = Number(parts.hour)
+          const minute = Number(parts.minute)
+          const minuteOfDay = hour * 60 + minute
+          const etTimestamp = `${parts.year}-${parts.month}-${parts.day} ${parts.hour}:${parts.minute}:${parts.second} ET`
+
+          const window = {
+            label: "5:30 AM → 8:30 AM ET",
+            start: 5 * 60 + 30,
+            end: 8 * 60 + 30
+          }
+
+          console.log(`Current ET time: ${etTimestamp}`)
+
+          if (minuteOfDay >= window.start && minuteOfDay <= window.end) {
+            console.log(`Matched execution window: ${window.label}`)
+            fs.appendFileSync(process.env.GITHUB_OUTPUT, `should_run=true\n`)
+            fs.appendFileSync(process.env.GITHUB_OUTPUT, `matched_window=${window.label}\n`)
+          } else {
+            console.log("Skipping run — outside allowed execution window")
+            fs.appendFileSync(process.env.GITHUB_OUTPUT, `should_run=false\n`)
+            fs.appendFileSync(process.env.GITHUB_OUTPUT, `matched_window=none\n`)
+          }
+          NODE
+
+      - name: Trigger stats pipeline
+        if: steps.gate.outputs.should_run == 'true'
+        env:
+          PIPELINE_BASE_URL: ${{ secrets.PIPELINE_BASE_URL }}
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          echo "Proceeding with stats pipeline trigger inside window: ${{ steps.gate.outputs.matched_window }}"
+
+          if [[ -z "$PIPELINE_BASE_URL" || -z "$CRON_SECRET" ]]; then
+            echo "Missing required GitHub Actions secrets: PIPELINE_BASE_URL and/or CRON_SECRET"
+            exit 1
+          fi
+
+          ENDPOINT_URL="${PIPELINE_BASE_URL%/}/api/cron/runDailyStatsPipeline"
+          CLEAN_CRON_SECRET="$(printf %s "$CRON_SECRET" | tr -d "\r\n")"
+
+          curl --fail-with-body --show-error --silent \
+            --request POST \
+            --header "Authorization: Bearer ${CLEAN_CRON_SECRET}" \
+            --header "Content-Type: application/json" \
+            "$ENDPOINT_URL"
+
+      - name: Skip stats run (outside allowed execution window)
+        if: steps.gate.outputs.should_run != 'true'
+        run: |
+          echo "Skipping stats pipeline — outside allowed execution window"
+
+  refresh-market:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Evaluate ET execution window (market)
         id: gate
         run: |
           node <<'NODE'
@@ -85,25 +168,21 @@ jobs:
           }
           NODE
 
-      - name: Trigger pipeline
+      - name: Trigger market pipeline
         if: steps.gate.outputs.should_run == 'true'
         env:
           PIPELINE_BASE_URL: ${{ secrets.PIPELINE_BASE_URL }}
           ADMIN_API_SECRET: ${{ secrets.ADMIN_API_SECRET }}
           PIPELINE_AUTH_TOKEN: ${{ secrets.PIPELINE_AUTH_TOKEN }}
         run: |
-          echo "Proceeding with pipeline trigger inside window: ${{ steps.gate.outputs.matched_window }}"
+          echo "Proceeding with market pipeline trigger inside window: ${{ steps.gate.outputs.matched_window }}"
 
           if [[ -z "$PIPELINE_BASE_URL" || -z "$ADMIN_API_SECRET" ]]; then
             echo "Missing required GitHub Actions secrets: PIPELINE_BASE_URL and/or ADMIN_API_SECRET"
             exit 1
           fi
 
-          # Avoid auth header stripping on HTTP redirects by calling the final
-          # endpoint directly and treating redirects as configuration issues.
           ENDPOINT_URL="${PIPELINE_BASE_URL%/}/api/runPipeline"
-
-          # Normalize potential CR/LF from copied secrets so headers stay valid.
           CLEAN_ADMIN_API_SECRET="$(printf %s "$ADMIN_API_SECRET" | tr -d "\r\n")"
           CLEAN_PIPELINE_AUTH_TOKEN="$(printf %s "${PIPELINE_AUTH_TOKEN:-$ADMIN_API_SECRET}" | tr -d "\r\n")"
 
@@ -133,43 +212,7 @@ jobs:
             cat "$response_file"
 
             if grep -q '"code":"COOLDOWN_ACTIVE"' "$response_file"; then
-              retry_after_seconds="$(
-                python3 - "$response_file" <<'PY'
-          import json
-          import sys
-
-          payload_path = sys.argv[1]
-          text = open(payload_path, "r", encoding="utf-8").read()
-          retry_after = None
-          decoder = json.JSONDecoder()
-          index = 0
-
-          while index < len(text):
-              while index < len(text) and text[index].isspace():
-                  index += 1
-              if index >= len(text):
-                  break
-              try:
-                  payload, next_index = decoder.raw_decode(text, index)
-              except json.JSONDecodeError:
-                  break
-              index = next_index
-              for step in payload.get("steps", []):
-                  step_result = step.get("result") or {}
-                  if step_result.get("code") == "COOLDOWN_ACTIVE":
-                      retry_after = step_result.get("retryAfterSeconds")
-                      break
-              if retry_after is not None:
-                  break
-
-          if isinstance(retry_after, (int, float)):
-              print(max(1, int(retry_after)))
-          PY
-              )"
-
-              if [[ -z "$retry_after_seconds" ]]; then
-                retry_after_seconds=30
-              fi
+              retry_after_seconds="$(( attempt * 30 ))"
 
               if (( attempt < max_attempts )); then
                 echo "Cooldown active. Waiting ${retry_after_seconds}s before retry ${attempt}/${max_attempts}."
@@ -187,7 +230,7 @@ jobs:
           rm -f "$response_file"
           exit 1
 
-      - name: Skip (outside allowed execution window)
+      - name: Skip market run (outside allowed execution window)
         if: steps.gate.outputs.should_run != 'true'
         run: |
-          echo "Skipping run — outside allowed execution window"
+          echo "Skipping market pipeline — outside allowed execution window"
