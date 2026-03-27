@@ -428,9 +428,26 @@ export default function StatsPage() {
         .hero__copy { margin: 0; color: #cbd5e1; }
         .eyebrow { margin: 0 0 8px; text-transform: uppercase; font-size: 0.75rem; letter-spacing: 0.08em; color: #93c5fd; }
         h1 { margin: 0 0 8px; }
-        .viewTabs { display: inline-flex; gap: 8px; padding: 6px; border: 1px solid rgba(148, 163, 184, 0.24); border-radius: 999px; background: rgba(15, 23, 42, 0.65); margin-bottom: 12px; }
-        .viewTabs__link { padding: 8px 14px; border-radius: 999px; text-decoration: none; color: #cbd5e1; font-weight: 600; font-size: 0.92rem; }
-        .viewTabs__link--active { color: #0f172a; background: linear-gradient(135deg, #93c5fd, #60a5fa); }
+        .viewTabs { display: inline-flex; gap: 10px; flex-wrap: wrap; margin-bottom: 12px; }
+        .viewTabs__link {
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          min-width: 118px;
+          padding: 9px 16px;
+          border-radius: 12px;
+          border: 1px solid rgba(148, 163, 184, 0.3);
+          background: rgba(30, 41, 59, 0.88);
+          box-shadow: 0 8px 18px rgba(2, 6, 23, 0.28);
+          text-decoration: none;
+          color: #cbd5e1;
+          font-weight: 600;
+          font-size: 0.92rem;
+          transition: transform 0.2s ease, border-color 0.2s ease, background 0.2s ease, color 0.2s ease;
+        }
+        .viewTabs__link:hover { transform: translateY(-1px); border-color: rgba(125, 211, 252, 0.6); background: rgba(51, 65, 85, 0.95); }
+        .viewTabs__link:focus-visible { outline: 2px solid rgba(125, 211, 252, 0.95); outline-offset: 3px; }
+        .viewTabs__link--active { color: #0f172a; border-color: rgba(96, 165, 250, 0.9); background: linear-gradient(135deg, #93c5fd, #60a5fa); }
         .statCard { border: 1px solid rgba(148, 163, 184, 0.2); border-radius: 14px; padding: 12px; display: grid; gap: 6px; background: rgba(15, 23, 42, 0.7); }
         .statCard__label { font-size: 0.8rem; color: #93c5fd; }
         .statCard__value { font-size: 1rem; }
