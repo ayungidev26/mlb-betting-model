@@ -93,27 +93,42 @@ jobs:
         env:
           PIPELINE_BASE_URL: ${{ secrets.PIPELINE_BASE_URL }}
           CRON_SECRET: ${{ secrets.CRON_SECRET }}
+          ADMIN_API_SECRET: ${{ secrets.ADMIN_API_SECRET }}
+          PIPELINE_AUTH_TOKEN: ${{ secrets.PIPELINE_AUTH_TOKEN }}
         run: |
           echo "Proceeding with stats pipeline trigger inside window: ${{ steps.gate.outputs.matched_window }}"
 
-          if [[ -z "$PIPELINE_BASE_URL" || -z "$CRON_SECRET" ]]; then
-            echo "Missing required GitHub Actions secrets: PIPELINE_BASE_URL and/or CRON_SECRET"
+          if [[ -z "$PIPELINE_BASE_URL" ]]; then
+            echo "Missing required GitHub Actions secret: PIPELINE_BASE_URL"
             exit 1
           fi
 
-          ENDPOINT_URL="${PIPELINE_BASE_URL%/}/api/cron/runDailyStatsPipeline"
           CLEAN_CRON_SECRET="$(printf %s "$CRON_SECRET" | tr -d "\r\n")"
+          CLEAN_ADMIN_API_SECRET="$(printf %s "$ADMIN_API_SECRET" | tr -d "\r\n")"
+          CLEAN_PIPELINE_AUTH_TOKEN="$(printf %s "${PIPELINE_AUTH_TOKEN:-$ADMIN_API_SECRET}" | tr -d "\r\n")"
 
-          if [[ -z "$CLEAN_CRON_SECRET" ]]; then
-            echo "Sanitized CRON_SECRET is empty; re-save CRON_SECRET without newlines."
-            exit 1
+          if [[ -n "$CLEAN_CRON_SECRET" ]]; then
+            ENDPOINT_URL="${PIPELINE_BASE_URL%/}/api/cron/runDailyStatsPipeline"
+            curl --fail-with-body --show-error --silent \
+              --request POST \
+              --header "Authorization: Bearer ${CLEAN_CRON_SECRET}" \
+              --header "Content-Type: application/json" \
+              "$ENDPOINT_URL"
+          else
+            if [[ -z "$CLEAN_ADMIN_API_SECRET" || -z "$CLEAN_PIPELINE_AUTH_TOKEN" ]]; then
+              echo "Missing auth secrets for stats trigger. Set CRON_SECRET or ADMIN_API_SECRET (and optional PIPELINE_AUTH_TOKEN)."
+              exit 1
+            fi
+
+            ENDPOINT_URL="${PIPELINE_BASE_URL%/}/api/runStatsPipeline"
+            curl --fail-with-body --show-error --silent \
+              --request POST \
+              --header "Authorization: Bearer ${CLEAN_PIPELINE_AUTH_TOKEN}" \
+              --header "x-admin-secret: ${CLEAN_ADMIN_API_SECRET}" \
+              --header "Content-Type: application/json" \
+              --data "{\"authToken\":\"${CLEAN_PIPELINE_AUTH_TOKEN}\",\"adminSecret\":\"${CLEAN_ADMIN_API_SECRET}\"}" \
+              "$ENDPOINT_URL"
           fi
-
-          curl --fail-with-body --show-error --silent \
-            --request POST \
-            --header "Authorization: Bearer ${CLEAN_CRON_SECRET}" \
-            --header "Content-Type: application/json" \
-            "$ENDPOINT_URL"
 
       - name: Skip stats run (outside allowed execution window)
         if: steps.gate.outputs.should_run != 'true'

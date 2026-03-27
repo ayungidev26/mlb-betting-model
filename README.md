@@ -352,7 +352,7 @@ Current behavior:
 
 - **Stats refresh schedule:** targets `5:30 AM` ET with a guarded window of `5:30–8:30 AM` ET.
 - **Market refresh schedule:** remains `10:19 AM`, `2:19 PM`, and `5:19 PM` ET windows.
-- Stats job calls `POST /api/cron/runDailyStatsPipeline`.
+- Stats job calls `POST /api/cron/runDailyStatsPipeline` when `CRON_SECRET` is configured, otherwise it falls back to `POST /api/runStatsPipeline` using admin auth.
 - Market job calls `POST /api/runPipeline`.
 
 Required GitHub secrets:
