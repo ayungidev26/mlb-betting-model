@@ -15,6 +15,16 @@ on:
     - cron: "19 21 * * *" # 17:19 ET (EDT)
     - cron: "19 22 * * *" # 17:19 ET (EST)
   workflow_dispatch:
+    inputs:
+      pipeline:
+        description: "Which pipeline to run when triggered manually"
+        required: true
+        default: both
+        type: choice
+        options:
+          - both
+          - stats
+          - market
 
 concurrency:
   group: pipeline-refresh-scheduler
@@ -22,6 +32,7 @@ concurrency:
 
 jobs:
   refresh-stats:
+    if: github.event_name != 'workflow_dispatch' || github.event.inputs.pipeline == 'both' || github.event.inputs.pipeline == 'stats'
     runs-on: ubuntu-latest
     steps:
       - name: Evaluate ET execution window (stats)
@@ -62,7 +73,11 @@ jobs:
 
           console.log(`Current ET time: ${etTimestamp}`)
 
-          if (minuteOfDay >= window.start && minuteOfDay <= window.end) {
+          if (process.env.GITHUB_EVENT_NAME === "workflow_dispatch") {
+            console.log("Manual run detected — bypassing time window gate")
+            fs.appendFileSync(process.env.GITHUB_OUTPUT, `should_run=true\n`)
+            fs.appendFileSync(process.env.GITHUB_OUTPUT, `matched_window=manual_dispatch\n`)
+          } else if (minuteOfDay >= window.start && minuteOfDay <= window.end) {
             console.log(`Matched execution window: ${window.label}`)
             fs.appendFileSync(process.env.GITHUB_OUTPUT, `should_run=true\n`)
             fs.appendFileSync(process.env.GITHUB_OUTPUT, `matched_window=${window.label}\n`)
@@ -101,6 +116,7 @@ jobs:
           echo "Skipping stats pipeline — outside allowed execution window"
 
   refresh-market:
+    if: github.event_name != 'workflow_dispatch' || github.event.inputs.pipeline == 'both' || github.event.inputs.pipeline == 'market'
     runs-on: ubuntu-latest
     steps:
       - name: Evaluate ET execution window (market)
@@ -157,7 +173,11 @@ jobs:
 
           console.log(`Current ET time: ${etTimestamp}`)
 
-          if (matchedWindow) {
+          if (process.env.GITHUB_EVENT_NAME === "workflow_dispatch") {
+            console.log("Manual run detected — bypassing time window gate")
+            fs.appendFileSync(process.env.GITHUB_OUTPUT, `should_run=true\n`)
+            fs.appendFileSync(process.env.GITHUB_OUTPUT, `matched_window=manual_dispatch\n`)
+          } else if (matchedWindow) {
             console.log(`Matched execution window: ${matchedWindow.label}`)
             fs.appendFileSync(process.env.GITHUB_OUTPUT, `should_run=true\n`)
             fs.appendFileSync(process.env.GITHUB_OUTPUT, `matched_window=${matchedWindow.label}\n`)
