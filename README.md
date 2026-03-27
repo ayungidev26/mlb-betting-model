@@ -34,7 +34,7 @@ The web UI reads cached predictions/edges from Redis and presents the top opport
 
 There are three API access tiers:
 
-1. **Public cache read routes** (`GET /api/predictions`, `GET /api/edges`)
+1. **Public cache read routes** (`GET /api/predictions`, `GET /api/edges`, `GET /api/stats`)
 2. **Operational/admin routes** (all model/data pipeline mutation routes; require admin secret and `POST`)
 3. **Cron routes** (`/api/cron/*`; require cron secret; accept `GET` or `POST`)
 
@@ -51,7 +51,8 @@ There are three API access tiers:
 
 ```text
 pages/
-  index.js                         # main dashboard
+  index.js                         # dashboard (predictions + edges)
+  stats.js                         # cached model-input stats explorer
   login.js                         # password gate UI
   api/
     fetchGames.js
@@ -67,6 +68,7 @@ pages/
     buildRatings.js
     predictions.js                 # public cached predictions
     edges.js                       # public cached edges
+    stats.js                       # public cached stats + metadata
     cron/runDailyPipeline.js       # optional market cron trigger
     cron/runDailyStatsPipeline.js  # optional stats cron trigger
 
@@ -200,6 +202,23 @@ findEdges
 - `mlb:stats:offense`
 
 If stats are missing, it returns a `STATS_PIPELINE_REQUIRED` error.
+
+
+### 10) Stats cache read endpoint
+`GET /api/stats`
+
+- Read-only route that returns the latest cached model-input stats for:
+  - `mlb:stats:pitchers` + `mlb:stats:pitchers:meta`
+  - `mlb:stats:bullpen` + `mlb:stats:bullpen:meta`
+  - `mlb:stats:offense` + `mlb:stats:offense:meta`
+- Does **not** trigger a stats refresh; it only reads existing Redis values.
+
+### 11) UI tabs
+
+The authenticated UI now has two primary tabs:
+
+- **Dashboard** (`/`): predictions, edges, and betting board filters
+- **Stats** (`/stats`): read-only view of the latest cached pitcher, bullpen, and offense payloads with per-section metadata (last updated and record counts)
 
 ---
 

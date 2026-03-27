@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react"
+import Link from "next/link"
 import { useRouter } from "next/router"
 
 import {
@@ -745,7 +746,13 @@ export default function Home({ games = [], summary, error = "", sessionExpiresAt
       <section className="hero shellCard">
         <div className="hero__content">
           <div className="hero__toolbar">
-            <p className="eyebrow">MLB model dashboard</p>
+            <div>
+              <nav className="viewTabs" aria-label="Primary">
+                <Link href="/" className="viewTabs__link viewTabs__link--active" aria-current="page">Dashboard</Link>
+                <Link href="/stats" className="viewTabs__link">Stats</Link>
+              </nav>
+              <p className="eyebrow">MLB model dashboard</p>
+            </div>
             <button
               type="button"
               className="logoutButton"
