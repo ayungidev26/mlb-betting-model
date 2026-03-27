@@ -666,7 +666,8 @@ export default function Home({ games = [], summary, error = "", sessionExpiresAt
 
   const activeGames = Array.isArray(viewModel.games) ? viewModel.games : []
   const activeSummary = viewModel.summary || initialViewModel.summary
-  const recommendationCount = activeSummary?.recommendedBets ?? 0
+  const recommendationCount = activeGames.filter((game) => typeof game?.edge === "number").length
+  const gamesLoadedCount = activeGames.length
   const availableBetTypes = useMemo(() => getAvailableBetTypes(activeGames), [activeGames])
   const availableTeams = useMemo(() => getAvailableTeams(activeGames), [activeGames])
   const filteredGames = useMemo(() => filterGames(activeGames, filters), [activeGames, filters])
@@ -674,6 +675,9 @@ export default function Home({ games = [], summary, error = "", sessionExpiresAt
   const hasGames = activeGames.length > 0
   const hasFilteredGames = filteredGames.length > 0
   const showInitialLoading = fetchState.isLoading && !hasGames
+  const showCountPlaceholder = showInitialLoading || fetchState.isRefreshing
+  const todayGamesDisplay = showCountPlaceholder ? "—" : String(gamesLoadedCount)
+  const recommendedBetsDisplay = showCountPlaceholder ? "—" : String(recommendationCount)
   const showEmptyState = !showInitialLoading && !fetchState.error && !hasGames
   const showFilteredEmptyState = !showInitialLoading && !fetchState.error && hasGames && !hasFilteredGames
   const hasActiveFilters = filters.minimumEdge > 0 || filters.betType !== "all" || filters.team !== "all"
@@ -728,69 +732,47 @@ export default function Home({ games = [], summary, error = "", sessionExpiresAt
     }))
   }, [availableBetTypes, availableTeams])
 
-  const statusTone = fetchState.error
-    ? "danger"
-    : fetchState.isLoading || fetchState.isRefreshing
-      ? "warning"
-      : "muted"
-  const statusLabel = fetchState.error
-    ? "Cache unavailable"
-    : fetchState.isLoading
-      ? "Loading predictions"
-      : fetchState.isRefreshing
-        ? "Refreshing predictions"
-        : (activeSummary?.message || "Ready")
-
   return (
     <main className="dashboard">
+      <section className="topNav shellCard">
+        <nav className="viewTabs" aria-label="Primary">
+          <Link href="/" className="viewTabs__link viewTabs__link--active" aria-current="page">Dashboard</Link>
+          <Link href="/stats" className="viewTabs__link">Stats</Link>
+        </nav>
+      </section>
+
       <section className="hero shellCard">
         <div className="hero__content">
-          <div className="hero__toolbar">
-            <div>
-              <nav className="viewTabs" aria-label="Primary">
-                <Link href="/" className="viewTabs__link viewTabs__link--active" aria-current="page">Dashboard</Link>
-                <Link href="/stats" className="viewTabs__link">Stats</Link>
-              </nav>
-              <p className="eyebrow">MLB model dashboard</p>
-            </div>
-            <button
-              type="button"
-              className="logoutButton"
-              onClick={() => handleLogout("manual")}
-            >
-              Logout
-            </button>
-          </div>
-          <h1>Today&apos;s betting board</h1>
-          <p className="hero__copy">
-            Scan projected winners, starters, bullpen context, and pricing gaps in one clean view built for quick reads.
+          <h1>MLB Model Dashboard</h1>
+          <p className="hero__summaryLine">
+            Predictive MLB betting model using pitcher, bullpen, offense, and market data
           </p>
-          <p className="hero__sessionNote">
-            For security, sessions automatically sign out after 5 minutes.
+          <p className="hero__summaryLine">
+            Identifies recommended bets by comparing model probabilities against sportsbook odds
           </p>
         </div>
 
-        <div className="hero__stats">
-          <DashboardStat
-            label="Games loaded"
-            value={String(activeSummary?.predictionsCreated ?? 0)}
-            emphasis
-          />
-          <DashboardStat
-            label="Recommended bets"
-            value={String(recommendationCount)}
-            tone={recommendationCount > 0 ? "success" : "muted"}
-          />
-          <DashboardStat
-            label="Showing"
-            value={String(filteredGames.length)}
-            tone={filteredGames.length > 0 ? "default" : "warning"}
-          />
-          <DashboardStat
-            label="Status"
-            value={statusLabel}
-            tone={statusTone}
-          />
+        <div className="hero__actions">
+          <div className="hero__stats">
+            <DashboardStat
+              label="Today&apos;s games"
+              value={todayGamesDisplay}
+              emphasis={!showCountPlaceholder}
+            />
+            <DashboardStat
+              label="Recommended bets"
+              value={recommendedBetsDisplay}
+              tone={!showCountPlaceholder && recommendationCount > 0 ? "success" : "muted"}
+              emphasis={!showCountPlaceholder && recommendationCount > 0}
+            />
+          </div>
+          <button
+            type="button"
+            className="logoutButton"
+            onClick={() => handleLogout("manual")}
+          >
+            Logout
+          </button>
         </div>
       </section>
 
@@ -1150,12 +1132,33 @@ export default function Home({ games = [], summary, error = "", sessionExpiresAt
           box-sizing: border-box;
         }
 
-        .hero__toolbar {
+        .topNav {
           display: flex;
-          align-items: center;
-          justify-content: space-between;
-          gap: 16px;
-          margin-bottom: 12px;
+          justify-content: flex-start;
+          padding: 12px 16px;
+        }
+
+        .viewTabs {
+          display: inline-flex;
+          gap: 8px;
+          padding: 6px;
+          border: 1px solid rgba(148, 163, 184, 0.24);
+          border-radius: 999px;
+          background: rgba(15, 23, 42, 0.65);
+        }
+
+        .viewTabs__link {
+          padding: 8px 14px;
+          border-radius: 999px;
+          text-decoration: none;
+          color: #cbd5e1;
+          font-weight: 600;
+          font-size: 0.92rem;
+        }
+
+        .viewTabs__link--active {
+          color: #0f172a;
+          background: linear-gradient(135deg, #93c5fd, #60a5fa);
         }
 
         .logoutButton {
@@ -1183,10 +1186,17 @@ export default function Home({ games = [], summary, error = "", sessionExpiresAt
 
         .hero {
           display: grid;
-          grid-template-columns: minmax(0, 1.7fr) minmax(320px, 1fr);
+          grid-template-columns: minmax(0, 1.8fr) minmax(280px, 1fr);
           gap: 24px;
           padding: 28px;
           align-items: start;
+        }
+
+        .hero__actions {
+          display: grid;
+          gap: 14px;
+          justify-items: end;
+          align-content: start;
         }
 
         .eyebrow,
@@ -1216,6 +1226,7 @@ export default function Home({ games = [], summary, error = "", sessionExpiresAt
           line-height: 1.02;
         }
 
+        .hero__summaryLine,
         .hero__copy,
         .sectionIntro__copy,
         .contentBlock__subtitle,
@@ -1227,17 +1238,11 @@ export default function Home({ games = [], summary, error = "", sessionExpiresAt
           line-height: 1.6;
         }
 
-        .hero__copy {
-          margin: 16px 0 0;
+        .hero__summaryLine {
+          margin: 10px 0 0;
           max-width: 680px;
-          font-size: 1rem;
+          font-size: 0.98rem;
           color: #cbd5e1;
-        }
-
-        .hero__sessionNote {
-          margin: 14px 0 0;
-          color: #bfdbfe;
-          font-size: 0.95rem;
         }
 
         .hero__stats,
@@ -1947,6 +1952,10 @@ export default function Home({ games = [], summary, error = "", sessionExpiresAt
           .gameCard__body {
             grid-template-columns: 1fr;
           }
+
+          .hero__actions {
+            justify-items: stretch;
+          }
         }
 
         @media (max-width: 900px) {
@@ -1964,6 +1973,10 @@ export default function Home({ games = [], summary, error = "", sessionExpiresAt
           .metricGrid,
           .comparisonHighlights {
             grid-template-columns: 1fr;
+          }
+
+          .topNav {
+            padding: 10px 12px;
           }
 
           .tagRow--tight {
