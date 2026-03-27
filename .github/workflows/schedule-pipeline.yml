@@ -93,16 +93,23 @@ jobs:
         env:
           PIPELINE_BASE_URL: ${{ secrets.PIPELINE_BASE_URL }}
           CRON_SECRET: ${{ secrets.CRON_SECRET }}
+          PIPELINE_AUTH_TOKEN: ${{ secrets.PIPELINE_AUTH_TOKEN }}
+          ADMIN_API_SECRET: ${{ secrets.ADMIN_API_SECRET }}
         run: |
           echo "Proceeding with stats pipeline trigger inside window: ${{ steps.gate.outputs.matched_window }}"
 
-          if [[ -z "$PIPELINE_BASE_URL" || -z "$CRON_SECRET" ]]; then
-            echo "Missing required GitHub Actions secrets: PIPELINE_BASE_URL and/or CRON_SECRET"
+          if [[ -z "$PIPELINE_BASE_URL" ]]; then
+            echo "Missing required GitHub Actions secret: PIPELINE_BASE_URL"
             exit 1
           fi
 
           ENDPOINT_URL="${PIPELINE_BASE_URL%/}/api/cron/runDailyStatsPipeline"
-          CLEAN_CRON_SECRET="$(printf %s "$CRON_SECRET" | tr -d "\r\n")"
+          CLEAN_CRON_SECRET="$(printf %s "${CRON_SECRET:-${PIPELINE_AUTH_TOKEN:-$ADMIN_API_SECRET}}" | tr -d "\r\n")"
+
+          if [[ -z "$CLEAN_CRON_SECRET" ]]; then
+            echo "Missing auth secret for stats trigger. Set CRON_SECRET (preferred), PIPELINE_AUTH_TOKEN, or ADMIN_API_SECRET."
+            exit 1
+          fi
 
           curl --fail-with-body --show-error --silent \
             --request POST \
