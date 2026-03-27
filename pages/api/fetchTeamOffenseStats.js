@@ -41,11 +41,20 @@ export default async function handler(req, res) {
 
     const offenseStats = await fetchTeamOffenseStatsByTeam()
 
+    const statsMeta = {
+      lastUpdatedAt: new Date().toISOString(),
+      source: "statsapi.mlb.com + baseballsavant.mlb.com",
+      version: "v1",
+      records: Object.keys(offenseStats).length
+    }
+
     await redis.set("mlb:stats:offense", offenseStats)
+    await redis.set("mlb:stats:offense:meta", statsMeta)
 
     res.status(200).json({
       teamsCollected: Object.keys(offenseStats).length,
-      sample: Object.entries(offenseStats).slice(0, 3)
+      sample: Object.entries(offenseStats).slice(0, 3),
+      metadata: statsMeta
     })
   } catch (error) {
     return sendRouteError(res, "fetchTeamOffenseStats", error)

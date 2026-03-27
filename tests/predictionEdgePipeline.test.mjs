@@ -51,6 +51,7 @@ test('prediction to edge pipeline stores predictions and edges from mocked Redis
       'Oakland Athletics': { era: 4.25, whip: 1.31 },
       'Los Angeles Dodgers': { era: 3.15, whip: 1.14 }
     },
+    'mlb:stats:pitchers': {},
     'mlb:stats:offense': {
       'Oakland Athletics': { runsPerGame: 4.1, battingAverage: 0.239, onBasePercentage: 0.31, sluggingPercentage: 0.39, ops: 0.7, isolatedPower: 0.151, strikeoutRate: 0.23, walkRate: 0.082, weightedOnBaseAverage: 0.305, weightedRunsCreatedPlus: 93, splits: {} },
       'Los Angeles Dodgers': { runsPerGame: 5.4, battingAverage: 0.267, onBasePercentage: 0.342, sluggingPercentage: 0.455, ops: 0.797, isolatedPower: 0.188, strikeoutRate: 0.205, walkRate: 0.098, weightedOnBaseAverage: 0.344, weightedRunsCreatedPlus: 118, splits: {} }
@@ -97,7 +98,9 @@ test('prediction pipeline repairs a missing matchKey when the cached game still 
       'Oakland Athletics': 1450,
       'Los Angeles Dodgers': 1600
     },
-    'mlb:stats:bullpen': null
+    'mlb:stats:pitchers': {},
+    'mlb:stats:bullpen': {},
+    'mlb:stats:offense': {}
   })
 
   const result = await generatePredictions(redis)
@@ -139,8 +142,8 @@ test('prediction pipeline only fetches pitcher stats once for multiple games in 
       'Houston Astros': 1540,
       'Seattle Mariners': 1520
     },
-    'mlb:stats:bullpen': null,
-    'mlb:stats:offense': null,
+    'mlb:stats:bullpen': {},
+    'mlb:stats:offense': {},
     'mlb:stats:pitchers': {
       'Pitcher A': { era: 2.9, whip: 1.0, strikeouts: 120, innings: 95 },
       'Pitcher B': { era: 3.2, whip: 1.1, strikeouts: 110, innings: 100 },
@@ -169,7 +172,7 @@ test('prediction pipeline still fails fast when a missing matchKey cannot be rec
     'mlb:ratings:teams': {
       'Los Angeles Dodgers': 1600
     },
-    'mlb:stats:bullpen': null
+    'mlb:stats:bullpen': {}
   })
 
   await assert.rejects(
@@ -177,6 +180,34 @@ test('prediction pipeline still fails fast when a missing matchKey cannot be rec
     error => {
       assert.equal(error instanceof ValidationError, true)
       assert.match(error.message, /matchKey|homeTeam/)
+      return true
+    }
+  )
+})
+
+test('prediction pipeline requires cached stats to exist before model execution', async () => {
+  const redis = createMockRedis({
+    'mlb:games:today': [
+      {
+        gameId: 'game-1',
+        matchKey: '2025-04-10|Los Angeles Dodgers|Oakland Athletics',
+        date: '2025-04-10T23:10:00Z',
+        homeTeam: 'Oakland Athletics',
+        awayTeam: 'Los Angeles Dodgers',
+        seasonType: 'regular'
+      }
+    ],
+    'mlb:ratings:teams': {
+      'Oakland Athletics': 1450,
+      'Los Angeles Dodgers': 1600
+    }
+  })
+
+  await assert.rejects(
+    () => generatePredictions(redis),
+    error => {
+      assert.match(error.message, /Stats cache missing/)
+      assert.match(error.message, /runStatsPipeline/)
       return true
     }
   )
@@ -248,8 +279,8 @@ test('prediction output includes advanced pitcher feature inputs for scoring', a
       'Oakland Athletics': 1450,
       'Los Angeles Dodgers': 1600
     },
-    'mlb:stats:bullpen': null,
-    'mlb:stats:offense': null,
+    'mlb:stats:bullpen': {},
+    'mlb:stats:offense': {},
     'mlb:stats:pitchers': {
       'Pitcher A': {
         throwingHand: 'R', era: 2.9, whip: 1.0, strikeouts: 120, innings: 95, xera: 3.05, fip: 3.12, xfip: 3.2,

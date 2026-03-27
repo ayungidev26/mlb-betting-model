@@ -4,7 +4,8 @@ import assert from "node:assert/strict"
 import {
   getEasternDateKey,
   getEasternTimeParts,
-  isDailyPipelineWindow
+  isDailyPipelineWindow,
+  isDailyStatsPipelineWindow
 } from "../lib/cronSchedule.js"
 
 test("getEasternTimeParts converts UTC time into Eastern Daylight Time", () => {
@@ -40,4 +41,26 @@ test("isDailyPipelineWindow rejects non-10:00 AM Eastern times", () => {
   assert.equal(schedulerWindow.matchesTargetHour, false)
   assert.equal(schedulerWindow.matchesTargetMinute, false)
   assert.equal(schedulerWindow.matchesTargetTime, false)
+})
+
+test("isDailyStatsPipelineWindow matches times inside the 5:30 AM to 8:30 AM Eastern window", () => {
+  const date = new Date("2026-01-16T11:45:00.000Z")
+  const schedulerWindow = isDailyStatsPipelineWindow(date)
+
+  assert.equal(schedulerWindow.hour, 6)
+  assert.equal(schedulerWindow.minute, 45)
+  assert.equal(schedulerWindow.startHour, 5)
+  assert.equal(schedulerWindow.startMinute, 30)
+  assert.equal(schedulerWindow.endHour, 8)
+  assert.equal(schedulerWindow.endMinute, 30)
+  assert.equal(schedulerWindow.matchesWindow, true)
+})
+
+test("isDailyStatsPipelineWindow rejects times outside the configured morning window", () => {
+  const date = new Date("2026-01-16T14:00:00.000Z")
+  const schedulerWindow = isDailyStatsPipelineWindow(date)
+
+  assert.equal(schedulerWindow.hour, 9)
+  assert.equal(schedulerWindow.minute, 0)
+  assert.equal(schedulerWindow.matchesWindow, false)
 })

@@ -170,11 +170,20 @@ export default async function handler(req, res) {
       }
     }
 
+    const statsMeta = {
+      lastUpdatedAt: new Date().toISOString(),
+      source: "statsapi.mlb.com + baseballsavant.mlb.com",
+      version: "v1",
+      records: Object.keys(pitcherStats).length
+    }
+
     await redis.set("mlb:stats:pitchers", pitcherStats)
+    await redis.set("mlb:stats:pitchers:meta", statsMeta)
 
     res.status(200).json({
       pitchersCollected: Object.keys(pitcherStats).length,
-      sample: Object.entries(pitcherStats).slice(0, 3)
+      sample: Object.entries(pitcherStats).slice(0, 3),
+      metadata: statsMeta
     })
   } catch (error) {
     return sendRouteError(res, "fetchPitcherStats", error)

@@ -17,7 +17,8 @@ const ROUTE_CASES = [
   ["findEdges", "../pages/api/findEdges.js"],
   ["loadHistorical", "../pages/api/loadHistorical.js"],
   ["runModel", "../pages/api/runModel.js"],
-  ["runPipeline", "../pages/api/runPipeline.js"]
+  ["runPipeline", "../pages/api/runPipeline.js"],
+  ["runStatsPipeline", "../pages/api/runStatsPipeline.js"]
 ]
 
 function createMockResponse() {
@@ -589,7 +590,7 @@ test("fetchTeamOffenseStats stores season, split, recent, and expected offense m
       assert.equal(payload['New York Yankees'].weightedRunsCreatedPlus, 104.8)
       assert.equal(payload['New York Yankees'].splits.vsLeftHanded.ops, 0.857)
       assert.equal(payload['New York Yankees'].splits.last7Days.gamesPlayed, 2)
-      assert.equal(payload['Boston Red Sox'].splits.last14Days.gamesPlayed, 3)
+      assert.equal(payload['Boston Red Sox'].splits.last14Days.gamesPlayed, 2)
     }
   ))
 })

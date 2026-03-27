@@ -255,6 +255,18 @@ test("cron route runs the existing pipeline once per Eastern day and skips dupli
     ["mlb:ratings:teams", {
       Yankees: 1500,
       RedSox: 1480
+    }],
+    ["mlb:stats:pitchers", {
+      "Away Pitcher": { era: 3.4, whip: 1.12, strikeoutRate: 0.284, walkRate: 0.071, strikeoutMinusWalkRate: 0.213 },
+      "Home Pitcher": { era: 3.1, whip: 1.05, strikeoutRate: 0.312, walkRate: 0.054, strikeoutMinusWalkRate: 0.258 }
+    }],
+    ["mlb:stats:bullpen", {
+      "New York Yankees": { era: 3.5, whip: 1.2 },
+      "Boston Red Sox": { era: 3.8, whip: 1.25 }
+    }],
+    ["mlb:stats:offense", {
+      "New York Yankees": { runsPerGame: 5.2, weightedOnBaseAverage: 0.34, weightedRunsCreatedPlus: 112, splits: {} },
+      "Boston Red Sox": { runsPerGame: 4.9, weightedOnBaseAverage: 0.326, weightedRunsCreatedPlus: 101, splits: {} }
     }]
   ])
 
@@ -475,7 +487,7 @@ test("cron route runs the existing pipeline once per Eastern day and skips dupli
       assert.equal(firstRun.statusCode, 200)
       assert.equal(firstRun.body.ok, true)
       assert.equal(firstRun.body.pipeline.ok, true)
-      assert.equal(firstRun.body.pipeline.completedSteps, 7)
+	      assert.equal(firstRun.body.pipeline.completedSteps, 4)
 
       const secondRun = createMockResponse()
       await handler(createRequest(), secondRun)

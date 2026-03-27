@@ -1,9 +1,6 @@
 // Data contract reference: see docs/data-contracts.md for canonical Game, OddsRecord, Prediction, Edge, and matchKey shapes.
 import fetchGamesHandler from "./fetchGames.js"
 import fetchOddsHandler from "./fetchOdds.js"
-import fetchPitcherStatsHandler from "./fetchPitcherStats.js"
-import fetchBullpenStatsHandler from "./fetchBullpenStats.js"
-import fetchTeamOffenseStatsHandler from "./fetchTeamOffenseStats.js"
 import runModelHandler from "./runModel.js"
 import findEdgesHandler from "./findEdges.js"
 import { redis } from "../../lib/upstash.js"
@@ -109,18 +106,6 @@ export default async function handler(req, res) {
         }
       },
       {
-        name: "fetchPitcherStats",
-        handler: fetchPitcherStatsHandler
-      },
-      {
-        name: "fetchBullpenStats",
-        handler: fetchBullpenStatsHandler
-      },
-      {
-        name: "fetchTeamOffenseStats",
-        handler: fetchTeamOffenseStatsHandler
-      },
-      {
         name: "runModel",
         handler: runModelHandler
       },
@@ -156,9 +141,9 @@ export default async function handler(req, res) {
             games: "mlb:games:today",
             ballparkFactors: "mlb:ballparkFactors:current",
             odds: "mlb:odds:today",
-            pitcherStats: "mlb:stats:pitchers",
-            bullpenStats: "mlb:stats:bullpen",
-            offenseStats: "mlb:stats:offense",
+            cachedPitcherStats: "mlb:stats:pitchers",
+            cachedBullpenStats: "mlb:stats:bullpen",
+            cachedOffenseStats: "mlb:stats:offense",
             predictions: "mlb:predictions:today",
             edges: "mlb:edges:today"
           }
@@ -174,9 +159,9 @@ export default async function handler(req, res) {
         games: "mlb:games:today",
         ballparkFactors: "mlb:ballparkFactors:current",
         odds: "mlb:odds:today",
-        pitcherStats: "mlb:stats:pitchers",
-        bullpenStats: "mlb:stats:bullpen",
-        offenseStats: "mlb:stats:offense",
+        cachedPitcherStats: "mlb:stats:pitchers",
+        cachedBullpenStats: "mlb:stats:bullpen",
+        cachedOffenseStats: "mlb:stats:offense",
         predictions: "mlb:predictions:today",
         edges: "mlb:edges:today"
       }
