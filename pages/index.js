@@ -742,7 +742,7 @@ export default function Home({ games = [], summary, error = "", sessionExpiresAt
       </section>
 
       <section className="hero shellCard">
-        <div className="hero__content">
+        <div className="hero__identity">
           <h1>MLB Model Dashboard</h1>
           <p className="hero__summaryLine">
             Predictive MLB betting model using pitcher, bullpen, offense, and market data
@@ -752,20 +752,21 @@ export default function Home({ games = [], summary, error = "", sessionExpiresAt
           </p>
         </div>
 
-        <div className="hero__actions">
-          <div className="hero__stats">
-            <DashboardStat
-              label="Today&apos;s games"
-              value={todayGamesDisplay}
-              emphasis={!showCountPlaceholder}
-            />
-            <DashboardStat
-              label="Recommended bets"
-              value={recommendedBetsDisplay}
-              tone={!showCountPlaceholder && recommendationCount > 0 ? "success" : "muted"}
-              emphasis={!showCountPlaceholder && recommendationCount > 0}
-            />
-          </div>
+        <div className="hero__kpis" aria-label="Daily board summary">
+          <DashboardStat
+            label="Today&apos;s games"
+            value={todayGamesDisplay}
+            emphasis={!showCountPlaceholder}
+          />
+          <DashboardStat
+            label="Recommended bets"
+            value={recommendedBetsDisplay}
+            tone={!showCountPlaceholder && recommendationCount > 0 ? "success" : "muted"}
+            emphasis={!showCountPlaceholder && recommendationCount > 0}
+          />
+        </div>
+
+        <div className="hero__account">
           <button
             type="button"
             className="logoutButton"
@@ -1135,12 +1136,12 @@ export default function Home({ games = [], summary, error = "", sessionExpiresAt
         .topNav {
           display: flex;
           justify-content: flex-start;
-          padding: 12px 16px;
+          padding: 10px 14px;
         }
 
         .viewTabs {
           display: inline-flex;
-          gap: 10px;
+          gap: 8px;
           flex-wrap: wrap;
         }
 
@@ -1148,16 +1149,16 @@ export default function Home({ games = [], summary, error = "", sessionExpiresAt
           display: inline-flex;
           align-items: center;
           justify-content: center;
-          min-width: 118px;
-          padding: 9px 16px;
-          border-radius: 12px;
+          min-width: 108px;
+          padding: 8px 14px;
+          border-radius: 10px;
           border: 1px solid rgba(148, 163, 184, 0.3);
           background: rgba(30, 41, 59, 0.88);
-          box-shadow: 0 8px 18px rgba(2, 6, 23, 0.28);
+          box-shadow: 0 6px 14px rgba(2, 6, 23, 0.25);
           text-decoration: none;
           color: #cbd5e1;
           font-weight: 600;
-          font-size: 0.92rem;
+          font-size: 0.88rem;
           transition: transform 0.2s ease, border-color 0.2s ease, background 0.2s ease, color 0.2s ease;
         }
 
@@ -1203,17 +1204,31 @@ export default function Home({ games = [], summary, error = "", sessionExpiresAt
 
         .hero {
           display: grid;
-          grid-template-columns: minmax(0, 1.8fr) minmax(280px, 1fr);
-          gap: 24px;
-          padding: 28px;
-          align-items: start;
+          grid-template-columns: minmax(0, 1.6fr) minmax(280px, 0.95fr) auto;
+          gap: 20px;
+          padding: 26px 28px;
+          align-items: center;
         }
 
-        .hero__actions {
+        .hero__identity {
+          min-width: 0;
+        }
+
+        .hero__kpis {
           display: grid;
-          gap: 14px;
-          justify-items: end;
-          align-content: start;
+          grid-template-columns: repeat(2, minmax(0, 1fr));
+          gap: 12px;
+          align-self: stretch;
+          width: 100%;
+          max-width: 460px;
+          justify-self: center;
+        }
+
+        .hero__account {
+          display: flex;
+          justify-content: flex-end;
+          align-items: flex-start;
+          align-self: start;
         }
 
         .eyebrow,
@@ -1256,10 +1271,11 @@ export default function Home({ games = [], summary, error = "", sessionExpiresAt
         }
 
         .hero__summaryLine {
-          margin: 10px 0 0;
-          max-width: 680px;
-          font-size: 0.98rem;
-          color: #cbd5e1;
+          margin: 8px 0 0;
+          max-width: 720px;
+          font-size: 0.95rem;
+          line-height: 1.55;
+          color: #9fb2cd;
         }
 
         .hero__stats,
@@ -1965,13 +1981,23 @@ export default function Home({ games = [], summary, error = "", sessionExpiresAt
         }
 
         @media (max-width: 1080px) {
-          .hero,
           .gameCard__body {
             grid-template-columns: 1fr;
           }
 
-          .hero__actions {
-            justify-items: stretch;
+          .hero {
+            grid-template-columns: 1fr;
+            gap: 16px;
+            align-items: start;
+          }
+
+          .hero__kpis {
+            justify-self: stretch;
+            max-width: none;
+          }
+
+          .hero__account {
+            justify-content: flex-start;
           }
         }
 
@@ -1986,6 +2012,7 @@ export default function Home({ games = [], summary, error = "", sessionExpiresAt
           }
 
           .hero__stats,
+          .hero__kpis,
           .filterGrid,
           .metricGrid,
           .comparisonHighlights {
