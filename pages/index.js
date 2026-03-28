@@ -106,6 +106,21 @@ function formatGameTime(value) {
   })
 }
 
+function formatGameTimeEastern(value) {
+  if (!value) {
+    return "Time TBD (ET)"
+  }
+
+  return `${new Date(value).toLocaleString("en-US", {
+    weekday: "short",
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+    timeZone: "America/New_York"
+  })} ET`
+}
+
 function formatBetTypeLabel(value) {
   if (!value || value === "all") {
     return "All bet types"
@@ -163,6 +178,27 @@ function getPitcherStatLine(stats) {
     `FIP ${formatMetricValue(stats.fip)}`,
     `xERA ${formatMetricValue(stats.xera)}`
   ].join(" • ")
+}
+
+function formatPitcherRecord(stats) {
+  if (!stats) {
+    return "N/A"
+  }
+
+  const wins = typeof stats.wins === "number" ? stats.wins : null
+  const losses = typeof stats.losses === "number" ? stats.losses : null
+
+  if (wins === null || losses === null) {
+    return "N/A"
+  }
+
+  return `${wins}-${losses}`
+}
+
+function formatPitcherInnings(stats) {
+  return typeof stats?.innings === "number"
+    ? stats.innings.toFixed(1)
+    : "N/A"
 }
 
 function getBullpenLabel(rating) {
@@ -242,6 +278,15 @@ function getOddsComparison(game) {
       ? formatMoneyline(modelOdds)
       : "N/A"
   }
+}
+
+function formatBestOddsSummary(game) {
+  const sportsbook = game?.bestSportsbookName || game?.sportsbookName || game?.bestSportsbook || game?.sportsbook || "Sportsbook unavailable"
+  const odds = typeof game?.bestOdds === "number"
+    ? formatMoneyline(game.bestOdds)
+    : "N/A"
+
+  return `${sportsbook} (${odds})`
 }
 
 function getBallparkSummary(ballpark) {
@@ -642,7 +687,7 @@ export default function Home({ games = [], summary, error = "", sessionExpiresAt
   const recommendationCount = activeGames.filter((game) => typeof game?.edge === "number").length
   const gamesLoadedCount = activeGames.length
   const displayedGames = activeGames
-  const topPlays = displayedGames.slice(0, Math.min(5, displayedGames.length))
+  const topPlays = displayedGames
   const hasGames = activeGames.length > 0
   const hasDisplayedGames = displayedGames.length > 0
   const showInitialLoading = fetchState.isLoading && !hasGames
@@ -762,10 +807,10 @@ export default function Home({ games = [], summary, error = "", sessionExpiresAt
           <div className="sectionIntro">
             <div>
               <p className="eyebrow sectionIntro__eyebrow">Best bets</p>
-              <h2 className="sectionTitle">Top plays</h2>
+              <h2 className="sectionTitle">Today&apos;s games ranked by edge</h2>
             </div>
             <p className="sectionIntro__copy">
-              Highest-edge matchups are pinned first so the strongest looks stand out immediately.
+              Every matchup is listed below with edge ratings, probable starters, and best available price.
             </p>
           </div>
 
@@ -774,6 +819,8 @@ export default function Home({ games = [], summary, error = "", sessionExpiresAt
               const edgeTier = getEdgeTier(game.edge)
               const recommendedSide = game.recommendedBet || edgeTier.recommendation
               const betType = getGameBetType(game)
+              const awayPitcherStats = game.pitcherModel?.away?.stats || null
+              const homePitcherStats = game.pitcherModel?.home?.stats || null
 
               return (
                 <article
@@ -785,17 +832,36 @@ export default function Home({ games = [], summary, error = "", sessionExpiresAt
                     <span className={`tag tag--${edgeTier.tone}`}>{edgeTier.label}</span>
                   </div>
 
-                  <p className="summaryCard__meta">{formatGameTime(game.date)}</p>
+                  <p className="summaryCard__meta">{formatGameTimeEastern(game.date)}</p>
                   <h3 className="summaryCard__title">
                     <span>{game.awayTeam}</span>
                     <span className="vs">@</span>
                     <span>{game.homeTeam}</span>
                   </h3>
+                  <p className="summaryCard__meta">
+                    SP: {game.awayPitcher || "TBD"} vs {game.homePitcher || "TBD"}
+                  </p>
 
                   <div className="metricGrid">
-                    <DashboardStat label="Edge" value={formatEdge(game.edge)} emphasis tone={edgeTier.tone} />
+                    <DashboardStat label="Edge %" value={formatEdge(game.edge)} emphasis tone={edgeTier.tone} />
                     <DashboardStat label="Bet type" value={formatBetTypeLabel(betType)} tone="muted" />
                     <DashboardStat label="Recommendation" value={recommendedSide} tone={edgeTier.tone} />
+                    <DashboardStat label="Best odds" value={formatBestOddsSummary(game)} tone="muted" />
+                  </div>
+
+                  <div className="detailList detailList--spaced">
+                    <div className="detailList__item">
+                      <span className="detailList__label">{game.awayTeam} SP stats</span>
+                      <span className="detailList__value">
+                        W-L {formatPitcherRecord(awayPitcherStats)} • IP {formatPitcherInnings(awayPitcherStats)} • ERA {formatMetricValue(awayPitcherStats?.era)} • WHIP {formatMetricValue(awayPitcherStats?.whip)}
+                      </span>
+                    </div>
+                    <div className="detailList__item">
+                      <span className="detailList__label">{game.homeTeam} SP stats</span>
+                      <span className="detailList__value">
+                        W-L {formatPitcherRecord(homePitcherStats)} • IP {formatPitcherInnings(homePitcherStats)} • ERA {formatMetricValue(homePitcherStats?.era)} • WHIP {formatMetricValue(homePitcherStats?.whip)}
+                      </span>
+                    </div>
                   </div>
                 </article>
               )
