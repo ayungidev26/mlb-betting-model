@@ -855,14 +855,17 @@ export default function Home({ games = [], summary, error = "", sessionExpiresAt
                       <span className="vs">@</span>
                       <span>{game.homeTeam}</span>
                     </h3>
-                    <p className="summaryCard__meta">
-                      Probable pitchers: {game.awayPitcher || "TBD"} vs {game.homePitcher || "TBD"}
-                    </p>
                   </section>
 
                   <section className="summaryCard__section" aria-label="Supporting stats">
                     <p className="summaryCard__sectionTitle">Supporting stats</p>
                     <div className="summaryStatStack">
+                      <div className="summaryStatLine">
+                        <span className="summaryStatLine__team">Probable pitchers</span>
+                        <span className="summaryStatLine__stats">
+                          {game.awayPitcher || "TBD"} vs {game.homePitcher || "TBD"}
+                        </span>
+                      </div>
                       <div className="summaryStatLine">
                         <span className="summaryStatLine__team">{game.awayTeam} SP</span>
                         <span className="summaryStatLine__stats">
