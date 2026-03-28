@@ -121,6 +121,14 @@ function formatGameTimeEastern(value) {
   })} ET`
 }
 
+function formatTodayHeadingDate(value = new Date()) {
+  return new Date(value).toLocaleDateString("en-US", {
+    month: "long",
+    day: "numeric",
+    year: "numeric"
+  })
+}
+
 function formatBetTypeLabel(value) {
   if (!value || value === "all") {
     return "All bet types"
@@ -698,6 +706,8 @@ export default function Home({ games = [], summary, error = "", sessionExpiresAt
   const activeGames = Array.isArray(viewModel.games) ? viewModel.games : []
   const activeSummary = viewModel.summary || initialViewModel.summary
   const recommendationCount = activeGames.filter((game) => typeof game?.edge === "number").length
+  const passCount = activeGames.filter((game) => game?.recommendation === "Pass").length
+  const noEdgeCount = activeGames.filter((game) => getEdgeTier(game?.edge).label === "No edge").length
   const gamesLoadedCount = activeGames.length
   const displayedGames = activeGames
   const topPlays = displayedGames
@@ -707,6 +717,9 @@ export default function Home({ games = [], summary, error = "", sessionExpiresAt
   const showCountPlaceholder = showInitialLoading || fetchState.isRefreshing
   const todayGamesDisplay = showCountPlaceholder ? "—" : String(gamesLoadedCount)
   const recommendedBetsDisplay = showCountPlaceholder ? "—" : String(recommendationCount)
+  const passDisplay = showCountPlaceholder ? "—" : String(passCount)
+  const noEdgeDisplay = showCountPlaceholder ? "—" : String(noEdgeCount)
+  const headingDateDisplay = formatTodayHeadingDate()
   const showEmptyState = !showInitialLoading && !fetchState.error && !hasGames
 
   const handleLogout = useCallback(async (reason = "manual") => {
@@ -750,38 +763,8 @@ export default function Home({ games = [], summary, error = "", sessionExpiresAt
   return (
     <main className="dashboard">
       <section className="topNav shellCard">
-        <nav className="viewTabs" aria-label="Primary">
-          <Link href="/" className="viewTabs__link viewTabs__link--active" aria-current="page">Dashboard</Link>
-          <Link href="/stats" className="viewTabs__link">Stats</Link>
-        </nav>
-      </section>
-
-      <section className="hero shellCard">
-        <div className="hero__identity">
-          <h1>MLB Model Dashboard</h1>
-          <p className="hero__summaryLine">
-            Predictive MLB betting model using pitcher, bullpen, offense, and market data
-          </p>
-          <p className="hero__summaryLine">
-            Identifies recommended bets by comparing model probabilities against sportsbook odds
-          </p>
-        </div>
-
-        <div className="hero__kpis" aria-label="Daily board summary">
-          <DashboardStat
-            label="Today&apos;s games"
-            value={todayGamesDisplay}
-            emphasis={!showCountPlaceholder}
-          />
-          <DashboardStat
-            label="Recommended bets"
-            value={recommendedBetsDisplay}
-            tone={!showCountPlaceholder && recommendationCount > 0 ? "success" : "muted"}
-            emphasis={!showCountPlaceholder && recommendationCount > 0}
-          />
-        </div>
-
-        <div className="hero__account">
+        <div className="topNav__masthead">
+          <h1 className="topNav__title">MLB Betting Edges</h1>
           <button
             type="button"
             className="logoutButton"
@@ -790,6 +773,10 @@ export default function Home({ games = [], summary, error = "", sessionExpiresAt
             Logout
           </button>
         </div>
+        <nav className="viewTabs" aria-label="Primary">
+          <Link href="/" className="viewTabs__link viewTabs__link--active" aria-current="page">Today&apos;s Games</Link>
+          <Link href="/stats" className="viewTabs__link">Stats</Link>
+        </nav>
       </section>
 
       {(fetchState.isLoading || fetchState.isRefreshing) && (
@@ -819,12 +806,14 @@ export default function Home({ games = [], summary, error = "", sessionExpiresAt
         <section className="shellCard boardSection" aria-label="Top Plays">
           <div className="sectionIntro">
             <div>
-              <p className="eyebrow sectionIntro__eyebrow">Best bets</p>
-              <h2 className="sectionTitle">Today&apos;s games ranked by edge</h2>
+              <h2 className="sectionTitle">Today&apos;s Games · {headingDateDisplay}</h2>
             </div>
-            <p className="sectionIntro__copy">
-              Every matchup is listed below with edge ratings, probable starters, and best available price.
-            </p>
+            <div className="sectionStats">
+              <span className="tag tag--muted">Today&apos;s Games {todayGamesDisplay}</span>
+              <span className="tag tag--success">Recommended Bets {recommendedBetsDisplay}</span>
+              <span className="tag tag--warning">Pass {passDisplay}</span>
+              <span className="tag tag--danger">No Edge Bets {noEdgeDisplay}</span>
+            </div>
           </div>
 
           <div className="summaryGrid">
@@ -1097,9 +1086,21 @@ export default function Home({ games = [], summary, error = "", sessionExpiresAt
         }
 
         .topNav {
+          display: grid;
+          gap: 14px;
+          padding: 20px 24px;
+        }
+
+        .topNav__masthead {
           display: flex;
-          justify-content: flex-start;
-          padding: 10px 14px;
+          justify-content: space-between;
+          align-items: center;
+          gap: 16px;
+        }
+
+        .topNav__title {
+          margin: 0;
+          font-size: clamp(1.6rem, 3vw, 2.2rem);
         }
 
         .viewTabs {
@@ -1165,35 +1166,6 @@ export default function Home({ games = [], summary, error = "", sessionExpiresAt
           outline-offset: 3px;
         }
 
-        .hero {
-          display: grid;
-          grid-template-columns: minmax(0, 1.6fr) minmax(280px, 0.95fr) auto;
-          gap: 20px;
-          padding: 26px 28px;
-          align-items: center;
-        }
-
-        .hero__identity {
-          min-width: 0;
-        }
-
-        .hero__kpis {
-          display: grid;
-          grid-template-columns: repeat(2, minmax(0, 1fr));
-          gap: 12px;
-          align-self: stretch;
-          width: 100%;
-          max-width: 460px;
-          justify-self: center;
-        }
-
-        .hero__account {
-          display: flex;
-          justify-content: flex-end;
-          align-items: flex-start;
-          align-self: start;
-        }
-
         .eyebrow,
         .contentBlock__kicker,
         .detailCard__eyebrow,
@@ -1213,12 +1185,6 @@ export default function Home({ games = [], summary, error = "", sessionExpiresAt
         h4,
         p {
           margin-top: 0;
-        }
-
-        h1 {
-          margin-bottom: 0;
-          font-size: clamp(2.2rem, 4vw, 3.4rem);
-          line-height: 1.02;
         }
 
         .hero__summaryLine,
@@ -1346,7 +1312,7 @@ export default function Home({ games = [], summary, error = "", sessionExpiresAt
           display: flex;
           justify-content: space-between;
           gap: 20px;
-          align-items: flex-end;
+          align-items: center;
           margin-bottom: 18px;
         }
 
@@ -1360,9 +1326,11 @@ export default function Home({ games = [], summary, error = "", sessionExpiresAt
           line-height: 1.1;
         }
 
-        .sectionIntro__copy {
-          max-width: 460px;
-          margin-bottom: 0;
+        .sectionStats {
+          display: flex;
+          flex-wrap: wrap;
+          justify-content: flex-end;
+          gap: 10px;
         }
 
         .filterControl {
