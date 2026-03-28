@@ -5,12 +5,13 @@ import {
   buildHomePageProps,
   buildHomePageViewModel,
   loadCachedEdgesFromApi,
+  loadCachedOddsFromApi,
   loadHomePageData
 } from '../lib/homePageProps.js'
 
 
 test('buildHomePageViewModel returns a friendly empty summary when no predictions are available', () => {
-  assert.deepEqual(buildHomePageViewModel({ predictions: null, edges: null }), {
+  assert.deepEqual(buildHomePageViewModel({ predictions: null, edges: null, odds: null }), {
     games: [],
     summary: {
       predictionsCreated: 0,
@@ -136,6 +137,47 @@ test('buildHomePageProps sorts games by highest edge first', async () => {
   )
 })
 
+test('buildHomePageProps carries fallback odds for pass games when no edge exists', async () => {
+  const result = await buildHomePageProps(async () => ({
+    predictions: [
+      {
+        gameId: 'game-1',
+        matchKey: '2025-04-10|Team A|Team B',
+        date: '2025-04-10T23:10:00Z',
+        homeTeam: 'Team B',
+        awayTeam: 'Team A',
+        homeWinProbability: 0.49,
+        awayWinProbability: 0.51
+      }
+    ],
+    edges: [],
+    odds: [
+      {
+        matchKey: '2025-04-10|Team A|Team B',
+        homeMoneyline: -105,
+        awayMoneyline: -102,
+        sportsbook: 'draftkings',
+        sportsbookName: 'DraftKings',
+        sportsbooks: [
+          {
+            sportsbook: 'draftkings',
+            sportsbookName: 'DraftKings',
+            outcomes: {
+              'Team A': -102,
+              'Team B': -105
+            }
+          }
+        ]
+      }
+    ]
+  }))
+
+  assert.equal(result.props.games[0].recommendation, 'Pass')
+  assert.equal(result.props.games[0].bestOdds, -102)
+  assert.equal(result.props.games[0].bestSportsbook, 'draftkings')
+  assert.equal(result.props.games[0].bestSportsbookName, 'DraftKings')
+})
+
 test('buildHomePageProps reports cache loading failures as a generic page error', async () => {
   const result = await buildHomePageProps(async () => {
     throw new Error('redis unavailable')
@@ -189,6 +231,41 @@ test('loadCachedEdgesFromApi reads cached edges from the public edges endpoint',
   assert.equal(edges.length, 1)
 })
 
+test('loadCachedOddsFromApi reads cached odds from the public odds endpoint', async () => {
+  const requestedUrls = []
+
+  const odds = await loadCachedOddsFromApi(
+    {
+      headers: {
+        host: 'localhost:3000',
+        'x-forwarded-proto': 'https'
+      }
+    },
+    async (url) => {
+      requestedUrls.push(String(url))
+
+      return {
+        ok: true,
+        status: 200,
+        async json() {
+          return {
+            odds: [
+              {
+                matchKey: '2025-04-10|Los Angeles Dodgers|Oakland Athletics',
+                homeMoneyline: 125,
+                awayMoneyline: -135
+              }
+            ]
+          }
+        }
+      }
+    }
+  )
+
+  assert.deepEqual(requestedUrls, ['https://localhost:3000/api/odds'])
+  assert.equal(odds.length, 1)
+})
+
 test('loadHomePageData fetches predictions and edges in parallel from public endpoints', async () => {
   const requestedUrls = []
 
@@ -212,11 +289,21 @@ test('loadHomePageData fetches predictions and edges in parallel from public end
         }
       }
 
+      if (String(url).endsWith('/api/edges')) {
+        return {
+          ok: true,
+          status: 200,
+          async json() {
+            return { edges: [{ matchKey: 'prediction-1', edge: 0.04 }] }
+          }
+        }
+      }
+
       return {
         ok: true,
         status: 200,
         async json() {
-          return { edges: [{ matchKey: 'prediction-1', edge: 0.04 }] }
+          return { odds: [{ matchKey: 'prediction-1', homeMoneyline: -110, awayMoneyline: 100 }] }
         }
       }
     }
@@ -224,10 +311,12 @@ test('loadHomePageData fetches predictions and edges in parallel from public end
 
   assert.deepEqual(requestedUrls.sort(), [
     'https://localhost:3000/api/edges',
+    'https://localhost:3000/api/odds',
     'https://localhost:3000/api/predictions'
   ])
   assert.deepEqual(pageData, {
     predictions: [{ matchKey: 'prediction-1' }],
-    edges: [{ matchKey: 'prediction-1', edge: 0.04 }]
+    edges: [{ matchKey: 'prediction-1', edge: 0.04 }],
+    odds: [{ matchKey: 'prediction-1', homeMoneyline: -110, awayMoneyline: 100 }]
   })
 })
