@@ -773,11 +773,12 @@ export default function Home({ games = [], summary, error = "", sessionExpiresAt
             Logout
           </button>
         </div>
-        <nav className="viewTabs" aria-label="Primary">
-          <Link href="/" className="viewTabs__link viewTabs__link--active" aria-current="page">Today&apos;s Games</Link>
-          <Link href="/stats" className="viewTabs__link">Stats</Link>
-        </nav>
       </section>
+
+      <nav className="actionRow" aria-label="Dashboard sections">
+        <Link href="#todays-games" className="navActionButton" aria-current="page">Today&apos;s Games</Link>
+        <Link href="/stats" className="navActionButton">Stats</Link>
+      </nav>
 
       {(fetchState.isLoading || fetchState.isRefreshing) && (
         <div className="notice notice--info" role="status" aria-live="polite">
@@ -803,7 +804,7 @@ export default function Home({ games = [], summary, error = "", sessionExpiresAt
       {showInitialLoading && <LoadingSkeleton count={3} />}
 
       {!showInitialLoading && !fetchState.error && topPlays.length > 0 && (
-        <section className="shellCard boardSection" aria-label="Top Plays">
+        <section id="todays-games" className="shellCard boardSection" aria-label="Top Plays">
           <div className="sectionIntro">
             <div>
               <h2 className="sectionTitle">Today&apos;s Games · {headingDateDisplay}</h2>
@@ -1103,44 +1104,39 @@ export default function Home({ games = [], summary, error = "", sessionExpiresAt
           font-size: clamp(1.6rem, 3vw, 2.2rem);
         }
 
-        .viewTabs {
-          display: inline-flex;
-          gap: 8px;
-          flex-wrap: wrap;
-        }
-
-        .viewTabs__link {
+        .navActionButton {
           display: inline-flex;
           align-items: center;
           justify-content: center;
-          min-width: 108px;
-          padding: 8px 14px;
-          border-radius: 10px;
-          border: 1px solid rgba(148, 163, 184, 0.3);
-          background: rgba(30, 41, 59, 0.88);
-          box-shadow: 0 6px 14px rgba(2, 6, 23, 0.25);
+          min-width: 132px;
+          padding: 10px 16px;
+          border-radius: 999px;
+          border: 1px solid rgba(148, 163, 184, 0.28);
+          background: rgba(15, 23, 42, 0.78);
           text-decoration: none;
-          color: #cbd5e1;
-          font-weight: 600;
-          font-size: 0.88rem;
-          transition: transform 0.2s ease, border-color 0.2s ease, background 0.2s ease, color 0.2s ease;
+          color: #e2e8f0;
+          font-weight: 700;
+          font-size: 0.9rem;
+          line-height: 1.2;
+          transition: background 0.2s ease, border-color 0.2s ease, transform 0.2s ease;
         }
 
-        .viewTabs__link:hover {
+        .navActionButton:hover {
           transform: translateY(-1px);
-          border-color: rgba(125, 211, 252, 0.6);
-          background: rgba(51, 65, 85, 0.95);
+          border-color: rgba(96, 165, 250, 0.45);
+          background: rgba(30, 41, 59, 0.96);
         }
 
-        .viewTabs__link:focus-visible {
-          outline: 2px solid rgba(125, 211, 252, 0.95);
+        .navActionButton:focus-visible {
+          outline: 2px solid rgba(147, 197, 253, 0.9);
           outline-offset: 3px;
         }
 
-        .viewTabs__link--active {
-          color: #0f172a;
-          border-color: rgba(96, 165, 250, 0.9);
-          background: linear-gradient(135deg, #93c5fd, #60a5fa);
+        .actionRow {
+          display: flex;
+          gap: 10px;
+          flex-wrap: wrap;
+          margin: 6px 0 8px;
         }
 
         .logoutButton {
