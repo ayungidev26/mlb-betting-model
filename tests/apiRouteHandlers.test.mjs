@@ -877,6 +877,189 @@ test("loadHistorical defaults to 2015 through current UTC year", { concurrency: 
   ))
 })
 
+
+
+test("buildRatings uses explicit startSeason/endSeason query params", { concurrency: false }, async () => {
+  process.env.ADMIN_API_SECRET = "test-admin-secret"
+
+  const handler = await importRoute("../pages/api/buildRatings.js")
+  const redisMock = createMockRedis([
+    ["mlb:games:historical:meta", { startSeason: 2010, endSeason: 2012 }],
+    ["mlb:games:historical:2024", [
+      {
+        season: 2024,
+        date: "2024-04-01T00:00:00Z",
+        homeTeam: "New York Yankees",
+        awayTeam: "Boston Red Sox",
+        homeScore: 5,
+        awayScore: 3,
+        seasonType: "regular"
+      }
+    ]],
+    ["mlb:games:historical:2025", [
+      {
+        season: 2025,
+        date: "2025-04-01T00:00:00Z",
+        homeTeam: "Chicago Cubs",
+        awayTeam: "St. Louis Cardinals",
+        homeScore: 2,
+        awayScore: 4,
+        seasonType: "regular"
+      }
+    ]],
+    ["mlb:games:historical:2026", [
+      {
+        season: 2026,
+        date: "2026-04-01T00:00:00Z",
+        homeTeam: "Los Angeles Dodgers",
+        awayTeam: "San Diego Padres",
+        homeScore: 6,
+        awayScore: 1,
+        seasonType: "regular"
+      }
+    ]],
+    ["mlb:games:historical:2027", [
+      {
+        season: 2027,
+        date: "2027-04-01T00:00:00Z",
+        homeTeam: "Houston Astros",
+        awayTeam: "Seattle Mariners",
+        homeScore: 4,
+        awayScore: 3,
+        seasonType: "regular"
+      }
+    ]]
+  ])
+
+  await withPatchedRedis(redisMock, async () => {
+    const req = createRequest({
+      query: {
+        startSeason: "2025",
+        endSeason: "2026"
+      }
+    })
+    const res = createMockResponse()
+
+    await handler(req, res)
+
+    assert.equal(res.statusCode, 200)
+    assert.equal(res.body.seasonsUsed, 2)
+    assert.equal(res.body.gamesProcessed, 2)
+
+    const ratings = redisMock.snapshot("mlb:ratings:teams")
+    assert.equal(typeof ratings, "object")
+    assert.equal(Object.keys(ratings).length >= 4, true)
+  })
+})
+
+test("buildRatings falls back to historical metadata season range", { concurrency: false }, async () => {
+  process.env.ADMIN_API_SECRET = "test-admin-secret"
+
+  const handler = await importRoute("../pages/api/buildRatings.js")
+  const redisMock = createMockRedis([
+    ["mlb:games:historical:meta", { startSeason: 2024, endSeason: 2025 }],
+    ["mlb:games:historical:2023", [
+      {
+        season: 2023,
+        date: "2023-04-01T00:00:00Z",
+        homeTeam: "New York Mets",
+        awayTeam: "Philadelphia Phillies",
+        homeScore: 1,
+        awayScore: 2,
+        seasonType: "regular"
+      }
+    ]],
+    ["mlb:games:historical:2024", [
+      {
+        season: 2024,
+        date: "2024-04-01T00:00:00Z",
+        homeTeam: "New York Mets",
+        awayTeam: "Philadelphia Phillies",
+        homeScore: 3,
+        awayScore: 2,
+        seasonType: "regular"
+      }
+    ]],
+    ["mlb:games:historical:2025", [
+      {
+        season: 2025,
+        date: "2025-04-01T00:00:00Z",
+        homeTeam: "Philadelphia Phillies",
+        awayTeam: "New York Mets",
+        homeScore: 4,
+        awayScore: 1,
+        seasonType: "regular"
+      }
+    ]]
+  ])
+
+  await withPatchedRedis(redisMock, async () => {
+    const req = createRequest()
+    const res = createMockResponse()
+
+    await handler(req, res)
+
+    assert.equal(res.statusCode, 200)
+    assert.equal(res.body.seasonsUsed, 2)
+    assert.equal(res.body.gamesProcessed, 2)
+  })
+})
+
+test("buildRatings returns 400 when no historical games are found", { concurrency: false }, async () => {
+  process.env.ADMIN_API_SECRET = "test-admin-secret"
+
+  const handler = await importRoute("../pages/api/buildRatings.js")
+  const redisMock = createMockRedis([
+    ["mlb:games:historical:meta", { startSeason: 2024, endSeason: 2025 }],
+    ["mlb:games:historical:2024", []],
+    ["mlb:games:historical:2025", []]
+  ])
+
+  await withPatchedRedis(redisMock, async () => {
+    const req = createRequest()
+    const res = createMockResponse()
+
+    await handler(req, res)
+
+    assert.equal(res.statusCode, 400)
+    assert.deepEqual(res.body, {
+      error: "Historical data unavailable",
+      code: "HISTORICAL_DATA_UNAVAILABLE"
+    })
+  })
+})
+
+test("buildRatings validates season range query parameters", { concurrency: false }, async () => {
+  process.env.ADMIN_API_SECRET = "test-admin-secret"
+
+  const handler = await importRoute("../pages/api/buildRatings.js")
+
+  const invalidCases = [
+    {
+      query: { startSeason: "2026", endSeason: "2025" },
+      details: "startSeason must be less than or equal to endSeason"
+    },
+    {
+      query: { startSeason: "not-a-year", endSeason: "2025" },
+      details: "startSeason and endSeason must be integer years"
+    }
+  ]
+
+  for (const invalidCase of invalidCases) {
+    const redisMock = createMockRedis()
+
+    await withPatchedRedis(redisMock, async () => {
+      const req = createRequest({ query: invalidCase.query })
+      const res = createMockResponse()
+
+      await handler(req, res)
+
+      assert.equal(res.statusCode, 400)
+      assert.equal(res.body.code, "INVALID_SEASON_RANGE")
+      assert.equal(res.body.details, invalidCase.details)
+    })
+  }
+})
 test("runPipeline returns a redacted failed-step payload when a child route fails", { concurrency: false }, async () => {
   process.env.ADMIN_API_SECRET = "test-admin-secret"
   process.env.ODDS_API_KEY = "test-odds-key"
