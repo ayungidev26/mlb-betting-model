@@ -834,6 +834,12 @@ export default function Home({ games = [], summary, error = "", sessionExpiresAt
               const betType = getGameBetType(game)
               const awayPitcherStats = game.pitcherModel?.away?.stats || null
               const homePitcherStats = game.pitcherModel?.home?.stats || null
+              const awayPitcherLabel = game.awayPitcher
+                ? `SP ${game.awayPitcher} - ${game.awayTeam}`
+                : `${game.awayTeam} SP`
+              const homePitcherLabel = game.homePitcher
+                ? `SP ${game.homePitcher} - ${game.homeTeam}`
+                : `${game.homeTeam} SP`
               const fairOddsSummary = getOddsComparison(game).modelOdds
 
               return (
@@ -862,18 +868,15 @@ export default function Home({ games = [], summary, error = "", sessionExpiresAt
                     <div className="summaryStatStack">
                       <div className="summaryStatLine">
                         <span className="summaryStatLine__team">Probable pitchers</span>
-                        <span className="summaryStatLine__stats">
-                          {game.awayPitcher || "TBD"} vs {game.homePitcher || "TBD"}
-                        </span>
                       </div>
                       <div className="summaryStatLine">
-                        <span className="summaryStatLine__team">{game.awayTeam} SP</span>
+                        <span className="summaryStatLine__team">{awayPitcherLabel}</span>
                         <span className="summaryStatLine__stats">
                           W-L {formatPitcherRecord(awayPitcherStats)} • IP {formatPitcherInnings(awayPitcherStats)} • ERA {formatMetricValue(awayPitcherStats?.era)} • WHIP {formatMetricValue(awayPitcherStats?.whip)}
                         </span>
                       </div>
                       <div className="summaryStatLine">
-                        <span className="summaryStatLine__team">{game.homeTeam} SP</span>
+                        <span className="summaryStatLine__team">{homePitcherLabel}</span>
                         <span className="summaryStatLine__stats">
                           W-L {formatPitcherRecord(homePitcherStats)} • IP {formatPitcherInnings(homePitcherStats)} • ERA {formatMetricValue(homePitcherStats?.era)} • WHIP {formatMetricValue(homePitcherStats?.whip)}
                         </span>
