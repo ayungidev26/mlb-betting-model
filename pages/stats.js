@@ -1,4 +1,5 @@
 import Link from "next/link"
+import { useRouter } from "next/router"
 import { useEffect, useMemo, useState } from "react"
 
 const SECTION_ORDER = [
@@ -8,6 +9,12 @@ const SECTION_ORDER = [
 ]
 
 const MAX_COLUMNS = 14
+const DEFAULT_TAB = "pitchers"
+
+function normalizeTabKey(value) {
+  const match = SECTION_ORDER.find((section) => section.key === value)
+  return match ? match.key : DEFAULT_TAB
+}
 
 function formatDateTime(value) {
   if (!value) {
@@ -297,12 +304,44 @@ function StatsSection({ title, sectionKey, section, query }) {
 }
 
 export default function StatsPage() {
+  const router = useRouter()
   const [query, setQuery] = useState("")
+  const [activeTab, setActiveTab] = useState(DEFAULT_TAB)
   const [state, setState] = useState({
     loading: true,
     error: "",
     sections: {}
   })
+
+  useEffect(() => {
+    if (!router.isReady) {
+      return
+    }
+
+    const tabFromQuery = Array.isArray(router.query?.tab) ? router.query.tab[0] : router.query?.tab
+    setActiveTab(normalizeTabKey(tabFromQuery))
+  }, [router.isReady, router.query?.tab])
+
+  const setTab = (tabKey) => {
+    const nextTab = normalizeTabKey(tabKey)
+
+    setActiveTab(nextTab)
+    setQuery("")
+
+    const nextQuery = {
+      ...router.query,
+      tab: nextTab
+    }
+
+    router.replace(
+      {
+        pathname: router.pathname,
+        query: nextQuery
+      },
+      undefined,
+      { shallow: true, scroll: false }
+    )
+  }
 
   useEffect(() => {
     let active = true
@@ -346,6 +385,7 @@ export default function StatsPage() {
     () => SECTION_ORDER.some(({ key }) => Boolean(state.sections?.[key]?.data)),
     [state.sections]
   )
+  const activeSection = SECTION_ORDER.find((section) => section.key === activeTab) || SECTION_ORDER[0]
 
   return (
     <main className="dashboard">
@@ -358,18 +398,41 @@ export default function StatsPage() {
           <p className="eyebrow">Model input inspection</p>
           <h1>Stats</h1>
           <p className="hero__copy">Read-only view of the latest cached starting pitcher, bullpen, and offense inputs used by the model.</p>
+          <nav className="statsTabs" aria-label="Stats categories">
+            {SECTION_ORDER.map((section) => {
+              const isActive = section.key === activeTab
+              return (
+                <button
+                  key={section.key}
+                  type="button"
+                  className={`statsTabs__button${isActive ? " statsTabs__button--active" : ""}`}
+                  aria-pressed={isActive}
+                  onClick={() => setTab(section.key)}
+                >
+                  {section.title}
+                </button>
+              )
+            })}
+          </nav>
         </div>
 
         <div className="hero__stats">
           {SECTION_ORDER.map((section) => {
             const details = state.sections?.[section.key]
+            const isActive = section.key === activeTab
 
             return (
-              <div className="statCard" key={section.key}>
+              <button
+                type="button"
+                className={`statCard${isActive ? " statCard--active" : ""}`}
+                key={section.key}
+                onClick={() => setTab(section.key)}
+                aria-pressed={isActive}
+              >
                 <span className="statCard__label">{section.title}</span>
                 <strong className="statCard__value">{details?.recordCount || 0} {section.recordLabel}</strong>
                 <span className="statCard__meta">Updated: {formatDateTime(details?.meta?.lastUpdatedAt)}</span>
-              </div>
+              </button>
             )
           })}
         </div>
@@ -388,7 +451,7 @@ export default function StatsPage() {
               type="search"
               value={query}
               onChange={(event) => setQuery(event.target.value)}
-              placeholder="Filter rows across all sections"
+              placeholder={`Filter rows in ${activeSection.title}`}
             />
           </div>
         </section>
@@ -401,15 +464,15 @@ export default function StatsPage() {
         </section>
       )}
 
-      {!state.loading && !state.error && SECTION_ORDER.map((section) => (
+      {!state.loading && !state.error && hasAnySection && (
         <StatsSection
-          key={section.key}
-          sectionKey={section.key}
-          section={state.sections?.[section.key]}
-          title={section.title}
+          key={activeSection.key}
+          sectionKey={activeSection.key}
+          section={state.sections?.[activeSection.key]}
+          title={activeSection.title}
           query={query}
         />
-      ))}
+      )}
 
       <style jsx global>{`
         * { box-sizing: border-box; }
@@ -428,6 +491,26 @@ export default function StatsPage() {
         .hero__copy { margin: 0; color: #cbd5e1; }
         .eyebrow { margin: 0 0 8px; text-transform: uppercase; font-size: 0.75rem; letter-spacing: 0.08em; color: #93c5fd; }
         h1 { margin: 0 0 8px; }
+        .statsTabs { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 14px; }
+        .statsTabs__button {
+          appearance: none;
+          border: 1px solid rgba(148, 163, 184, 0.35);
+          background: rgba(15, 23, 42, 0.8);
+          color: #cbd5e1;
+          border-radius: 999px;
+          padding: 8px 14px;
+          font-weight: 600;
+          font-size: 0.88rem;
+          cursor: pointer;
+          transition: border-color 0.2s ease, background 0.2s ease, color 0.2s ease, transform 0.2s ease;
+        }
+        .statsTabs__button:hover { border-color: rgba(125, 211, 252, 0.65); transform: translateY(-1px); }
+        .statsTabs__button:focus-visible { outline: 2px solid rgba(125, 211, 252, 0.95); outline-offset: 2px; }
+        .statsTabs__button--active {
+          color: #0f172a;
+          border-color: rgba(96, 165, 250, 0.95);
+          background: linear-gradient(135deg, #bae6fd, #60a5fa);
+        }
         .viewTabs { display: inline-flex; gap: 10px; flex-wrap: wrap; margin-bottom: 12px; }
         .viewTabs__link {
           display: inline-flex;
@@ -448,7 +531,21 @@ export default function StatsPage() {
         .viewTabs__link:hover { transform: translateY(-1px); border-color: rgba(125, 211, 252, 0.6); background: rgba(51, 65, 85, 0.95); }
         .viewTabs__link:focus-visible { outline: 2px solid rgba(125, 211, 252, 0.95); outline-offset: 3px; }
         .viewTabs__link--active { color: #0f172a; border-color: rgba(96, 165, 250, 0.9); background: linear-gradient(135deg, #93c5fd, #60a5fa); }
-        .statCard { border: 1px solid rgba(148, 163, 184, 0.2); border-radius: 14px; padding: 12px; display: grid; gap: 6px; background: rgba(15, 23, 42, 0.7); }
+        .statCard {
+          border: 1px solid rgba(148, 163, 184, 0.2);
+          border-radius: 14px;
+          padding: 12px;
+          display: grid;
+          gap: 6px;
+          background: rgba(15, 23, 42, 0.7);
+          text-align: left;
+          color: inherit;
+          cursor: pointer;
+          transition: border-color 0.2s ease, background 0.2s ease, transform 0.2s ease;
+        }
+        .statCard:hover { border-color: rgba(125, 211, 252, 0.55); transform: translateY(-1px); }
+        .statCard:focus-visible { outline: 2px solid rgba(125, 211, 252, 0.95); outline-offset: 2px; }
+        .statCard--active { border-color: rgba(96, 165, 250, 0.8); background: rgba(30, 41, 59, 0.9); }
         .statCard__label { font-size: 0.8rem; color: #93c5fd; }
         .statCard__value { font-size: 1rem; }
         .statCard__meta { font-size: 0.78rem; color: #94a3b8; }
@@ -475,6 +572,8 @@ export default function StatsPage() {
         @media (max-width: 700px) {
           .dashboard { padding: 24px 14px 48px; }
           .shellCard { padding: 18px; }
+          .statsTabs { gap: 6px; }
+          .statsTabs__button { padding: 8px 12px; font-size: 0.82rem; }
         }
       `}</style>
     </main>
