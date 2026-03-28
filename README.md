@@ -118,6 +118,10 @@ scripts/
 - Pulls US h2h moneylines from The Odds API.
 - Normalizes into canonical odds shape and selected primary line.
 - Supports cache-first behavior unless `?refresh=true`.
+- With `?refresh=true`, uses **selective refresh**:
+  - preserves cached odds for games that have already started;
+  - refreshes only upcoming games from the latest provider payload;
+  - drops records with invalid/missing `commenceTime` from the merged output.
 - Stores `mlb:odds:today`.
 
 ### 3) Pitcher stats ingestion
@@ -220,6 +224,42 @@ The authenticated UI now has two primary tabs:
 
 - **Dashboard** (`/`): predictions, edges, and betting board filters
 - **Stats** (`/stats`): read-only view of the latest cached pitcher, bullpen, and offense payloads with per-section metadata (last updated and record counts)
+
+### 12) Historical ingestion (dynamic season range)
+`POST /api/loadHistorical`
+
+- Loads final MLB game results into per-season historical Redis keys.
+- Supports dynamic season windows with query params:
+  - `startSeason` (optional, integer year, default `2015`)
+  - `endSeason` (optional, integer year, default current UTC year)
+- Enforces:
+  - `startSeason <= endSeason`
+  - `endSeason <= current UTC year`
+  - maximum range of `30` seasons per request
+- Stores:
+  - `mlb:games:historical:<season>` for each loaded season
+  - `mlb:games:historical:meta`
+
+### 13) Prediction-vs-results evaluation (write + read)
+
+#### `POST /api/evaluatePredictions` (operational/admin)
+
+- Evaluates stored predictions against historical final results over a date range.
+- Request body:
+  - `dateFrom` (required, `YYYY-MM-DD`)
+  - `dateTo` (required, `YYYY-MM-DD`)
+  - `persist` (optional boolean, default `true`)
+- Reads:
+  - `mlb:predictions:<date>`
+  - `mlb:games:historical:<season>`
+- Writes (when `persist !== false`):
+  - `mlb:evaluation:<date>`
+- Returns both per-day metrics and aggregate metrics for the requested range.
+
+#### `GET /api/evaluation` (public/read-only)
+
+- Returns persisted summaries from `mlb:evaluation:<date>`.
+- Supports bounded date windows via `dateFrom`, `dateTo`, and `limit` (default `30`, max `180`).
 
 ---
 
@@ -352,6 +392,7 @@ Endpoints:
 - `/api/runStatsPipeline`
 - `/api/loadHistorical`
 - `/api/buildRatings`
+- `/api/evaluatePredictions`
 
 ### Cron route (optional)
 
@@ -447,6 +488,142 @@ curl -X POST "http://localhost:3000/api/runStatsPipeline" \
 - `mlb:stats:offense`
 - `mlb:predictions:today`
 - `mlb:edges:today`
+- `mlb:games:historical:<season>`
+- `mlb:games:historical:meta`
+- `mlb:evaluation:<date>`
+
+### Refresh odds selectively (preserve started games)
+
+```bash
+curl -X POST "http://localhost:3000/api/fetchOdds?refresh=true" \
+  -H "Authorization: Bearer $ADMIN_API_SECRET"
+```
+
+Example response (shape):
+
+```json
+{
+  "source": "api",
+  "games": 14,
+  "oddsSample": [],
+  "refreshMode": "selective",
+  "updatedUpcoming": 9,
+  "preservedStarted": 5,
+  "droppedInvalid": 0
+}
+```
+
+### Load historical results dynamically by season range
+
+```bash
+curl -X POST "http://localhost:3000/api/loadHistorical?startSeason=2022&endSeason=2025" \
+  -H "Authorization: Bearer $ADMIN_API_SECRET"
+```
+
+Example response (shape):
+
+```json
+{
+  "seasonsLoaded": 4,
+  "gamesCollected": 9720,
+  "seasonRange": {
+    "startSeason": 2022,
+    "endSeason": 2025
+  },
+  "keysWritten": [
+    "mlb:games:historical:2022",
+    "mlb:games:historical:2023",
+    "mlb:games:historical:2024",
+    "mlb:games:historical:2025",
+    "mlb:games:historical:meta"
+  ]
+}
+```
+
+### Evaluate predictions vs final results
+
+```bash
+curl -X POST "http://localhost:3000/api/evaluatePredictions" \
+  -H "Authorization: Bearer $ADMIN_API_SECRET" \
+  -H "Content-Type: application/json" \
+  -d '{"dateFrom":"2025-04-01","dateTo":"2025-04-07","persist":true}'
+```
+
+Example response (shape):
+
+```json
+{
+  "ok": true,
+  "dateRange": {
+    "dateFrom": "2025-04-01",
+    "dateTo": "2025-04-07",
+    "totalDays": 7
+  },
+  "persist": true,
+  "aggregate": {
+    "gamesPredicted": 92,
+    "gamesMatchedToFinal": 90,
+    "coverageRate": 0.9783,
+    "accuracy": 0.5667,
+    "brierScore": 0.2412
+  },
+  "unmatchedStats": {
+    "total": 2,
+    "byReason": {
+      "missing_final_result": 2
+    },
+    "byType": {
+      "prediction": 2
+    }
+  },
+  "perDay": []
+}
+```
+
+### Read persisted evaluation summaries
+
+```bash
+curl "http://localhost:3000/api/evaluation?dateFrom=2025-04-01&dateTo=2025-04-07&limit=30"
+```
+
+Example response (shape):
+
+```json
+{
+  "evaluations": [
+    {
+      "date": "2025-04-01",
+      "season": 2025,
+      "sourceKeys": {
+        "predictions": "mlb:predictions:2025-04-01",
+        "historical": "mlb:games:historical:2025"
+      },
+      "metrics": {
+        "gamesPredicted": 15,
+        "gamesMatchedToFinal": 15,
+        "coverageRate": 1,
+        "accuracy": 0.5333,
+        "brierScore": 0.2461
+      },
+      "unmatchedStats": {
+        "total": 0,
+        "byReason": {},
+        "byType": {}
+      },
+      "generatedAt": "2025-04-02T02:15:10.000Z",
+      "sourceKey": "mlb:evaluation:2025-04-01"
+    }
+  ],
+  "metadata": {
+    "returnedDays": 1,
+    "dateRangeApplied": {
+      "dateFrom": "2025-04-01",
+      "dateTo": "2025-04-07",
+      "limit": 30
+    }
+  }
+}
+```
 
 ### Test cron route locally
 
