@@ -15,6 +15,7 @@ const ROUTE_CASES = [
   ["fetchPitcherStats", "../pages/api/fetchPitcherStats.js"],
   ["fetchTeamOffenseStats", "../pages/api/fetchTeamOffenseStats.js"],
   ["findEdges", "../pages/api/findEdges.js"],
+  ["evaluatePredictions", "../pages/api/evaluatePredictions.js"],
   ["loadHistorical", "../pages/api/loadHistorical.js"],
   ["runModel", "../pages/api/runModel.js"],
   ["runPipeline", "../pages/api/runPipeline.js"],
@@ -1059,6 +1060,134 @@ test("buildRatings validates season range query parameters", { concurrency: fals
       assert.equal(res.body.details, invalidCase.details)
     })
   }
+})
+
+test("evaluatePredictions computes a date-range summary and persists daily records by default", { concurrency: false }, async () => {
+  process.env.ADMIN_API_SECRET = "test-admin-secret"
+
+  const handler = await importRoute("../pages/api/evaluatePredictions.js")
+  const redisMock = createMockRedis([
+    ["mlb:predictions:2025-04-10", [
+      {
+        matchKey: "2025-04-10|Boston Red Sox|New York Yankees",
+        homeWinProbability: 0.61,
+        awayWinProbability: 0.39
+      }
+    ]],
+    ["mlb:games:historical:2025", [
+      {
+        date: "2025-04-10T23:05:00Z",
+        homeTeam: "New York Yankees",
+        awayTeam: "Boston Red Sox",
+        homeScore: 5,
+        awayScore: 2
+      },
+      {
+        date: "2025-04-11T23:10:00Z",
+        homeTeam: "Chicago Cubs",
+        awayTeam: "St. Louis Cardinals",
+        homeScore: 3,
+        awayScore: 6
+      }
+    ]]
+  ])
+
+  await withPatchedRedis(redisMock, async () => {
+    const req = createRequest({
+      body: {
+        dateFrom: "2025-04-10",
+        dateTo: "2025-04-11"
+      }
+    })
+    const res = createMockResponse()
+
+    await handler(req, res)
+
+    assert.equal(res.statusCode, 200)
+    assert.equal(res.body.ok, true)
+    assert.equal(res.body.persist, true)
+    assert.equal(res.body.aggregate.gamesPredicted, 1)
+    assert.equal(res.body.aggregate.gamesMatchedToFinal, 1)
+    assert.equal(res.body.aggregate.accuracy, 1)
+    assert.equal(res.body.unmatchedStats.byReason.noPredictionForFinal, 1)
+    assert.equal(res.body.perDay[1].metrics.gamesPredicted, 0)
+    assert.equal(res.body.perDay[1].metrics.gamesMatchedToFinal, 0)
+
+    assert.equal(typeof redisMock.snapshot("mlb:evaluation:2025-04-10")?.generatedAt, "string")
+    assert.equal(redisMock.snapshot("mlb:evaluation:2025-04-11")?.metrics?.gamesPredicted, 0)
+  })
+})
+
+test("evaluatePredictions validates request body fields", { concurrency: false }, async () => {
+  process.env.ADMIN_API_SECRET = "test-admin-secret"
+
+  const handler = await importRoute("../pages/api/evaluatePredictions.js")
+  const invalidRequests = [
+    {
+      body: { dateFrom: "2025-04-11", dateTo: "2025-04-10" },
+      details: "startDate must be less than or equal to endDate"
+    },
+    {
+      body: { dateFrom: "2025-04-10", dateTo: "2025-04-10", persist: "sometimes" },
+      details: "persist must be a boolean"
+    },
+    {
+      body: { dateFrom: "2025-04-10" },
+      details: "dateFrom and dateTo are required as YYYY-MM-DD strings"
+    }
+  ]
+
+  for (const invalidRequest of invalidRequests) {
+    await withPatchedRedis(createMockRedis(), async () => {
+      const req = createRequest({ body: invalidRequest.body })
+      const res = createMockResponse()
+
+      await handler(req, res)
+
+      assert.equal(res.statusCode, 400)
+      assert.equal(res.body.code, "INVALID_REQUEST_BODY")
+      assert.equal(res.body.details, invalidRequest.details)
+    })
+  }
+})
+
+test("evaluatePredictions supports persist=false without writing daily summary keys", { concurrency: false }, async () => {
+  process.env.ADMIN_API_SECRET = "test-admin-secret"
+
+  const handler = await importRoute("../pages/api/evaluatePredictions.js")
+  const redisMock = createMockRedis([
+    ["mlb:predictions:2025-04-10", [
+      {
+        matchKey: "2025-04-10|Boston Red Sox|New York Yankees",
+        homeWinProbability: 0.61,
+        awayWinProbability: 0.39
+      }
+    ]],
+    ["mlb:games:historical:2025", [
+      {
+        matchKey: "2025-04-10|Boston Red Sox|New York Yankees",
+        homeScore: 1,
+        awayScore: 5
+      }
+    ]]
+  ])
+
+  await withPatchedRedis(redisMock, async () => {
+    const req = createRequest({
+      body: {
+        dateFrom: "2025-04-10",
+        dateTo: "2025-04-10",
+        persist: false
+      }
+    })
+    const res = createMockResponse()
+
+    await handler(req, res)
+
+    assert.equal(res.statusCode, 200)
+    assert.equal(res.body.persist, false)
+    assert.equal(redisMock.snapshot("mlb:evaluation:2025-04-10"), undefined)
+  })
 })
 test("runPipeline returns a redacted failed-step payload when a child route fails", { concurrency: false }, async () => {
   process.env.ADMIN_API_SECRET = "test-admin-secret"
