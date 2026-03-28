@@ -113,6 +113,38 @@ function createTextResponse({ ok = true, status = 200, body = "" } = {}) {
   }
 }
 
+function createOddsApiGame({
+  id,
+  commenceTime,
+  homeTeam,
+  awayTeam,
+  homePrice,
+  awayPrice
+}) {
+  return {
+    id,
+    commence_time: commenceTime,
+    home_team: homeTeam,
+    away_team: awayTeam,
+    bookmakers: [
+      {
+        key: "draftkings",
+        title: "DraftKings",
+        last_update: "2025-04-10T19:00:00Z",
+        markets: [
+          {
+            key: "h2h",
+            outcomes: [
+              { name: homeTeam, price: homePrice },
+              { name: awayTeam, price: awayPrice }
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}
+
 function createMockRedis(initialEntries = []) {
   const store = new Map(initialEntries)
   const expiry = new Map()
@@ -419,6 +451,222 @@ test("fetchOdds rejects requests while the route cooldown is active", { concurre
     assert.equal(res.body.code, "COOLDOWN_ACTIVE")
     assert.equal(res.headers["Retry-After"], "30")
   })
+})
+
+test("fetchOdds selective refresh preserves started games from cache and updates upcoming games", { concurrency: false }, async () => {
+  process.env.ADMIN_API_SECRET = "test-admin-secret"
+  process.env.ODDS_API_KEY = "test-odds-key"
+
+  const originalNow = Date.now
+  Date.now = () => Date.parse("2025-04-11T00:00:00Z")
+
+  const handler = await importRoute("../pages/api/fetchOdds.js")
+  const redisMock = createMockRedis([
+    ["mlb:odds:today", [
+      {
+        gameId: "started-cache-1",
+        matchKey: "2025-04-10|Away Started|Home Started",
+        commenceTime: "2025-04-10T23:40:00Z",
+        homeTeam: "Home Started",
+        awayTeam: "Away Started",
+        homeMoneyline: -130,
+        awayMoneyline: 110,
+        sportsbook: "draftkings",
+        lastUpdated: "2025-04-10T23:00:00Z"
+      },
+      {
+        gameId: "upcoming-cache-1",
+        matchKey: "2025-04-11|Away Upcoming|Home Upcoming",
+        commenceTime: "2025-04-11T00:30:00Z",
+        homeTeam: "Home Upcoming",
+        awayTeam: "Away Upcoming",
+        homeMoneyline: -120,
+        awayMoneyline: 100,
+        sportsbook: "draftkings",
+        lastUpdated: "2025-04-10T23:30:00Z"
+      }
+    ]]
+  ])
+
+  try {
+    await withPatchedRedis(redisMock, async () => withMockedFetch(
+      async () => createJsonResponse({
+        body: [
+          createOddsApiGame({
+            id: "started-fetched-1",
+            commenceTime: "2025-04-10T23:40:00Z",
+            homeTeam: "Home Started",
+            awayTeam: "Away Started",
+            homePrice: -101,
+            awayPrice: -109
+          }),
+          createOddsApiGame({
+            id: "upcoming-fetched-1",
+            commenceTime: "2025-04-11T00:30:00Z",
+            homeTeam: "Home Upcoming",
+            awayTeam: "Away Upcoming",
+            homePrice: -145,
+            awayPrice: 125
+          }),
+          createOddsApiGame({
+            id: "new-upcoming-fetched-1",
+            commenceTime: "2025-04-11T01:00:00Z",
+            homeTeam: "Home New",
+            awayTeam: "Away New",
+            homePrice: -155,
+            awayPrice: 135
+          })
+        ]
+      }),
+      async () => {
+        const req = createRequest({ query: { refresh: "true" } })
+        const res = createMockResponse()
+
+        await handler(req, res)
+
+        assert.equal(res.statusCode, 200)
+        assert.equal(res.body.refreshMode, "selective")
+        assert.equal(res.body.updatedUpcoming, 2)
+        assert.equal(res.body.preservedStarted, 1)
+        assert.equal(res.body.droppedInvalid, 0)
+
+        const storedOdds = redisMock.snapshot("mlb:odds:today")
+        assert.equal(storedOdds.length, 3)
+
+        const startedRecord = storedOdds.find(record => record.matchKey === "2025-04-10|Away Started|Home Started")
+        const upcomingRecord = storedOdds.find(record => record.matchKey === "2025-04-11|Away Upcoming|Home Upcoming")
+
+        assert.equal(startedRecord.homeMoneyline, -130)
+        assert.equal(upcomingRecord.homeMoneyline, -145)
+      }
+    ))
+  } finally {
+    Date.now = originalNow
+  }
+})
+
+test("fetchOdds selective refresh falls back to fetched odds when cache is empty", { concurrency: false }, async () => {
+  process.env.ADMIN_API_SECRET = "test-admin-secret"
+  process.env.ODDS_API_KEY = "test-odds-key"
+
+  const handler = await importRoute("../pages/api/fetchOdds.js")
+  const redisMock = createMockRedis()
+
+  await withPatchedRedis(redisMock, async () => withMockedFetch(
+    async () => createJsonResponse({
+      body: [
+        createOddsApiGame({
+          id: "game-fallback-1",
+          commenceTime: "2025-04-11T01:10:00Z",
+          homeTeam: "Home One",
+          awayTeam: "Away One",
+          homePrice: -112,
+          awayPrice: -108
+        }),
+        createOddsApiGame({
+          id: "game-fallback-2",
+          commenceTime: "2025-04-11T02:10:00Z",
+          homeTeam: "Home Two",
+          awayTeam: "Away Two",
+          homePrice: -118,
+          awayPrice: 102
+        })
+      ]
+    }),
+    async () => {
+      const req = createRequest({ query: { refresh: "true" } })
+      const res = createMockResponse()
+
+      await handler(req, res)
+
+      assert.equal(res.statusCode, 200)
+      assert.equal(res.body.refreshMode, "selective")
+      assert.equal(res.body.updatedUpcoming, 2)
+      assert.equal(res.body.preservedStarted, 0)
+      assert.equal(res.body.droppedInvalid, 0)
+      assert.equal(redisMock.snapshot("mlb:odds:today").length, 2)
+    }
+  ))
+})
+
+test("fetchOdds selective refresh uses a two-minute buffer around game start boundaries", { concurrency: false }, async () => {
+  process.env.ADMIN_API_SECRET = "test-admin-secret"
+  process.env.ODDS_API_KEY = "test-odds-key"
+
+  const originalNow = Date.now
+  Date.now = () => Date.parse("2025-04-11T00:00:00Z")
+
+  const handler = await importRoute("../pages/api/fetchOdds.js")
+  const redisMock = createMockRedis([
+    ["mlb:odds:today", [
+      {
+        gameId: "boundary-started-cache",
+        matchKey: "2025-04-10|Away Boundary Started|Home Boundary Started",
+        commenceTime: "2025-04-10T23:58:00Z",
+        homeTeam: "Home Boundary Started",
+        awayTeam: "Away Boundary Started",
+        homeMoneyline: -121,
+        awayMoneyline: 101,
+        sportsbook: "draftkings",
+        lastUpdated: "2025-04-10T23:10:00Z"
+      },
+      {
+        gameId: "boundary-upcoming-cache",
+        matchKey: "2025-04-10|Away Boundary Upcoming|Home Boundary Upcoming",
+        commenceTime: "2025-04-10T23:58:01Z",
+        homeTeam: "Home Boundary Upcoming",
+        awayTeam: "Away Boundary Upcoming",
+        homeMoneyline: -122,
+        awayMoneyline: 102,
+        sportsbook: "draftkings",
+        lastUpdated: "2025-04-10T23:10:00Z"
+      }
+    ]]
+  ])
+
+  try {
+    await withPatchedRedis(redisMock, async () => withMockedFetch(
+      async () => createJsonResponse({
+        body: [
+          createOddsApiGame({
+            id: "boundary-started-fetched",
+            commenceTime: "2025-04-10T23:58:00Z",
+            homeTeam: "Home Boundary Started",
+            awayTeam: "Away Boundary Started",
+            homePrice: -160,
+            awayPrice: 140
+          }),
+          createOddsApiGame({
+            id: "boundary-upcoming-fetched",
+            commenceTime: "2025-04-10T23:58:01Z",
+            homeTeam: "Home Boundary Upcoming",
+            awayTeam: "Away Boundary Upcoming",
+            homePrice: -170,
+            awayPrice: 150
+          })
+        ]
+      }),
+      async () => {
+        const req = createRequest({ query: { refresh: "true" } })
+        const res = createMockResponse()
+
+        await handler(req, res)
+
+        assert.equal(res.statusCode, 200)
+        assert.equal(res.body.updatedUpcoming, 1)
+        assert.equal(res.body.preservedStarted, 1)
+
+        const storedOdds = redisMock.snapshot("mlb:odds:today")
+        const startedRecord = storedOdds.find(record => record.matchKey === "2025-04-10|Away Boundary Started|Home Boundary Started")
+        const upcomingRecord = storedOdds.find(record => record.matchKey === "2025-04-10|Away Boundary Upcoming|Home Boundary Upcoming")
+
+        assert.equal(startedRecord.homeMoneyline, -121)
+        assert.equal(upcomingRecord.homeMoneyline, -170)
+      }
+    ))
+  } finally {
+    Date.now = originalNow
+  }
 })
 
 test("fetchBullpenStats blocks concurrent executions with a job lock", { concurrency: false }, async () => {
