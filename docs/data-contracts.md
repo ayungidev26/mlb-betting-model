@@ -189,11 +189,24 @@ Represents one persisted daily evaluation record written to Redis by `/api/evalu
 | `metrics.accuracy` | `number` | Correct predictions divided by matched games (or `0`). |
 | `metrics.brierScore` | `number` | Mean Brier score across matched games (or `0`). |
 | `unmatchedStats.total` | `number` | Count of unmatched records encountered. |
+| `unmatchedStats.byReason` | `object` | Reason histogram keyed by unmatched reason string. |
+| `unmatchedStats.byType` | `object` | Type histogram keyed by unmatched record type. |
 | `generatedAt` | `string` | ISO-8601 timestamp when summary was created. |
 
 #### Persistence key
 
 - `mlb:evaluation:<date>`
+
+#### Source key shape inside each summary
+
+- `sourceKeys.predictions` must be `mlb:predictions:<date>`.
+- `sourceKeys.historical` must be `mlb:games:historical:<season>`.
+
+#### Evaluation read route key shape
+
+`GET /api/evaluation` returns each record with:
+
+- `sourceKey`: `mlb:evaluation:<date>`
 
 ## Required vs optional by pipeline stage
 
@@ -230,3 +243,118 @@ When present on a `Game` or `Prediction`, `ballpark` should use normalized facto
 - Choose `primaryLine` from the valid sportsbooks using the lowest implied hold (`home implied probability + away implied probability`).
 - Mirror `primaryLine.homeMoneyline`, `primaryLine.awayMoneyline`, `primaryLine.sportsbook`, and `primaryLine.lastUpdated` to the required top-level fields so downstream consumers such as edge detection can read a single canonical shape without scanning the nested array.
 - Skip bookmakers missing an `h2h` market or either team outcome instead of throwing, and drop the full game only when no valid sportsbook lines remain.
+
+## Odds refresh policy (`POST /api/fetchOdds?refresh=true`)
+
+- Refresh mode is **selective**.
+- Started games are preserved from cached `mlb:odds:today` records.
+- Upcoming games are replaced from the latest fetched odds payload.
+- Records with invalid or missing `commenceTime` are excluded from merged output.
+- The response reports:
+  - `refreshMode: "selective"`
+  - `updatedUpcoming`
+  - `preservedStarted`
+  - `droppedInvalid`
+
+## Endpoint examples (new behavior)
+
+### `POST /api/loadHistorical?startSeason=2022&endSeason=2025`
+
+Response shape:
+
+```json
+{
+  "seasonsLoaded": 4,
+  "gamesCollected": 9720,
+  "seasonRange": {
+    "startSeason": 2022,
+    "endSeason": 2025
+  },
+  "keysWritten": [
+    "mlb:games:historical:2022",
+    "mlb:games:historical:2023",
+    "mlb:games:historical:2024",
+    "mlb:games:historical:2025",
+    "mlb:games:historical:meta"
+  ]
+}
+```
+
+### `POST /api/evaluatePredictions`
+
+Request body:
+
+```json
+{
+  "dateFrom": "2025-04-01",
+  "dateTo": "2025-04-07",
+  "persist": true
+}
+```
+
+Response highlights:
+
+```json
+{
+  "ok": true,
+  "dateRange": {
+    "dateFrom": "2025-04-01",
+    "dateTo": "2025-04-07",
+    "totalDays": 7
+  },
+  "persist": true,
+  "aggregate": {
+    "gamesPredicted": 92,
+    "gamesMatchedToFinal": 90,
+    "coverageRate": 0.9783,
+    "accuracy": 0.5667,
+    "brierScore": 0.2412
+  },
+  "unmatchedStats": {
+    "total": 2,
+    "byReason": {
+      "missing_final_result": 2
+    },
+    "byType": {
+      "prediction": 2
+    }
+  },
+  "perDay": [
+    {
+      "date": "2025-04-01",
+      "season": 2025,
+      "sourceKeys": {
+        "predictions": "mlb:predictions:2025-04-01",
+        "historical": "mlb:games:historical:2025"
+      }
+    }
+  ]
+}
+```
+
+### `GET /api/evaluation?dateFrom=2025-04-01&dateTo=2025-04-07&limit=30`
+
+Response highlights:
+
+```json
+{
+  "evaluations": [
+    {
+      "date": "2025-04-01",
+      "sourceKey": "mlb:evaluation:2025-04-01",
+      "sourceKeys": {
+        "predictions": "mlb:predictions:2025-04-01",
+        "historical": "mlb:games:historical:2025"
+      }
+    }
+  ],
+  "metadata": {
+    "returnedDays": 1,
+    "dateRangeApplied": {
+      "dateFrom": "2025-04-01",
+      "dateTo": "2025-04-07",
+      "limit": 30
+    }
+  }
+}
+```
