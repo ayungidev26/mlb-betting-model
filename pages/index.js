@@ -767,7 +767,7 @@ export default function Home({ games = [], summary, error = "", sessionExpiresAt
           <h1 className="topNav__title">MLB Betting Edges</h1>
           <button
             type="button"
-            className="logoutButton"
+            className="actionButton actionButton--button"
             onClick={() => handleLogout("manual")}
           >
             Logout
@@ -776,8 +776,8 @@ export default function Home({ games = [], summary, error = "", sessionExpiresAt
       </section>
 
       <nav className="actionRow" aria-label="Dashboard sections">
-        <Link href="#todays-games" className="navActionButton" aria-current="page">Today&apos;s Games</Link>
-        <Link href="/stats" className="navActionButton">Stats</Link>
+        <Link href="#todays-games" className="actionButton" aria-current="page">Today&apos;s Games</Link>
+        <Link href="/stats" className="actionButton">Stats</Link>
       </nav>
 
       {(fetchState.isLoading || fetchState.isRefreshing) && (
@@ -1104,7 +1104,7 @@ export default function Home({ games = [], summary, error = "", sessionExpiresAt
           font-size: clamp(1.6rem, 3vw, 2.2rem);
         }
 
-        .navActionButton {
+        .actionButton {
           display: inline-flex;
           align-items: center;
           justify-content: center;
@@ -1121,15 +1121,20 @@ export default function Home({ games = [], summary, error = "", sessionExpiresAt
           transition: background 0.2s ease, border-color 0.2s ease, transform 0.2s ease;
         }
 
-        .navActionButton:hover {
+        .actionButton:hover {
           transform: translateY(-1px);
           border-color: rgba(96, 165, 250, 0.45);
           background: rgba(30, 41, 59, 0.96);
         }
 
-        .navActionButton:focus-visible {
+        .actionButton:focus-visible {
           outline: 2px solid rgba(147, 197, 253, 0.9);
           outline-offset: 3px;
+        }
+
+        .actionButton--button {
+          font: inherit;
+          cursor: pointer;
         }
 
         .actionRow {
@@ -1137,29 +1142,6 @@ export default function Home({ games = [], summary, error = "", sessionExpiresAt
           gap: 10px;
           flex-wrap: wrap;
           margin: 6px 0 8px;
-        }
-
-        .logoutButton {
-          border: 1px solid rgba(148, 163, 184, 0.28);
-          border-radius: 999px;
-          padding: 10px 16px;
-          background: rgba(15, 23, 42, 0.78);
-          color: #e2e8f0;
-          font: inherit;
-          font-weight: 700;
-          cursor: pointer;
-          transition: background 0.2s ease, border-color 0.2s ease, transform 0.2s ease;
-        }
-
-        .logoutButton:hover {
-          background: rgba(30, 41, 59, 0.96);
-          border-color: rgba(96, 165, 250, 0.45);
-          transform: translateY(-1px);
-        }
-
-        .logoutButton:focus-visible {
-          outline: 2px solid rgba(147, 197, 253, 0.9);
-          outline-offset: 3px;
         }
 
         .eyebrow,
