@@ -171,6 +171,30 @@ Represents a betting edge discovered by comparing a prediction with canonical od
 - **Edge detection (`findEdges`)**: every emitted edge must include all required fields.
 - **Downstream presentation/storage**: optional context fields may be added, but required field names must remain unchanged.
 
+### 5. `EvaluationSummary`
+
+Represents one persisted daily evaluation record written to Redis by `/api/evaluatePredictions`.
+
+#### Required fields
+
+| Field | Type | Notes |
+| --- | --- | --- |
+| `date` | `string` | Evaluation day as `YYYY-MM-DD`. |
+| `season` | `number` | Season inferred from `date`. |
+| `sourceKeys.predictions` | `string` | Source prediction key (`mlb:predictions:<date>`). |
+| `sourceKeys.historical` | `string` | Source historical key (`mlb:games:historical:<season>`). |
+| `metrics.gamesPredicted` | `number` | Count of predictions eligible for evaluation. |
+| `metrics.gamesMatchedToFinal` | `number` | Count of predictions matched to final results. |
+| `metrics.coverageRate` | `number` | `gamesMatchedToFinal / gamesPredicted` (or `0`). |
+| `metrics.accuracy` | `number` | Correct predictions divided by matched games (or `0`). |
+| `metrics.brierScore` | `number` | Mean Brier score across matched games (or `0`). |
+| `unmatchedStats.total` | `number` | Count of unmatched records encountered. |
+| `generatedAt` | `string` | ISO-8601 timestamp when summary was created. |
+
+#### Persistence key
+
+- `mlb:evaluation:<date>`
+
 ## Required vs optional by pipeline stage
 
 | Stage | Required contract |
