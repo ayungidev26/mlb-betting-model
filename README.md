@@ -1,49 +1,201 @@
 # MLB Betting Model
 
-A password-protected, serverless MLB prediction and betting-edge application built with Next.js API routes, Upstash Redis, and scheduled automation.
+A password-protected MLB prediction and betting-edge application built on **Next.js serverless API routes**, **Upstash Redis**, and scheduled automation (GitHub Actions and optional cron endpoints).
+
+This repository contains:
+
+- A protected dashboard (`/`) that shows cached predictions and model-vs-market edges.
+- A protected stats explorer (`/stats`) that shows cached pitcher/bullpen/offense inputs.
+- Serverless API routes that ingest MLB schedules, odds, and stats; run the model; and publish cache-backed outputs.
+
+---
+
+## Table of Contents
+
+- [Project Overview](#project-overview)
+- [Architecture](#architecture)
+- [How the System Works (Data Flow)](#how-the-system-works-data-flow)
+- [Repository Structure](#repository-structure)
+- [Environment Variables](#environment-variables)
+- [Local Development Setup](#local-development-setup)
+- [Deployment (Vercel)](#deployment-vercel)
+- [Automation & Scheduling](#automation--scheduling)
+- [API Reference](#api-reference)
+- [Redis Keys](#redis-keys)
+- [Manual Verification](#manual-verification)
+- [Scripts](#scripts)
+- [Security Notes](#security-notes)
+- [Data Contracts](#data-contracts)
+- [Disclaimer](#disclaimer)
 
 ---
 
 ## Project Overview
 
-This project ingests MLB schedule + odds + team/player stats, builds model predictions, and flags moneyline edges where the model's probability exceeds market implied probability.
+This system builds same-day MLB moneyline recommendations by comparing model probabilities against market implied probabilities.
 
-At a high level, the system now runs two workflows:
+There are two operational workflows:
 
-1. **Stats pipeline** (early morning ET, once per Eastern day): fetch pitcher, bullpen, and offense stats into Redis cache.
-2. **Market pipeline** (in-day): fetch today's games + odds, run the model from cached stats, and find edges.
+1. **Stats pipeline** (morning ET, once per Eastern day unless forced)
+   - Fetches and caches pitcher, bullpen, and offense inputs.
+2. **Market pipeline** (in-day refreshes)
+   - Fetches today’s games and odds.
+   - Runs model predictions from cached stats.
+   - Finds edges where model probability exceeds market implied probability.
 
-The web UI reads cached predictions/edges from Redis and presents the top opportunities.
+The dashboard and stats pages are read-only views over Redis cache outputs.
 
 ---
 
-## Tech Stack & Architecture
+## Architecture
 
-- **Runtime / framework:** Next.js (Pages Router) serverless functions
-- **Hosting:** Vercel
-- **Data store:** Upstash Redis (REST API)
-- **External data sources:**
-  - MLB Stats API (schedule, team/player stats)
-  - Baseball Savant CSV leaderboard exports (advanced expected/contact metrics)
-  - The Odds API (US moneyline odds)
-- **Scheduler:**
-  - Recommended: GitHub Actions workflow (`.github/workflows/schedule-pipeline.yml`)
-  - Optional legacy route: `/api/cron/runDailyPipeline`
+### Runtime and Infrastructure
 
-### Request Access Model
+- **Framework/runtime:** Next.js (Pages Router) serverless functions on Node.js.
+- **Hosting target:** Vercel.
+- **Data store/cache:** Upstash Redis (REST API).
+- **Automation:** GitHub Actions workflow (`.github/workflows/schedule-pipeline.yml`) plus optional cron entry routes under `/api/cron/*`.
 
-There are three API access tiers:
+### External Data Sources
 
-1. **Public cache read routes** (`GET /api/predictions`, `GET /api/edges`, `GET /api/stats`, `GET /api/evaluation`)
-2. **Operational/admin routes** (all model/data pipeline mutation routes; require admin secret and `POST`)
-3. **Cron routes** (`/api/cron/*`; require cron secret; accept `GET` or `POST`)
+- **MLB Stats API** for schedule and many team/player stats.
+- **Baseball Savant** leaderboard CSV feeds for advanced metrics.
+- **The Odds API** for moneyline markets.
 
-### App Authentication (UI)
+### Access and Auth Model
 
-- Middleware redirects anonymous traffic to `/login`.
-- Login posts to `/api/login`, validates against `APP_PASSWORD`, and sets an HTTP-only cookie.
-- Session TTL is **5 minutes**.
-- `/api/login`, `/api/logout`, `/api/runPipeline`, `/api/runStatsPipeline`, and `/api/cron/*` bypass UI middleware redirect checks.
+The app has two independent authentication layers:
+
+1. **UI session auth**
+   - Middleware protects non-exempt routes.
+   - `/login` posts to `/api/login` with `APP_PASSWORD`.
+   - Server sets an HTTP-only cookie (`app_session`) with a **5-minute TTL**.
+
+2. **API route auth**
+   - Public cache routes are GET-only and do not require admin auth.
+   - Operational routes require `POST` + admin bearer token (or accepted fallback secret headers/body fields).
+   - Cron routes require `CRON_SECRET` and allow `GET`/`POST`.
+
+### Guardrails and Reliability
+
+Operational ingestion/orchestration routes enforce:
+
+- IP-based rate limiting.
+- Redis-backed job locks (prevent overlapping runs).
+- Cooldowns on expensive routes (for example odds refresh and historical loads).
+
+---
+
+## How the System Works (Data Flow)
+
+### 1) Schedule ingestion
+`POST /api/fetchGames`
+
+- Fetches today’s MLB schedule.
+- Normalizes team naming and builds canonical `matchKey` (`YYYY-MM-DD|awayTeam|homeTeam`).
+- Resolves/attaches ballpark factors.
+- Writes:
+  - `mlb:games:today`
+  - `mlb:ballparkFactors:current`
+
+### 2) Odds ingestion
+`POST /api/fetchOdds`
+
+- Fetches US h2h moneylines from The Odds API.
+- Normalizes to canonical odds records.
+- Default behavior is cache-first.
+- `?refresh=true` performs selective refresh:
+  - preserves already-started games from cache,
+  - refreshes upcoming games from live payload,
+  - drops records with invalid/missing start time.
+- Writes:
+  - `mlb:odds:today`
+
+### 3) Pitcher stats ingestion
+`POST /api/fetchPitcherStats`
+
+- Resolves probable starters.
+- Pulls MLB season stats and merges Savant advanced metrics when available.
+- Writes:
+  - `mlb:stats:pitchers`
+  - `mlb:stats:pitchers:meta`
+
+### 4) Bullpen stats ingestion
+`POST /api/fetchBullpenStats`
+
+- Builds bullpen quality and recent workload/fatigue context.
+- Writes:
+  - `mlb:stats:bullpen`
+  - `mlb:stats:bullpen:meta`
+
+### 5) Team offense stats ingestion
+`POST /api/fetchTeamOffenseStats`
+
+- Builds team offense baselines, splits/form, and contact-quality signals.
+- Writes:
+  - `mlb:stats:offense`
+  - `mlb:stats:offense:meta`
+
+### 6) Prediction generation
+`POST /api/runModel`
+
+- Uses cached schedule + stats to compute per-game win probabilities.
+- Model combines:
+  - Team Elo baseline
+  - Starting pitcher component
+  - Bullpen component
+  - Offense component
+  - Ballpark/environment adjustments
+  - Home-field adjustment
+- Writes:
+  - `mlb:predictions:today`
+  - `mlb:predictions:YYYY-MM-DD`
+
+If required cached stats are missing, this step fails and signals that stats pipeline must run first.
+
+### 7) Edge detection
+`POST /api/findEdges`
+
+- Joins predictions and odds by `matchKey`.
+- Converts moneylines to implied probabilities.
+- Emits edges when `edge > 0.03` (3%).
+- Writes:
+  - `mlb:edges:today`
+
+### 8) Stats orchestration
+`POST /api/runStatsPipeline`
+
+Runs, in order:
+
+```text
+fetchPitcherStats -> fetchBullpenStats -> fetchTeamOffenseStats
+```
+
+- Uses Eastern-date idempotency marker:
+  - `mlb:cron:statsPipeline:YYYY-MM-DD`
+- Skips duplicate runs on same ET date unless `?force=true`.
+
+### 9) Market orchestration
+`POST /api/runPipeline`
+
+Runs, in order:
+
+```text
+fetchGames -> fetchOdds?refresh=true -> runModel -> findEdges
+```
+
+Writes game, odds, prediction, and edge cache keys used by dashboard/public routes.
+
+### 10) Historical + evaluation workflow
+
+1. `POST /api/loadHistorical`
+   - Loads final MLB games by season window (`startSeason`, `endSeason`).
+   - Writes `mlb:games:historical:<season>` and `mlb:games:historical:meta`.
+2. `POST /api/evaluatePredictions`
+   - Compares stored `mlb:predictions:<date>` vs historical finals.
+   - Persists daily summaries to `mlb:evaluation:<date>` by default.
+3. `GET /api/evaluation`
+   - Reads persisted summaries over date window/limit.
 
 ---
 
@@ -51,215 +203,69 @@ There are three API access tiers:
 
 ```text
 pages/
-  index.js                         # dashboard (predictions + edges)
-  stats.js                         # cached model-input stats explorer
-  login.js                         # password gate UI
+  index.js                           # protected dashboard UI
+  stats.js                           # protected cached-stats explorer
+  login.js                           # password login UI
   api/
-    fetchGames.js
-    fetchOdds.js
-    fetchPitcherStats.js
-    fetchBullpenStats.js
-    fetchTeamOffenseStats.js
-    runModel.js
-    findEdges.js
-    runPipeline.js
-    runStatsPipeline.js
-    loadHistorical.js
-    buildRatings.js
-    predictions.js                 # public cached predictions
-    edges.js                       # public cached edges
-    stats.js                       # public cached stats + metadata
-    evaluation.js                  # public cached evaluation summaries
-    cron/runDailyPipeline.js       # optional market cron trigger
-    cron/runDailyStatsPipeline.js  # optional stats cron trigger
+    predictions.js                   # public cached predictions (GET)
+    edges.js                         # public cached edges (GET)
+    odds.js                          # public cached odds (GET)
+    stats.js                         # public cached stats sections (GET)
+    evaluation.js                    # public cached evaluation summaries (GET)
+
+    login.js                         # create UI session cookie
+    logout.js                        # clear UI session cookie
+
+    fetchGames.js                    # ingest today's schedule + ballpark factors
+    fetchOdds.js                     # ingest/refresh today's odds
+    fetchPitcherStats.js             # ingest pitcher stats
+    fetchBullpenStats.js             # ingest bullpen stats
+    fetchTeamOffenseStats.js         # ingest offense stats
+    runModel.js                      # generate predictions
+    findEdges.js                     # generate edges
+
+    runStatsPipeline.js              # stats pipeline orchestrator
+    runPipeline.js                   # market pipeline orchestrator
+
+    loadHistorical.js                # historical final-results loader
+    buildRatings.js                  # historical Elo rating build helper
+    evaluatePredictions.js           # prediction-vs-results evaluator
+
+    cron/
+      runDailyStatsPipeline.js       # cron entry for stats workflow
+      runDailyPipeline.js            # cron entry for market workflow
 
 lib/
-  pipeline.js                      # shared prediction/edge pipeline helpers
-  apiSecurity.js                   # route auth and method guards
-  apiGuards.js                     # IP rate limits, locks, cooldowns
-  ballparkFactors.js               # park-factor loading/normalization
-  upstreamFetch.js                 # resilient upstream fetch wrapper
+  apiSecurity.js                     # auth/method guards for API routes
+  apiGuards.js                       # rate limiting, lock, cooldown helpers
+  pipeline.js                        # shared prediction/edge pipeline logic
+  cronSchedule.js                    # ET date/window helpers
+  normalizeOdds.js                   # canonical odds normalization
+  ballparkFactors.js                 # park-factor resolution and fallback
+  homePageProps.js                   # dashboard data/view-model assembly
   ...
 
 model/
-  predictor.js                     # combines Elo + pitcher + bullpen + offense + park + HFA
+  predictor.js                       # core game prediction composition
   eloRatings.js
   pitcherRatings.js
   bullpenRatings.js
   offenseRatings.js
 
 data/
-  ballparkFactors.js               # bundled fallback park-factor data
+  ballparkFactors.js                 # bundled fallback park-factor dataset
 
 docs/
-  data-contracts.md                # canonical payload contracts
+  data-contracts.md                  # canonical payload contracts
 
 scripts/
-  run-daily-scheduler.mjs          # local/manual cron route verification helper
+  run-daily-scheduler.mjs            # local cron-route trigger helper
+  capture-dashboard-shot.mjs         # optional dashboard screenshot helper
+  verify-audit.mjs                   # repository audit checks
+
+.github/workflows/
+  schedule-pipeline.yml              # scheduled stats + market refresh
 ```
-
----
-
-## Data Flow (Games → Odds → Model → Predictions)
-
-### 1) Schedule ingestion
-`POST /api/fetchGames`
-
-- Pulls today's MLB schedule.
-- Normalizes teams + builds canonical `matchKey`.
-- Enriches each game with venue and ballpark factors.
-- Stores:
-  - `mlb:games:today`
-  - `mlb:ballparkFactors:current`
-
-### 2) Odds ingestion
-`POST /api/fetchOdds`
-
-- Pulls US h2h moneylines from The Odds API.
-- Normalizes into canonical odds shape and selected primary line.
-- Supports cache-first behavior unless `?refresh=true`.
-- With `?refresh=true`, uses **selective refresh**:
-  - preserves cached odds for games that have already started;
-  - refreshes only upcoming games from the latest provider payload;
-  - drops records with invalid/missing `commenceTime` from the merged output.
-- Stores `mlb:odds:today`.
-
-### 3) Pitcher stats ingestion
-`POST /api/fetchPitcherStats`
-
-- Resolves probable starters from today's games.
-- Pulls season stats from MLB API.
-- Merges advanced metrics from Baseball Savant where available.
-- Calculates fallback/derived values (e.g., FIP/xFIP/K-BB%) when needed.
-- Stores `mlb:stats:pitchers`.
-
-### 4) Bullpen stats ingestion
-`POST /api/fetchBullpenStats`
-
-- Pulls bullpen performance + recent usage/fatigue context.
-- Stores `mlb:stats:bullpen`.
-
-### 5) Team offense stats ingestion
-`POST /api/fetchTeamOffenseStats`
-
-- Pulls team offensive baseline + splits + recent form + advanced contact metrics.
-- Stores `mlb:stats:offense`.
-
-### 6) Prediction generation
-`POST /api/runModel`
-
-For each game, model computes composite ratings using:
-
-- Team Elo baseline
-- Starting pitcher component
-- Bullpen component
-- Offense component
-- Ballpark adjustment component
-- Home-field adjustment
-
-Then converts rating differential to win probability and stores:
-
-- `mlb:predictions:today`
-- `mlb:predictions:YYYY-MM-DD`
-
-### 7) Edge detection
-`POST /api/findEdges`
-
-- Converts moneylines to implied probabilities.
-- Compares model probabilities vs implied probabilities.
-- Emits edges when `edge > 0.03` (3%).
-- Stores `mlb:edges:today`.
-
-### 8) Stats orchestration
-`POST /api/runStatsPipeline`
-
-Runs the stats-only steps in sequence:
-
-```text
-fetchPitcherStats
-fetchBullpenStats
-fetchTeamOffenseStats
-```
-
-- Stores daily idempotency marker key `mlb:cron:statsPipeline:YYYY-MM-DD`.
-- Skips repeat runs on the same Eastern date unless `?force=true` is provided.
-- Writes metadata keys:
-  - `mlb:stats:pitchers:meta`
-  - `mlb:stats:bullpen:meta`
-  - `mlb:stats:offense:meta`
-
-### 9) Market orchestration
-`POST /api/runPipeline`
-
-Runs market/model steps only:
-
-```text
-fetchGames
-fetchOdds (forced refresh)
-runModel
-findEdges
-```
-
-`runModel` reads cached stats from:
-
-- `mlb:stats:pitchers`
-- `mlb:stats:bullpen`
-- `mlb:stats:offense`
-
-If stats are missing, it returns a `STATS_PIPELINE_REQUIRED` error.
-
-
-### 10) Stats cache read endpoint
-`GET /api/stats`
-
-- Read-only route that returns the latest cached model-input stats for:
-  - `mlb:stats:pitchers` + `mlb:stats:pitchers:meta`
-  - `mlb:stats:bullpen` + `mlb:stats:bullpen:meta`
-  - `mlb:stats:offense` + `mlb:stats:offense:meta`
-- Does **not** trigger a stats refresh; it only reads existing Redis values.
-
-### 11) UI tabs
-
-The authenticated UI now has two primary tabs:
-
-- **Dashboard** (`/`): predictions, edges, and betting board filters
-- **Stats** (`/stats`): read-only view of the latest cached pitcher, bullpen, and offense payloads with per-section metadata (last updated and record counts)
-
-### 12) Historical ingestion (dynamic season range)
-`POST /api/loadHistorical`
-
-- Loads final MLB game results into per-season historical Redis keys.
-- Supports dynamic season windows with query params:
-  - `startSeason` (optional, integer year, default `2015`)
-  - `endSeason` (optional, integer year, default current UTC year)
-- Enforces:
-  - `startSeason <= endSeason`
-  - `endSeason <= current UTC year`
-  - maximum range of `30` seasons per request
-- Stores:
-  - `mlb:games:historical:<season>` for each loaded season
-  - `mlb:games:historical:meta`
-
-### 13) Prediction-vs-results evaluation (write + read)
-
-#### `POST /api/evaluatePredictions` (operational/admin)
-
-- Evaluates stored predictions against historical final results over a date range.
-- Request body:
-  - `dateFrom` (required, `YYYY-MM-DD`)
-  - `dateTo` (required, `YYYY-MM-DD`)
-  - `persist` (optional boolean, default `true`)
-- Reads:
-  - `mlb:predictions:<date>`
-  - `mlb:games:historical:<season>`
-- Writes (when `persist !== false`):
-  - `mlb:evaluation:<date>`
-- Returns both per-day metrics and aggregate metrics for the requested range.
-
-#### `GET /api/evaluation` (public/read-only)
-
-- Returns persisted summaries from `mlb:evaluation:<date>`.
-- Supports bounded date windows via `dateFrom`, `dateTo`, and `limit` (default `30`, max `180`).
 
 ---
 
@@ -269,35 +275,27 @@ Copy `.env.example` to `.env.local` for local development.
 
 | Variable | Required | Used by | Notes |
 | --- | --- | --- | --- |
-| `UPSTASH_REDIS_REST_URL` | Yes | API + UI | Upstash REST endpoint |
-| `UPSTASH_REDIS_REST_TOKEN` | Yes | API + UI | Upstash REST token |
-| `ODDS_API_KEY` | Yes (pipeline) | `/api/fetchOdds` | The Odds API key |
-| `ADMIN_API_SECRET` | Yes (operational routes) | all admin `POST` routes | Required bearer token (`Authorization: Bearer ...`) |
-| `CRON_SECRET` | Required only if using cron routes | `/api/cron/runDailyPipeline`, `/api/cron/runDailyStatsPipeline` | Separate secret for cron endpoints |
-| `APP_PASSWORD` | Yes for UI access | login + middleware | Shared app password |
+| `UPSTASH_REDIS_REST_URL` | Yes | API + SSR/UI data loads | Upstash REST endpoint URL |
+| `UPSTASH_REDIS_REST_TOKEN` | Yes | API + SSR/UI data loads | Upstash REST auth token |
+| `ODDS_API_KEY` | Yes (for odds ingestion) | `/api/fetchOdds` | The Odds API key |
+| `ADMIN_API_SECRET` | Yes (recommended) | Operational `POST` routes | Main admin/ops auth token |
+| `CRON_SECRET` | Required for `/api/cron/*` | Cron entry routes + scheduler helper | Separate secret for cron triggers |
+| `APP_PASSWORD` | Yes (for protected UI) | `/api/login`, middleware session validation | Shared app password |
 | `SCHEDULER_BASE_URL` | Optional local helper | `npm run test:scheduler` | Defaults to `http://localhost:3000` |
-| `BALLPARK_FACTORS_URL` | Optional | ballpark factor loader | Remote JSON/CSV park-factor feed; fallback to bundled data |
+| `BALLPARK_FACTORS_URL` | Optional | Ballpark factor resolver | Remote JSON/CSV source; falls back to bundled `data/ballparkFactors.js` |
+
+### Auth fallback behavior
+
+Operational route secret resolution is:
+
+1. `ADMIN_API_SECRET` (preferred)
+2. fallback to `CRON_SECRET` if admin secret is absent
+
+Fallback works, but production should keep admin and cron secrets distinct.
 
 ---
 
-## Developer Notes
-
-### Validate GitHub Actions workflow YAML locally
-
-Use Ruby's built-in YAML parser (no extra package install required):
-
-```bash
-ruby -e "require 'yaml'; YAML.load_file('.github/workflows/schedule-pipeline.yml'); puts 'ok'"
-```
-
-Notes:
-
-- Operational routes accept `x-admin-secret` header and JSON body fallbacks (`adminSecret`, `authToken`) in addition to bearer parsing logic used by scheduler workflows.
-- If `ADMIN_API_SECRET` is unset, code falls back to `CRON_SECRET` for operational access, but this is not recommended for production separation of concerns.
-
----
-
-## Local Setup
+## Local Development Setup
 
 ### Prerequisites
 
@@ -318,33 +316,92 @@ npm install
 cp .env.example .env.local
 ```
 
-Fill all required values in `.env.local`.
+Set all required values in `.env.local`.
 
-### Run locally
+### Run the app
 
 ```bash
 npm run dev
 ```
 
-Open `http://localhost:3000`, sign in with `APP_PASSWORD`.
+Open `http://localhost:3000`, then sign in at `/login` with `APP_PASSWORD`.
+
+---
+
+## Deployment (Vercel)
+
+1. Import this repository into Vercel.
+2. Add environment variables in **Project Settings → Environment Variables**:
+   - `UPSTASH_REDIS_REST_URL`
+   - `UPSTASH_REDIS_REST_TOKEN`
+   - `ODDS_API_KEY`
+   - `ADMIN_API_SECRET`
+   - `APP_PASSWORD`
+   - optional: `CRON_SECRET`, `BALLPARK_FACTORS_URL`
+3. Deploy.
+4. Configure GitHub Actions secrets (below) if using scheduled automation.
+5. Trigger and verify one manual pipeline run.
+
+---
+
+## Automation & Scheduling
+
+### Recommended production scheduler: GitHub Actions
+
+Workflow file: `.github/workflows/schedule-pipeline.yml`.
+
+#### Stats workflow behavior
+
+- Cron schedule targets the ET morning window.
+- Job gates execution to **5:30 AM – 8:30 AM America/New_York**.
+- Primary trigger path:
+  - `POST /api/cron/runDailyStatsPipeline` when `CRON_SECRET` is present.
+- Fallback trigger path:
+  - `POST /api/runStatsPipeline` using admin auth when `CRON_SECRET` is not configured.
+
+#### Market workflow behavior
+
+- Cron schedule targets three ET windows.
+- Job gates execution to:
+  - 10:19 AM – 11:49 AM ET
+  - 2:19 PM – 3:49 PM ET
+  - 5:19 PM – 6:49 PM ET
+- Trigger path:
+  - `POST /api/runPipeline`
+
+> Note: The optional cron entry route `GET|POST /api/cron/runDailyPipeline` has its own strict internal check and runs only at **10:00 ET minute-match** unless `?force=true` is supplied.
+
+### Required GitHub Actions secrets
+
+- `PIPELINE_BASE_URL` (e.g., `https://your-app.vercel.app`)
+- `ADMIN_API_SECRET`
+- `CRON_SECRET` (required for cron endpoint path)
+- `PIPELINE_AUTH_TOKEN` (optional override; defaults to `ADMIN_API_SECRET` in workflow logic)
+
+### Optional direct cron usage
+
+You may call `/api/cron/runDailyStatsPipeline` and/or `/api/cron/runDailyPipeline` from Vercel Cron or any external scheduler. Provide `Authorization: Bearer <CRON_SECRET>`.
 
 ---
 
 ## API Reference
 
-### Public read routes
+### Public read-only routes (no admin token)
 
 #### `GET /api/predictions`
-Returns cached predictions + summary.
+Returns cached predictions and summary metadata.
 
 #### `GET /api/edges`
-Returns cached edges + summary.
+Returns cached edges and summary metadata.
+
+#### `GET /api/odds`
+Returns cached normalized odds records and summary metadata.
 
 #### `GET /api/stats`
-Returns cached stats sections + metadata.
+Returns cached stats sections (`pitchers`, `bullpen`, `offense`) with section metadata.
 
 #### `GET /api/evaluation`
-Read-only endpoint for persisted daily evaluation summaries (`mlb:evaluation:<date>`).
+Returns persisted evaluation summaries from `mlb:evaluation:<date>`.
 
 Query params:
 
@@ -352,13 +409,7 @@ Query params:
 - `dateTo` (optional, `YYYY-MM-DD`)
 - `limit` (optional, default `30`, max `180`)
 
-Response highlights:
-
-- `evaluations`: array of persisted day summaries sorted by date ascending
-- `metadata.returnedDays`: number of day summaries returned
-- `metadata.dateRangeApplied`: effective date window and applied limit
-
-### Auth routes
+### UI auth/session routes
 
 #### `POST /api/login`
 Body:
@@ -367,17 +418,23 @@ Body:
 { "password": "..." }
 ```
 
-Sets secure HTTP-only session cookie on success.
+Validates `APP_PASSWORD` and sets HTTP-only session cookie.
 
 #### `POST /api/logout`
-Clears session cookie.
+Clears the session cookie.
 
-### Operational (admin) routes
+### Operational/admin routes
 
 All require:
 
 - `POST`
-- `Authorization: Bearer <ADMIN_API_SECRET>` (or equivalent accepted secret header/body fallback)
+- Operational secret (normally `Authorization: Bearer <ADMIN_API_SECRET>`)
+
+Accepted auth forms include:
+
+- `Authorization: Bearer <token>`
+- `x-admin-secret: <token>` header
+- JSON body fallback (`adminSecret` or `authToken`)
 
 Endpoints:
 
@@ -388,25 +445,13 @@ Endpoints:
 - `/api/fetchTeamOffenseStats`
 - `/api/runModel`
 - `/api/findEdges`
-- `/api/runPipeline`
 - `/api/runStatsPipeline`
+- `/api/runPipeline`
 - `/api/loadHistorical`
 - `/api/buildRatings`
 - `/api/evaluatePredictions`
 
-### Cron route (optional)
-
-#### `GET|POST /api/cron/runDailyPipeline`
-
-Requires:
-
-- `Authorization: Bearer <CRON_SECRET>`
-
-Behavior:
-
-- Runs only during the configured New York execution minute unless `?force=true` is supplied.
-- Uses Redis idempotency marker key `mlb:cron:dailyPipeline:YYYY-MM-DD`.
-- Internally invokes `/api/runPipeline`.
+### Cron routes
 
 #### `GET|POST /api/cron/runDailyStatsPipeline`
 
@@ -416,61 +461,63 @@ Requires:
 
 Behavior:
 
-- Runs only during `5:30 AM – 8:30 AM` America/New_York unless `?force=true` is supplied.
-- Internally invokes `/api/runStatsPipeline`.
+- Runs only during **5:30 AM – 8:30 AM ET** unless `?force=true`.
+- Internally invokes `runStatsPipeline` with operational auth.
+
+#### `GET|POST /api/cron/runDailyPipeline`
+
+Requires:
+
+- `Authorization: Bearer <CRON_SECRET>`
+
+Behavior:
+
+- Runs only at **10:00 ET exact minute** unless `?force=true`.
+- Uses ET-date idempotency marker `mlb:cron:dailyPipeline:YYYY-MM-DD`.
+- Internally invokes `runPipeline` with operational auth.
 
 ---
 
-## Automation & Scheduling
+## Redis Keys
 
-### Recommended production automation: GitHub Actions
+### Core day-of-game keys
 
-Workflow: `.github/workflows/schedule-pipeline.yml`
+- `mlb:games:today`
+- `mlb:odds:today`
+- `mlb:predictions:today`
+- `mlb:edges:today`
 
-Current behavior:
+### Stats keys
 
-- **Stats refresh schedule:** targets `5:30 AM` ET with a guarded window of `5:30–8:30 AM` ET.
-- **Market refresh schedule:** remains `10:19 AM`, `2:19 PM`, and `5:19 PM` ET windows.
-- Stats job calls `POST /api/cron/runDailyStatsPipeline` when `CRON_SECRET` is configured, otherwise it falls back to `POST /api/runStatsPipeline` using admin auth.
-- Market job calls `POST /api/runPipeline`.
+- `mlb:stats:pitchers`
+- `mlb:stats:pitchers:meta`
+- `mlb:stats:bullpen`
+- `mlb:stats:bullpen:meta`
+- `mlb:stats:offense`
+- `mlb:stats:offense:meta`
 
-Required GitHub secrets:
+### Ballpark key
 
-- `PIPELINE_BASE_URL` (example: `https://your-app.vercel.app`)
-- `CRON_SECRET` (used by stats cron endpoint)
-- `ADMIN_API_SECRET` (must match deployed app env)
-- `PIPELINE_AUTH_TOKEN` (optional override; defaults to `ADMIN_API_SECRET`)
+- `mlb:ballparkFactors:current`
 
-### Optional cron endpoint path
+### Historical/evaluation keys
 
-If you use Vercel Cron or another scheduler directly against `/api/cron/runDailyPipeline` or `/api/cron/runDailyStatsPipeline`, provide `CRON_SECRET` and align schedule timing with each route's time-window check.
+- `mlb:games:historical:<season>`
+- `mlb:games:historical:meta`
+- `mlb:predictions:YYYY-MM-DD`
+- `mlb:evaluation:YYYY-MM-DD`
 
----
+### Orchestration markers/guards
 
-## Deployment (Vercel)
-
-1. Import this repo into Vercel.
-2. Set environment variables in Vercel Project Settings:
-   - `UPSTASH_REDIS_REST_URL`
-   - `UPSTASH_REDIS_REST_TOKEN`
-   - `ODDS_API_KEY`
-   - `ADMIN_API_SECRET`
-   - `APP_PASSWORD`
-   - optional: `CRON_SECRET`, `BALLPARK_FACTORS_URL`
-3. Deploy.
-4. Configure GitHub Actions secrets for scheduler workflow.
-5. Manually verify one pipeline run after deploy.
+- `mlb:cron:statsPipeline:YYYY-MM-DD`
+- `mlb:cron:dailyPipeline:YYYY-MM-DD`
+- `mlb:lock:*`
+- `mlb:limit:*`
+- `mlb:cooldown:*`
 
 ---
 
 ## Manual Verification
-
-### Run full pipeline
-
-```bash
-curl -X POST "http://localhost:3000/api/runPipeline" \
-  -H "Authorization: Bearer $ADMIN_API_SECRET"
-```
 
 ### Run stats pipeline
 
@@ -479,18 +526,12 @@ curl -X POST "http://localhost:3000/api/runStatsPipeline" \
   -H "Authorization: Bearer $ADMIN_API_SECRET"
 ```
 
-### Check cached outputs
+### Run market pipeline
 
-- `mlb:games:today`
-- `mlb:odds:today`
-- `mlb:stats:pitchers`
-- `mlb:stats:bullpen`
-- `mlb:stats:offense`
-- `mlb:predictions:today`
-- `mlb:edges:today`
-- `mlb:games:historical:<season>`
-- `mlb:games:historical:meta`
-- `mlb:evaluation:<date>`
+```bash
+curl -X POST "http://localhost:3000/api/runPipeline" \
+  -H "Authorization: Bearer $ADMIN_API_SECRET"
+```
 
 ### Refresh odds selectively (preserve started games)
 
@@ -499,48 +540,14 @@ curl -X POST "http://localhost:3000/api/fetchOdds?refresh=true" \
   -H "Authorization: Bearer $ADMIN_API_SECRET"
 ```
 
-Example response (shape):
-
-```json
-{
-  "source": "api",
-  "games": 14,
-  "oddsSample": [],
-  "refreshMode": "selective",
-  "updatedUpcoming": 9,
-  "preservedStarted": 5,
-  "droppedInvalid": 0
-}
-```
-
-### Load historical results dynamically by season range
+### Load historical data by season window
 
 ```bash
 curl -X POST "http://localhost:3000/api/loadHistorical?startSeason=2022&endSeason=2025" \
   -H "Authorization: Bearer $ADMIN_API_SECRET"
 ```
 
-Example response (shape):
-
-```json
-{
-  "seasonsLoaded": 4,
-  "gamesCollected": 9720,
-  "seasonRange": {
-    "startSeason": 2022,
-    "endSeason": 2025
-  },
-  "keysWritten": [
-    "mlb:games:historical:2022",
-    "mlb:games:historical:2023",
-    "mlb:games:historical:2024",
-    "mlb:games:historical:2025",
-    "mlb:games:historical:meta"
-  ]
-}
-```
-
-### Evaluate predictions vs final results
+### Evaluate predictions over a date range
 
 ```bash
 curl -X POST "http://localhost:3000/api/evaluatePredictions" \
@@ -549,83 +556,13 @@ curl -X POST "http://localhost:3000/api/evaluatePredictions" \
   -d '{"dateFrom":"2025-04-01","dateTo":"2025-04-07","persist":true}'
 ```
 
-Example response (shape):
-
-```json
-{
-  "ok": true,
-  "dateRange": {
-    "dateFrom": "2025-04-01",
-    "dateTo": "2025-04-07",
-    "totalDays": 7
-  },
-  "persist": true,
-  "aggregate": {
-    "gamesPredicted": 92,
-    "gamesMatchedToFinal": 90,
-    "coverageRate": 0.9783,
-    "accuracy": 0.5667,
-    "brierScore": 0.2412
-  },
-  "unmatchedStats": {
-    "total": 2,
-    "byReason": {
-      "missing_final_result": 2
-    },
-    "byType": {
-      "prediction": 2
-    }
-  },
-  "perDay": []
-}
-```
-
 ### Read persisted evaluation summaries
 
 ```bash
 curl "http://localhost:3000/api/evaluation?dateFrom=2025-04-01&dateTo=2025-04-07&limit=30"
 ```
 
-Example response (shape):
-
-```json
-{
-  "evaluations": [
-    {
-      "date": "2025-04-01",
-      "season": 2025,
-      "sourceKeys": {
-        "predictions": "mlb:predictions:2025-04-01",
-        "historical": "mlb:games:historical:2025"
-      },
-      "metrics": {
-        "gamesPredicted": 15,
-        "gamesMatchedToFinal": 15,
-        "coverageRate": 1,
-        "accuracy": 0.5333,
-        "brierScore": 0.2461
-      },
-      "unmatchedStats": {
-        "total": 0,
-        "byReason": {},
-        "byType": {}
-      },
-      "generatedAt": "2025-04-02T02:15:10.000Z",
-      "sourceKey": "mlb:evaluation:2025-04-01"
-    }
-  ],
-  "metadata": {
-    "returnedDays": 1,
-    "dateRangeApplied": {
-      "dateFrom": "2025-04-01",
-      "dateTo": "2025-04-07",
-      "limit": 30
-    }
-  }
-}
-```
-
-### Test cron route locally
+### Trigger cron route helper locally
 
 ```bash
 CRON_SECRET=your-secret SCHEDULER_BASE_URL=http://localhost:3000 npm run test:scheduler
@@ -633,35 +570,47 @@ CRON_SECRET=your-secret SCHEDULER_BASE_URL=http://localhost:3000 npm run test:sc
 
 ---
 
-## Data Contracts
-
-Canonical payload schema and naming rules live in:
-
-- `docs/data-contracts.md`
-
-If you modify field names or payload shape in any stage, update that document first and keep all pipeline stages consistent.
-
----
-
 ## Scripts
 
-- `npm run dev` — run local Next.js dev server
-- `npm run build` — production build
-- `npm run start` — run production server
-- `npm test` — Node test suite (`tests/*.test.mjs`)
-- `npm run test:scheduler` — local/manual scheduler endpoint test helper
+- `npm run dev` — start local Next.js dev server.
+- `npm run build` — build for production.
+- `npm run start` — run production server.
+- `npm test` — run Node test suite (`tests/*.test.mjs`).
+- `npm run test:scheduler` — local cron-route trigger helper.
+- `npm run screenshot:dashboard` — capture dashboard screenshot helper (if local app is running).
 
 ---
 
 ## Security Notes
 
-- Never commit `.env.local` or secrets.
-- Rotate any leaked tokens immediately.
+- Never commit `.env.local` or real secrets.
+- Rotate exposed credentials immediately.
 - Keep `ADMIN_API_SECRET`, `CRON_SECRET`, and `APP_PASSWORD` distinct in production.
-- Public routes should remain read-only and cache-backed.
+- Keep public routes read-only and cache-backed.
+- Keep operational routes POST-only and secret-protected.
+
+---
+
+## Data Contracts
+
+Canonical payload schemas and naming rules are maintained in:
+
+- `docs/data-contracts.md`
+
+If you change field names or payload shapes in any pipeline stage, update this document and keep all dependent stages aligned.
+
+---
+
+## Developer Note: Workflow YAML Validation
+
+Quick local validation of scheduler workflow syntax:
+
+```bash
+ruby -e "require 'yaml'; YAML.load_file('.github/workflows/schedule-pipeline.yml'); puts 'ok'"
+```
 
 ---
 
 ## Disclaimer
 
-This project is for educational and analytical use. Betting carries financial risk—use responsibly and comply with local laws.
+This project is for educational and analytical use. Sports betting carries financial risk—use responsibly and comply with local laws.
