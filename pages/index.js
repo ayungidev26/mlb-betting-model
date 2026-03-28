@@ -370,6 +370,19 @@ function InfoList({ items }) {
   )
 }
 
+function SummaryInfoList({ items }) {
+  return (
+    <dl className="summaryInfoList">
+      {items.map((item) => (
+        <div className="summaryInfoList__item" key={item.label}>
+          <dt className="summaryInfoList__label">{item.label}</dt>
+          <dd className="summaryInfoList__value">{item.value}</dd>
+        </div>
+      ))}
+    </dl>
+  )
+}
+
 function ParkClassificationBadge({ classification }) {
   const tone = getParkClassificationTone(classification)
 
@@ -821,6 +834,7 @@ export default function Home({ games = [], summary, error = "", sessionExpiresAt
               const betType = getGameBetType(game)
               const awayPitcherStats = game.pitcherModel?.away?.stats || null
               const homePitcherStats = game.pitcherModel?.home?.stats || null
+              const fairOddsSummary = getOddsComparison(game).modelOdds
 
               return (
                 <article
@@ -828,41 +842,54 @@ export default function Home({ games = [], summary, error = "", sessionExpiresAt
                   key={`top-play-${game.matchKey || game.gameId || `${game.homeTeam}-${game.awayTeam}-${index}`}`}
                 >
                   <div className="summaryCard__header">
-                    <span className="tag tag--muted">#{index + 1}</span>
-                    <span className={`tag tag--${edgeTier.tone}`}>{edgeTier.label}</span>
-                  </div>
-
-                  <p className="summaryCard__meta">{formatGameTimeEastern(game.date)}</p>
-                  <h3 className="summaryCard__title">
-                    <span>{game.awayTeam}</span>
-                    <span className="vs">@</span>
-                    <span>{game.homeTeam}</span>
-                  </h3>
-                  <p className="summaryCard__meta">
-                    SP: {game.awayPitcher || "TBD"} vs {game.homePitcher || "TBD"}
-                  </p>
-
-                  <div className="metricGrid">
-                    <DashboardStat label="Edge %" value={formatEdge(game.edge)} emphasis tone={edgeTier.tone} />
-                    <DashboardStat label="Bet type" value={formatBetTypeLabel(betType)} tone="muted" />
-                    <DashboardStat label="Recommendation" value={recommendedSide} tone={edgeTier.tone} />
-                    <DashboardStat label="Best odds" value={formatBestOddsSummary(game)} tone="muted" />
-                  </div>
-
-                  <div className="detailList detailList--spaced">
-                    <div className="detailList__item">
-                      <span className="detailList__label">{game.awayTeam} SP stats</span>
-                      <span className="detailList__value">
-                        W-L {formatPitcherRecord(awayPitcherStats)} • IP {formatPitcherInnings(awayPitcherStats)} • ERA {formatMetricValue(awayPitcherStats?.era)} • WHIP {formatMetricValue(awayPitcherStats?.whip)}
-                      </span>
+                    <div className="summaryCard__headerBadges">
+                      <span className="tag tag--muted">#{index + 1}</span>
+                      <span className={`tag tag--${edgeTier.tone}`}>{edgeTier.label}</span>
                     </div>
-                    <div className="detailList__item">
-                      <span className="detailList__label">{game.homeTeam} SP stats</span>
-                      <span className="detailList__value">
-                        W-L {formatPitcherRecord(homePitcherStats)} • IP {formatPitcherInnings(homePitcherStats)} • ERA {formatMetricValue(homePitcherStats?.era)} • WHIP {formatMetricValue(homePitcherStats?.whip)}
-                      </span>
-                    </div>
+                    <p className="summaryCard__time">{formatGameTimeEastern(game.date)}</p>
                   </div>
+
+                  <section className="summaryCard__section summaryCard__section--matchup" aria-label="Matchup">
+                    <h3 className="summaryCard__title">
+                      <span>{game.awayTeam}</span>
+                      <span className="vs">@</span>
+                      <span>{game.homeTeam}</span>
+                    </h3>
+                    <p className="summaryCard__meta">
+                      Probable pitchers: {game.awayPitcher || "TBD"} vs {game.homePitcher || "TBD"}
+                    </p>
+                  </section>
+
+                  <section className="summaryCard__section" aria-label="Supporting stats">
+                    <p className="summaryCard__sectionTitle">Supporting stats</p>
+                    <div className="summaryStatStack">
+                      <div className="summaryStatLine">
+                        <span className="summaryStatLine__team">{game.awayTeam} SP</span>
+                        <span className="summaryStatLine__stats">
+                          W-L {formatPitcherRecord(awayPitcherStats)} • IP {formatPitcherInnings(awayPitcherStats)} • ERA {formatMetricValue(awayPitcherStats?.era)} • WHIP {formatMetricValue(awayPitcherStats?.whip)}
+                        </span>
+                      </div>
+                      <div className="summaryStatLine">
+                        <span className="summaryStatLine__team">{game.homeTeam} SP</span>
+                        <span className="summaryStatLine__stats">
+                          W-L {formatPitcherRecord(homePitcherStats)} • IP {formatPitcherInnings(homePitcherStats)} • ERA {formatMetricValue(homePitcherStats?.era)} • WHIP {formatMetricValue(homePitcherStats?.whip)}
+                        </span>
+                      </div>
+                    </div>
+                  </section>
+
+                  <section className="summaryCard__section" aria-label="Betting summary">
+                    <p className="summaryCard__sectionTitle">Betting summary</p>
+                    <SummaryInfoList
+                      items={[
+                        { label: "Edge", value: formatEdge(game.edge) },
+                        { label: "Bet type", value: formatBetTypeLabel(betType) },
+                        { label: "Recommendation", value: recommendedSide },
+                        { label: "Best odds", value: formatBestOddsSummary(game) },
+                        { label: "Model fair odds", value: fairOddsSummary }
+                      ]}
+                    />
+                  </section>
                 </article>
               )
             })}
@@ -1403,13 +1430,14 @@ export default function Home({ games = [], summary, error = "", sessionExpiresAt
         }
 
         .summaryCard {
-          padding: 20px;
+          padding: 22px;
           border-radius: 22px;
           border: 1px solid rgba(148, 163, 184, 0.16);
           background: rgba(15, 23, 42, 0.7);
           display: flex;
           flex-direction: column;
-          gap: 14px;
+          gap: 16px;
+          overflow-wrap: anywhere;
         }
 
         .summaryCard__header,
@@ -1424,7 +1452,7 @@ export default function Home({ games = [], summary, error = "", sessionExpiresAt
 
         .summaryCard__meta,
         .gameCard__meta {
-          margin-bottom: 8px;
+          margin: 0;
           font-size: 0.9rem;
         }
 
@@ -1446,7 +1474,8 @@ export default function Home({ games = [], summary, error = "", sessionExpiresAt
         }
 
         .summaryCard__title {
-          font-size: 1.35rem;
+          font-size: 1.3rem;
+          margin: 0;
         }
 
         .gameCard__title {
@@ -1460,6 +1489,110 @@ export default function Home({ games = [], summary, error = "", sessionExpiresAt
 
         .metricGrid {
           grid-template-columns: repeat(2, minmax(0, 1fr));
+        }
+
+        .summaryCard__header {
+          align-items: center;
+          gap: 12px;
+        }
+
+        .summaryCard__headerBadges {
+          display: flex;
+          flex-wrap: wrap;
+          gap: 8px;
+        }
+
+        .summaryCard__time {
+          margin: 0;
+          font-size: 0.86rem;
+          line-height: 1.45;
+          color: #cbd5e1;
+          text-align: right;
+        }
+
+        .summaryCard__section {
+          display: flex;
+          flex-direction: column;
+          gap: 10px;
+          padding-top: 12px;
+          border-top: 1px solid rgba(148, 163, 184, 0.14);
+        }
+
+        .summaryCard__section--matchup {
+          padding-top: 0;
+          border-top: 0;
+          gap: 8px;
+        }
+
+        .summaryCard__sectionTitle {
+          margin: 0;
+          font-size: 0.76rem;
+          letter-spacing: 0.08em;
+          text-transform: uppercase;
+          color: #94a3b8;
+          font-weight: 700;
+        }
+
+        .summaryStatStack {
+          display: grid;
+          gap: 10px;
+        }
+
+        .summaryStatLine {
+          display: grid;
+          gap: 4px;
+          min-width: 0;
+        }
+
+        .summaryStatLine__team {
+          font-size: 0.8rem;
+          font-weight: 700;
+          color: #e2e8f0;
+          line-height: 1.4;
+        }
+
+        .summaryStatLine__stats {
+          font-size: 0.9rem;
+          color: #94a3b8;
+          line-height: 1.55;
+          overflow-wrap: anywhere;
+        }
+
+        .summaryInfoList {
+          margin: 0;
+          display: grid;
+          grid-template-columns: repeat(2, minmax(0, 1fr));
+          gap: 10px 14px;
+        }
+
+        .summaryInfoList__item {
+          margin: 0;
+          min-width: 0;
+          padding: 10px 12px;
+          border-radius: 14px;
+          background: rgba(30, 41, 59, 0.6);
+          border: 1px solid rgba(148, 163, 184, 0.14);
+          display: grid;
+          gap: 6px;
+          align-content: start;
+        }
+
+        .summaryInfoList__label {
+          margin: 0;
+          font-size: 0.74rem;
+          font-weight: 700;
+          letter-spacing: 0.04em;
+          text-transform: uppercase;
+          color: #94a3b8;
+          line-height: 1.3;
+        }
+
+        .summaryInfoList__value {
+          margin: 0;
+          color: #f8fafc;
+          line-height: 1.5;
+          font-size: 0.92rem;
+          overflow-wrap: anywhere;
         }
 
         .gamesGrid {
@@ -1956,6 +2089,10 @@ export default function Home({ games = [], summary, error = "", sessionExpiresAt
           .tagRow--tight {
             justify-content: flex-start;
           }
+
+          .summaryCard__time {
+            text-align: left;
+          }
         }
 
         @media (max-width: 640px) {
@@ -1980,6 +2117,10 @@ export default function Home({ games = [], summary, error = "", sessionExpiresAt
           .comparisonTable__team,
           .comparisonTable__value {
             font-size: 0.76rem;
+          }
+
+          .summaryInfoList {
+            grid-template-columns: 1fr;
           }
         }
       `}</style>
