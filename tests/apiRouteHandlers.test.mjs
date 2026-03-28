@@ -683,6 +683,200 @@ test("fetchTeamOffenseStats tolerates transient team offense upstream failures",
   ))
 })
 
+test("loadHistorical ingests a custom season range including 2026 and writes metadata", { concurrency: false }, async () => {
+  process.env.ADMIN_API_SECRET = "test-admin-secret"
+
+  const handler = await importRoute("../pages/api/loadHistorical.js")
+  const redisMock = createMockRedis()
+
+  await withPatchedRedis(redisMock, async () => withMockedFetch(
+    async (url) => {
+      const target = String(url)
+      const season = Number(target.match(/season=(\d{4})/)?.[1])
+
+      if (season === 2025) {
+        return createJsonResponse({
+          body: {
+            dates: [{
+              games: [
+                {
+                  gameDate: "2025-07-01T23:00:00Z",
+                  gameType: "R",
+                  status: { detailedState: "Final" },
+                  teams: {
+                    home: { team: { name: "New York Yankees" }, score: 4 },
+                    away: { team: { name: "Boston Red Sox" }, score: 2 }
+                  }
+                },
+                {
+                  gameDate: "2025-03-05T18:00:00Z",
+                  gameType: "S",
+                  status: { detailedState: "Final" },
+                  teams: {
+                    home: { team: { name: "New York Yankees" }, score: 7 },
+                    away: { team: { name: "Boston Red Sox" }, score: 5 }
+                  }
+                }
+              ]
+            }]
+          }
+        })
+      }
+
+      if (season === 2026) {
+        return createJsonResponse({
+          body: {
+            dates: [{
+              games: [
+                {
+                  gameDate: "2026-04-01T17:10:00Z",
+                  gameType: "R",
+                  status: { detailedState: "Final" },
+                  teams: {
+                    home: { team: { name: "Chicago Cubs" }, score: 1 },
+                    away: { team: { name: "Arizona Diamondbacks" }, score: 3 }
+                  }
+                },
+                {
+                  gameDate: "2026-04-02T17:10:00Z",
+                  gameType: "R",
+                  status: { detailedState: "In Progress" },
+                  teams: {
+                    home: { team: { name: "Chicago Cubs" }, score: 0 },
+                    away: { team: { name: "Arizona Diamondbacks" }, score: 0 }
+                  }
+                },
+                {
+                  gameDate: "2026-04-03T17:10:00Z",
+                  gameType: "R",
+                  status: { detailedState: "Final" },
+                  teams: {
+                    home: { team: { name: "Chicago Cubs" }, score: 2 },
+                    away: { team: { name: "Omaha Storm Chasers" }, score: 1 }
+                  }
+                }
+              ]
+            }]
+          }
+        })
+      }
+
+      return createJsonResponse({ body: { dates: [] } })
+    },
+    async () => {
+      const req = createRequest({
+        query: {
+          startSeason: "2025",
+          endSeason: "2026"
+        }
+      })
+      const res = createMockResponse()
+
+      await handler(req, res)
+
+      assert.equal(res.statusCode, 200)
+      assert.deepEqual(res.body.seasonRange, {
+        startSeason: 2025,
+        endSeason: 2026
+      })
+      assert.deepEqual(res.body.keysWritten, [
+        "mlb:games:historical:2025",
+        "mlb:games:historical:2026",
+        "mlb:games:historical:meta"
+      ])
+      assert.equal(res.body.gamesCollected, 2)
+
+      assert.equal(redisMock.snapshot("mlb:games:historical:2025").length, 1)
+      assert.equal(redisMock.snapshot("mlb:games:historical:2026").length, 1)
+      assert.equal(redisMock.snapshot("mlb:games:historical:meta").startSeason, 2025)
+      assert.equal(redisMock.snapshot("mlb:games:historical:meta").endSeason, 2026)
+      assert.equal(redisMock.snapshot("mlb:games:historical:meta").totalGames, 2)
+      assert.equal(typeof redisMock.snapshot("mlb:games:historical:meta").loadedAt, "string")
+    }
+  ))
+})
+
+test("loadHistorical validates season range query parameters", { concurrency: false }, async () => {
+  process.env.ADMIN_API_SECRET = "test-admin-secret"
+  const handler = await importRoute("../pages/api/loadHistorical.js")
+  const currentYear = new Date().getUTCFullYear()
+
+  const invalidCases = [
+    {
+      query: { startSeason: "2026", endSeason: "2025" },
+      details: "startSeason must be less than or equal to endSeason"
+    },
+    {
+      query: { startSeason: "2015", endSeason: String(currentYear + 1) },
+      details: "endSeason cannot be greater than the current UTC year"
+    },
+    {
+      query: { startSeason: "not-a-year", endSeason: "2026" },
+      details: "startSeason and endSeason must be integer years"
+    }
+  ]
+
+  for (const invalidCase of invalidCases) {
+    const redisMock = createMockRedis()
+
+    await withPatchedRedis(redisMock, async () => {
+      const req = createRequest({ query: invalidCase.query })
+      const res = createMockResponse()
+
+      await handler(req, res)
+
+      assert.equal(res.statusCode, 400)
+      assert.equal(res.body.code, "INVALID_SEASON_RANGE")
+      assert.equal(res.body.details, invalidCase.details)
+    })
+  }
+})
+
+test("loadHistorical defaults to 2015 through current UTC year", { concurrency: false }, async () => {
+  process.env.ADMIN_API_SECRET = "test-admin-secret"
+  const handler = await importRoute("../pages/api/loadHistorical.js")
+  const redisMock = createMockRedis()
+  const fetchedSeasons = []
+  const currentYear = new Date().getUTCFullYear()
+
+  await withPatchedRedis(redisMock, async () => withMockedFetch(
+    async (url) => {
+      const season = Number(String(url).match(/season=(\d{4})/)?.[1])
+      fetchedSeasons.push(season)
+
+      return createJsonResponse({
+        body: {
+          dates: []
+        }
+      })
+    },
+    async () => {
+      const req = createRequest()
+      const res = createMockResponse()
+
+      await handler(req, res)
+
+      assert.equal(res.statusCode, 200)
+      assert.equal(res.body.seasonRange.startSeason, 2015)
+      assert.equal(res.body.seasonRange.endSeason, currentYear)
+      assert.equal(res.body.seasonsLoaded, (currentYear - 2015) + 1)
+      assert.equal(fetchedSeasons[0], 2015)
+      assert.equal(fetchedSeasons[fetchedSeasons.length - 1], currentYear)
+      assert.equal(fetchedSeasons.length, (currentYear - 2015) + 1)
+      assert.deepEqual(
+        res.body.keysWritten,
+        [
+          ...Array.from(
+            { length: (currentYear - 2015) + 1 },
+            (_, index) => `mlb:games:historical:${2015 + index}`
+          ),
+          "mlb:games:historical:meta"
+        ]
+      )
+    }
+  ))
+})
+
 test("runPipeline returns a redacted failed-step payload when a child route fails", { concurrency: false }, async () => {
   process.env.ADMIN_API_SECRET = "test-admin-secret"
   process.env.ODDS_API_KEY = "test-odds-key"

@@ -28,6 +28,39 @@ const LOAD_HISTORICAL_COOLDOWN = {
   routeName: "loadHistorical"
 }
 
+const DEFAULT_START_SEASON = 2015
+const MAX_SEASON_RANGE = 30
+
+function parseSeasonParam(rawValue, fallbackValue) {
+  if (rawValue === undefined) {
+    return {
+      ok: true,
+      value: fallbackValue
+    }
+  }
+
+  const normalizedValue = Array.isArray(rawValue) ? rawValue[0] : rawValue
+
+  if (typeof normalizedValue !== "string" || !/^\d+$/.test(normalizedValue)) {
+    return {
+      ok: false,
+      message: "startSeason and endSeason must be integer years"
+    }
+  }
+
+  return {
+    ok: true,
+    value: Number.parseInt(normalizedValue, 10)
+  }
+}
+
+function buildSeasonRange(startSeason, endSeason) {
+  return Array.from(
+    { length: (endSeason - startSeason) + 1 },
+    (_, index) => startSeason + index
+  )
+}
+
 export default async function handler(req, res) {
   if (!requireOperationalRouteAccess(req, res)) {
     return
@@ -50,10 +83,58 @@ export default async function handler(req, res) {
       return
     }
 
-    const seasons = [
-      2015,2016,2017,2018,2019,
-      2020,2021,2022,2023,2024,2025
-    ]
+    const currentUtcYear = new Date().getUTCFullYear()
+    const parsedStartSeason = parseSeasonParam(
+      req?.query?.startSeason,
+      DEFAULT_START_SEASON
+    )
+    const parsedEndSeason = parseSeasonParam(
+      req?.query?.endSeason,
+      currentUtcYear
+    )
+
+    if (!parsedStartSeason.ok || !parsedEndSeason.ok) {
+      res.status(400).json({
+        error: "Invalid season range",
+        code: "INVALID_SEASON_RANGE",
+        details: "startSeason and endSeason must be integer years"
+      })
+      return
+    }
+
+    const startSeason = parsedStartSeason.value
+    const endSeason = parsedEndSeason.value
+
+    if (startSeason > endSeason) {
+      res.status(400).json({
+        error: "Invalid season range",
+        code: "INVALID_SEASON_RANGE",
+        details: "startSeason must be less than or equal to endSeason"
+      })
+      return
+    }
+
+    if (endSeason > currentUtcYear) {
+      res.status(400).json({
+        error: "Invalid season range",
+        code: "INVALID_SEASON_RANGE",
+        details: "endSeason cannot be greater than the current UTC year"
+      })
+      return
+    }
+
+    const seasonCount = (endSeason - startSeason) + 1
+
+    if (seasonCount > MAX_SEASON_RANGE) {
+      res.status(400).json({
+        error: "Invalid season range",
+        code: "INVALID_SEASON_RANGE",
+        details: `season range cannot exceed ${MAX_SEASON_RANGE} seasons`
+      })
+      return
+    }
+
+    const seasons = buildSeasonRange(startSeason, endSeason)
 
     const MLB_TEAMS = [
       "Arizona Diamondbacks",
@@ -144,6 +225,13 @@ export default async function handler(req, res) {
       await redis.set(key, seasonGames)
     }
 
+    await redis.set("mlb:games:historical:meta", {
+      startSeason,
+      endSeason,
+      loadedAt: new Date().toISOString(),
+      totalGames
+    })
+
     await markCooldown(
       redis,
       LOAD_HISTORICAL_COOLDOWN.key,
@@ -152,7 +240,15 @@ export default async function handler(req, res) {
 
     res.status(200).json({
       seasonsLoaded: seasons.length,
-      gamesCollected: totalGames
+      gamesCollected: totalGames,
+      seasonRange: {
+        startSeason,
+        endSeason
+      },
+      keysWritten: [
+        ...seasons.map((season) => `mlb:games:historical:${season}`),
+        "mlb:games:historical:meta"
+      ]
     })
   } catch (error) {
     return sendRouteError(res, "loadHistorical", error)
