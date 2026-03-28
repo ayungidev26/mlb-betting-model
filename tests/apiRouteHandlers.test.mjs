@@ -549,10 +549,14 @@ test("fetchOdds selective refresh falls back to fetched odds when cache is empty
   process.env.ADMIN_API_SECRET = "test-admin-secret"
   process.env.ODDS_API_KEY = "test-odds-key"
 
+  const originalNow = Date.now
+  Date.now = () => Date.parse("2025-04-11T00:00:00Z")
+
   const handler = await importRoute("../pages/api/fetchOdds.js")
   const redisMock = createMockRedis()
 
-  await withPatchedRedis(redisMock, async () => withMockedFetch(
+  try {
+    await withPatchedRedis(redisMock, async () => withMockedFetch(
     async () => createJsonResponse({
       body: [
         createOddsApiGame({
@@ -587,6 +591,71 @@ test("fetchOdds selective refresh falls back to fetched odds when cache is empty
       assert.equal(redisMock.snapshot("mlb:odds:today").length, 2)
     }
   ))
+  } finally {
+    Date.now = originalNow
+  }
+})
+
+
+test("fetchOdds selective refresh deterministically drops invalid commenceTime records", { concurrency: false }, async () => {
+  process.env.ADMIN_API_SECRET = "test-admin-secret"
+  process.env.ODDS_API_KEY = "test-odds-key"
+
+  const originalNow = Date.now
+  Date.now = () => Date.parse("2025-04-11T00:00:00Z")
+
+  const handler = await importRoute("../pages/api/fetchOdds.js")
+  const redisMock = createMockRedis([
+    ["mlb:odds:today", [
+      {
+        gameId: "invalid-cache",
+        matchKey: "invalid-cache-match-key",
+        commenceTime: "invalid-cache-time",
+        homeTeam: "Cache Home",
+        awayTeam: "Cache Away",
+        homeMoneyline: -120,
+        awayMoneyline: 100,
+        sportsbook: "draftkings",
+        lastUpdated: "2025-04-10T23:00:00Z"
+      }
+    ]]
+  ])
+
+  try {
+    await withPatchedRedis(redisMock, async () => withMockedFetch(
+      async () => createJsonResponse({
+        body: [
+          createOddsApiGame({
+            id: "valid-fetched",
+            commenceTime: "2025-04-11T00:30:00Z",
+            homeTeam: "Fetched Home Valid",
+            awayTeam: "Fetched Away Valid",
+            homePrice: -145,
+            awayPrice: 125
+          })
+        ]
+      }),
+      async () => {
+        const req = createRequest({ query: { refresh: "true" } })
+        const res = createMockResponse()
+
+        await handler(req, res)
+
+        assert.equal(res.statusCode, 200)
+        assert.equal(res.body.refreshMode, "selective")
+        assert.equal(res.body.updatedUpcoming, 1)
+        assert.equal(res.body.preservedStarted, 0)
+        assert.equal(res.body.droppedInvalid, 1)
+
+        const storedOdds = redisMock.snapshot("mlb:odds:today")
+
+        assert.equal(storedOdds.length, 1)
+        assert.equal(storedOdds[0].gameId, "valid-fetched")
+      }
+    ))
+  } finally {
+    Date.now = originalNow
+  }
 })
 
 test("fetchOdds selective refresh uses a two-minute buffer around game start boundaries", { concurrency: false }, async () => {

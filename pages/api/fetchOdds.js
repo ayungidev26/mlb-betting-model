@@ -9,6 +9,7 @@ import { requireOperationalRouteAccess } from "../../lib/apiSecurity.js"
 import { sendRouteError } from "../../lib/apiErrors.js"
 import { buildOddsApiUrl } from "../../lib/oddsApi.js"
 import { fetchJsonWithRetry } from "../../lib/upstreamFetch.js"
+import { splitOddsByStartStatus } from "../../lib/oddsTime.js"
 import {
   enforceCooldown,
   enforceIpRateLimit,
@@ -34,7 +35,7 @@ const FETCH_ODDS_COOLDOWN = {
   cooldownSeconds: 30,
   routeName: "fetchOdds"
 }
-const STARTED_GAME_BUFFER_MS = 2 * 60 * 1000
+const STARTED_GAME_BUFFER_MINUTES = 2
 
 function normalizeStoredOddsRecords(records) {
   validateRecordArray(records, validateCanonicalOddsRecord, "Cached odds records")
@@ -42,24 +43,6 @@ function normalizeStoredOddsRecords(records) {
   return records
     .map(record => toCanonicalOddsRecord(record))
     .filter(Boolean)
-}
-
-function parseCommenceTimeMillis(commenceTime) {
-  const millis = Date.parse(commenceTime)
-
-  return Number.isFinite(millis)
-    ? millis
-    : null
-}
-
-function isStartedGame(commenceTime, nowMillis) {
-  const commenceMillis = parseCommenceTimeMillis(commenceTime)
-
-  if (commenceMillis === null) {
-    return null
-  }
-
-  return commenceMillis <= (nowMillis - STARTED_GAME_BUFFER_MS)
 }
 
 function dedupeByMatchKey(records) {
@@ -78,53 +61,42 @@ function dedupeByMatchKey(records) {
 // - invalid/undated records are dropped from merge output.
 function buildSelectiveRefreshOdds(existingOdds, fetchedOdds, nowMillis = Date.now()) {
   if (!existingOdds.length) {
+    const splitFetchedOdds = splitOddsByStartStatus(
+      dedupeByMatchKey(fetchedOdds),
+      nowMillis,
+      STARTED_GAME_BUFFER_MINUTES
+    )
+
     return {
-      odds: fetchedOdds,
-      updatedUpcoming: fetchedOdds.length,
+      odds: [
+        ...splitFetchedOdds.started,
+        ...splitFetchedOdds.upcoming
+      ],
+      updatedUpcoming: splitFetchedOdds.upcoming.length,
       preservedStarted: 0,
-      droppedInvalid: 0
+      droppedInvalid: splitFetchedOdds.invalidCount
     }
   }
 
-  const startedCachedOdds = []
-  let droppedInvalid = 0
-
-  for (const cachedRecord of dedupeByMatchKey(existingOdds)) {
-    const started = isStartedGame(cachedRecord.commenceTime, nowMillis)
-
-    if (started === null) {
-      droppedInvalid += 1
-      continue
-    }
-
-    if (started) {
-      startedCachedOdds.push(cachedRecord)
-    }
-  }
-
-  const upcomingFetchedOdds = []
-
-  for (const fetchedRecord of dedupeByMatchKey(fetchedOdds)) {
-    const started = isStartedGame(fetchedRecord.commenceTime, nowMillis)
-
-    if (started === null) {
-      droppedInvalid += 1
-      continue
-    }
-
-    if (!started) {
-      upcomingFetchedOdds.push(fetchedRecord)
-    }
-  }
+  const splitCachedOdds = splitOddsByStartStatus(
+    dedupeByMatchKey(existingOdds),
+    nowMillis,
+    STARTED_GAME_BUFFER_MINUTES
+  )
+  const splitFetchedOdds = splitOddsByStartStatus(
+    dedupeByMatchKey(fetchedOdds),
+    nowMillis,
+    STARTED_GAME_BUFFER_MINUTES
+  )
 
   return {
     odds: [
-      ...startedCachedOdds,
-      ...upcomingFetchedOdds
+      ...splitCachedOdds.started,
+      ...splitFetchedOdds.upcoming
     ],
-    updatedUpcoming: upcomingFetchedOdds.length,
-    preservedStarted: startedCachedOdds.length,
-    droppedInvalid
+    updatedUpcoming: splitFetchedOdds.upcoming.length,
+    preservedStarted: splitCachedOdds.started.length,
+    droppedInvalid: splitCachedOdds.invalidCount + splitFetchedOdds.invalidCount
   }
 }
 
