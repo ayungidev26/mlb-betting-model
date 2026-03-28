@@ -296,6 +296,10 @@ function formatBestOddsSummary(game) {
   return `${sportsbook} (${odds})`
 }
 
+function getGameIdentifier(game, index = 0) {
+  return game?.matchKey || game?.gameId || `${game?.homeTeam}-${game?.awayTeam}-${index}`
+}
+
 function getBallparkSummary(ballpark) {
   if (!ballpark) {
     return "Neutral park baseline"
@@ -570,6 +574,145 @@ function OffenseComparison({ awayTeam, homeTeam, awayOffense, homeOffense }) {
   )
 }
 
+function GameDetailCard({ game, edgeTier, recommendedSide, betType, index = 0 }) {
+  const awayPitcherDetails = game.pitcherModel?.away || null
+  const homePitcherDetails = game.pitcherModel?.home || null
+  const awayBullpenDetails = game.bullpenModel?.away || null
+  const homeBullpenDetails = game.bullpenModel?.home || null
+  const ballparkModel = game.ballparkModel || null
+  const awayOffenseDetails = game.offenseModel?.away || null
+  const homeOffenseDetails = game.offenseModel?.home || null
+  const oddsComparison = getOddsComparison(game)
+
+  return (
+    <article
+      className={`gameCard gameCard--${edgeTier.tone}`}
+      key={getGameIdentifier(game, index)}
+    >
+      <div className="gameCard__header">
+        <div>
+          <p className="gameCard__meta">{formatGameTime(game.date)}</p>
+          <h2 className="gameCard__title">
+            <span>{game.awayTeam}</span>
+            <span className="vs">@</span>
+            <span>{game.homeTeam}</span>
+          </h2>
+          <p className="gameCard__submeta">{getBallparkSummary(game.ballpark)}</p>
+        </div>
+        <div className="tagRow tagRow--tight">
+          <span className="tag tag--muted">{formatBetTypeLabel(betType)}</span>
+          <span className={`tag tag--${edgeTier.tone}`}>{edgeTier.label}</span>
+        </div>
+      </div>
+
+      <div className="gameCard__body">
+        <SectionBlock
+          kicker="Matchup"
+          title="Projected winner odds"
+          subtitle="Starter snapshot"
+        >
+          <div className="stack">
+            <PitcherPanel
+              side="Away"
+              team={game.awayTeam}
+              pitcher={game.awayPitcher}
+              probability={game.awayWinProbability}
+              details={awayPitcherDetails}
+            />
+
+            <PitcherPanel
+              side="Home"
+              team={game.homeTeam}
+              pitcher={game.homePitcher}
+              probability={game.homeWinProbability}
+              details={homePitcherDetails}
+            />
+          </div>
+        </SectionBlock>
+
+        <SectionBlock
+          kicker="Offense"
+          title="Lineup comparison"
+          subtitle="Quick team strength snapshot"
+        >
+          <OffenseComparison
+            awayTeam={game.awayTeam}
+            homeTeam={game.homeTeam}
+            awayOffense={awayOffenseDetails}
+            homeOffense={homeOffenseDetails}
+          />
+        </SectionBlock>
+
+        <SectionBlock
+          kicker="Context"
+          title="Pitching and bullpen"
+          subtitle="Model inputs"
+        >
+          <div className="stack">
+            <InfoList
+              items={[
+                { label: `${game.awayTeam} starter`, value: getPitcherStatLine(awayPitcherDetails?.stats) },
+                { label: `${game.homeTeam} starter`, value: getPitcherStatLine(homePitcherDetails?.stats) }
+              ]}
+            />
+            <InfoList
+              items={[
+                { label: `${game.awayTeam} bullpen`, value: getBullpenSummary(awayBullpenDetails) },
+                { label: `${game.homeTeam} bullpen`, value: getBullpenSummary(homeBullpenDetails) }
+              ]}
+            />
+          </div>
+        </SectionBlock>
+
+        <SectionBlock
+          kicker="Environment"
+          title="Ballpark factors"
+          subtitle="Venue-adjusted offense context"
+        >
+          <div className="stack">
+            <BallparkPanel ballpark={game.ballpark} venue={game.venue} />
+            <InfoList
+              items={[
+                { label: `${game.awayTeam} park impact`, value: getBallparkAdjustmentSummary(ballparkModel?.away) },
+                { label: `${game.homeTeam} park impact`, value: getBallparkAdjustmentSummary(ballparkModel?.home) },
+                { label: "LHH factor", value: formatFactor(game.ballpark?.leftHandedHitterFactor) },
+                { label: "RHH factor", value: formatFactor(game.ballpark?.rightHandedHitterFactor) }
+              ]}
+            />
+          </div>
+        </SectionBlock>
+
+        <SectionBlock
+          kicker="Edge"
+          title="Bet summary"
+          subtitle="Recommendation"
+        >
+          <div className="stack">
+            <div className="detailCard detailCard--highlight">
+              <p className="detailCard__eyebrow">Recommended side</p>
+              <h4 className="detailCard__hero">{recommendedSide}</h4>
+              <p className="detailCard__copy">
+                {oddsComparison.bestSportsbook
+                  ? `Best book: ${oddsComparison.bestSportsbook}`
+                  : "Sportsbook line pending"}
+              </p>
+            </div>
+
+            <div className="metricGrid">
+              <DashboardStat label="Model edge" value={formatEdge(game.edge)} emphasis tone={edgeTier.tone} />
+              <DashboardStat label="Best odds" value={oddsComparison.bestOdds} tone={edgeTier.tone} />
+              <DashboardStat label="DraftKings" value={oddsComparison.draftKingsOdds} tone="muted" />
+              <DashboardStat label="FanDuel" value={oddsComparison.fanDuelOdds} tone="muted" />
+              <DashboardStat label="Fair odds" value={oddsComparison.modelOdds} tone="muted" />
+              <DashboardStat label="Recommendation" value={game.recommendation || recommendedSide} tone={edgeTier.tone} />
+            </div>
+          </div>
+        </SectionBlock>
+      </div>
+    </article>
+  )
+}
+
 function LoadingSkeleton({ count = 3 }) {
   return (
     <section className="gamesGrid" aria-label="Loading predictions">
@@ -659,6 +802,7 @@ export default function Home({ games = [], summary, error = "", sessionExpiresAt
     isRefreshing: false,
     error: error || ""
   })
+  const [selectedGameIdentifier, setSelectedGameIdentifier] = useState(null)
 
   useEffect(() => {
     let isActive = true
@@ -720,6 +864,26 @@ export default function Home({ games = [], summary, error = "", sessionExpiresAt
   const noEdgeDisplay = showCountPlaceholder ? "—" : String(noEdgeCount)
   const headingDateDisplay = formatTodayHeadingDate()
   const showEmptyState = !showInitialLoading && !fetchState.error && !hasGames
+  const selectedGameData = useMemo(() => {
+    if (!selectedGameIdentifier) {
+      return null
+    }
+
+    const selectedIndex = displayedGames.findIndex((game, index) => (
+      getGameIdentifier(game, index) === selectedGameIdentifier
+    ))
+
+    if (selectedIndex < 0) {
+      return null
+    }
+
+    return {
+      game: displayedGames[selectedIndex],
+      index: selectedIndex
+    }
+  }, [displayedGames, selectedGameIdentifier])
+
+  const isGameModalOpen = Boolean(selectedGameData)
 
   const handleGoToStats = useCallback(() => {
     router.push("/stats")
@@ -762,6 +926,41 @@ export default function Home({ games = [], summary, error = "", sessionExpiresAt
       window.clearTimeout(timeoutId)
     }
   }, [handleLogout, sessionExpiresAt])
+
+  useEffect(() => {
+    if (!selectedGameIdentifier) {
+      return undefined
+    }
+
+    const gameStillVisible = displayedGames.some((game, index) => (
+      getGameIdentifier(game, index) === selectedGameIdentifier
+    ))
+
+    if (!gameStillVisible) {
+      setSelectedGameIdentifier(null)
+    }
+  }, [displayedGames, selectedGameIdentifier])
+
+  useEffect(() => {
+    if (!isGameModalOpen) {
+      return undefined
+    }
+
+    const handleEscape = (event) => {
+      if (event.key === "Escape") {
+        setSelectedGameIdentifier(null)
+      }
+    }
+
+    const previousOverflow = document.body.style.overflow
+    document.body.style.overflow = "hidden"
+    window.addEventListener("keydown", handleEscape)
+
+    return () => {
+      document.body.style.overflow = previousOverflow
+      window.removeEventListener("keydown", handleEscape)
+    }
+  }, [isGameModalOpen])
 
   return (
     <main className="dashboard">
@@ -823,6 +1022,7 @@ export default function Home({ games = [], summary, error = "", sessionExpiresAt
           <div className="sectionIntro">
             <div>
               <h2 className="sectionTitle">Today&apos;s Games · {headingDateDisplay}</h2>
+              <p className="sectionIntro__copy">Select a game card to open the full matchup breakdown.</p>
             </div>
             <div className="sectionStats">
               <span className="tag tag--muted">Today&apos;s Games {todayGamesDisplay}</span>
@@ -834,6 +1034,7 @@ export default function Home({ games = [], summary, error = "", sessionExpiresAt
 
           <div className="summaryGrid">
             {topPlays.map((game, index) => {
+              const gameIdentifier = getGameIdentifier(game, index)
               const edgeTier = getEdgeTier(game.edge)
               const recommendedSide = game.recommendedBet || edgeTier.recommendation
               const betType = getGameBetType(game)
@@ -850,7 +1051,17 @@ export default function Home({ games = [], summary, error = "", sessionExpiresAt
               return (
                 <article
                   className={`summaryCard summaryCard--${edgeTier.tone}`}
-                  key={`top-play-${game.matchKey || game.gameId || `${game.homeTeam}-${game.awayTeam}-${index}`}`}
+                  key={`top-play-${gameIdentifier}`}
+                  role="button"
+                  tabIndex={0}
+                  onClick={() => setSelectedGameIdentifier(gameIdentifier)}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter" || event.key === " ") {
+                      event.preventDefault()
+                      setSelectedGameIdentifier(gameIdentifier)
+                    }
+                  }}
+                  aria-label={`Open game details for ${game.awayTeam} at ${game.homeTeam}`}
                 >
                   <div className="summaryCard__header">
                     <div className="summaryCard__headerBadges">
@@ -912,150 +1123,38 @@ export default function Home({ games = [], summary, error = "", sessionExpiresAt
         <EmptyState message={activeSummary?.message} isRefreshing={fetchState.isRefreshing} />
       )}
 
-      {!showInitialLoading && !fetchState.error && hasDisplayedGames && (
-        <section className="gamesGrid" aria-label="Model predictions dashboard">
-          {displayedGames.map((game, index) => {
-            const edgeTier = getEdgeTier(game.edge)
-            const recommendedSide = game.recommendedBet || edgeTier.recommendation
-            const awayPitcherDetails = game.pitcherModel?.away || null
-            const homePitcherDetails = game.pitcherModel?.home || null
-            const awayBullpenDetails = game.bullpenModel?.away || null
-            const homeBullpenDetails = game.bullpenModel?.home || null
-            const ballparkModel = game.ballparkModel || null
-            const awayOffenseDetails = game.offenseModel?.away || null
-            const homeOffenseDetails = game.offenseModel?.home || null
-            const oddsComparison = getOddsComparison(game)
-            const betType = getGameBetType(game)
-
-            return (
-              <article
-                className={`gameCard gameCard--${edgeTier.tone}`}
-                key={game.matchKey || game.gameId || `${game.homeTeam}-${game.awayTeam}-${index}`}
+      {!showInitialLoading && !fetchState.error && hasDisplayedGames && isGameModalOpen && selectedGameData && (
+        <div
+          className="gameDetailsModal"
+          role="dialog"
+          aria-modal="true"
+          aria-label={`Game details for ${selectedGameData.game.awayTeam} at ${selectedGameData.game.homeTeam}`}
+          onClick={() => setSelectedGameIdentifier(null)}
+        >
+          <div
+            className="gameDetailsModal__panel"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="gameDetailsModal__header">
+              <h3 className="gameDetailsModal__title">Game breakdown</h3>
+              <button
+                type="button"
+                className="gameDetailsModal__close"
+                onClick={() => setSelectedGameIdentifier(null)}
               >
-                <div className="gameCard__header">
-                  <div>
-                    <p className="gameCard__meta">{formatGameTime(game.date)}</p>
-                    <h2 className="gameCard__title">
-                      <span>{game.awayTeam}</span>
-                      <span className="vs">@</span>
-                      <span>{game.homeTeam}</span>
-                    </h2>
-                    <p className="gameCard__submeta">{getBallparkSummary(game.ballpark)}</p>
-                  </div>
-                  <div className="tagRow tagRow--tight">
-                    <span className="tag tag--muted">{formatBetTypeLabel(betType)}</span>
-                    <span className={`tag tag--${edgeTier.tone}`}>{edgeTier.label}</span>
-                  </div>
-                </div>
+                Close
+              </button>
+            </div>
 
-                <div className="gameCard__body">
-                  <SectionBlock
-                    kicker="Matchup"
-                    title="Projected winner odds"
-                    subtitle="Starter snapshot"
-                  >
-                    <div className="stack">
-                      <PitcherPanel
-                        side="Away"
-                        team={game.awayTeam}
-                        pitcher={game.awayPitcher}
-                        probability={game.awayWinProbability}
-                        details={awayPitcherDetails}
-                      />
-
-                      <PitcherPanel
-                        side="Home"
-                        team={game.homeTeam}
-                        pitcher={game.homePitcher}
-                        probability={game.homeWinProbability}
-                        details={homePitcherDetails}
-                      />
-                    </div>
-                  </SectionBlock>
-
-                  <SectionBlock
-                    kicker="Offense"
-                    title="Lineup comparison"
-                    subtitle="Quick team strength snapshot"
-                  >
-                    <OffenseComparison
-                      awayTeam={game.awayTeam}
-                      homeTeam={game.homeTeam}
-                      awayOffense={awayOffenseDetails}
-                      homeOffense={homeOffenseDetails}
-                    />
-                  </SectionBlock>
-
-                  <SectionBlock
-                    kicker="Context"
-                    title="Pitching and bullpen"
-                    subtitle="Model inputs"
-                  >
-                    <div className="stack">
-                      <InfoList
-                        items={[
-                          { label: `${game.awayTeam} starter`, value: getPitcherStatLine(awayPitcherDetails?.stats) },
-                          { label: `${game.homeTeam} starter`, value: getPitcherStatLine(homePitcherDetails?.stats) }
-                        ]}
-                      />
-                      <InfoList
-                        items={[
-                          { label: `${game.awayTeam} bullpen`, value: getBullpenSummary(awayBullpenDetails) },
-                          { label: `${game.homeTeam} bullpen`, value: getBullpenSummary(homeBullpenDetails) }
-                        ]}
-                      />
-                    </div>
-                  </SectionBlock>
-
-                  <SectionBlock
-                    kicker="Environment"
-                    title="Ballpark factors"
-                    subtitle="Venue-adjusted offense context"
-                  >
-                    <div className="stack">
-                      <BallparkPanel ballpark={game.ballpark} venue={game.venue} />
-                      <InfoList
-                        items={[
-                          { label: `${game.awayTeam} park impact`, value: getBallparkAdjustmentSummary(ballparkModel?.away) },
-                          { label: `${game.homeTeam} park impact`, value: getBallparkAdjustmentSummary(ballparkModel?.home) },
-                          { label: "LHH factor", value: formatFactor(game.ballpark?.leftHandedHitterFactor) },
-                          { label: "RHH factor", value: formatFactor(game.ballpark?.rightHandedHitterFactor) }
-                        ]}
-                      />
-                    </div>
-                  </SectionBlock>
-
-                  <SectionBlock
-                    kicker="Edge"
-                    title="Bet summary"
-                    subtitle="Recommendation"
-                  >
-                    <div className="stack">
-                      <div className="detailCard detailCard--highlight">
-                        <p className="detailCard__eyebrow">Recommended side</p>
-                        <h4 className="detailCard__hero">{recommendedSide}</h4>
-                        <p className="detailCard__copy">
-                          {oddsComparison.bestSportsbook
-                            ? `Best book: ${oddsComparison.bestSportsbook}`
-                            : "Sportsbook line pending"}
-                        </p>
-                      </div>
-
-                      <div className="metricGrid">
-                        <DashboardStat label="Model edge" value={formatEdge(game.edge)} emphasis tone={edgeTier.tone} />
-                        <DashboardStat label="Best odds" value={oddsComparison.bestOdds} tone={edgeTier.tone} />
-                        <DashboardStat label="DraftKings" value={oddsComparison.draftKingsOdds} tone="muted" />
-                        <DashboardStat label="FanDuel" value={oddsComparison.fanDuelOdds} tone="muted" />
-                        <DashboardStat label="Fair odds" value={oddsComparison.modelOdds} tone="muted" />
-                        <DashboardStat label="Recommendation" value={game.recommendation || recommendedSide} tone={edgeTier.tone} />
-                      </div>
-                    </div>
-                  </SectionBlock>
-                </div>
-              </article>
-            )
-          })}
-        </section>
+            <GameDetailCard
+              game={selectedGameData.game}
+              edgeTier={getEdgeTier(selectedGameData.game.edge)}
+              recommendedSide={selectedGameData.game.recommendedBet || getEdgeTier(selectedGameData.game.edge).recommendation}
+              betType={getGameBetType(selectedGameData.game)}
+              index={selectedGameData.index}
+            />
+          </div>
+        </div>
       )}
 
       <style jsx>{`
@@ -1410,6 +1509,19 @@ export default function Home({ games = [], summary, error = "", sessionExpiresAt
           flex-direction: column;
           gap: 16px;
           overflow-wrap: anywhere;
+          cursor: pointer;
+          transition: transform 0.2s ease, border-color 0.2s ease, background 0.2s ease;
+        }
+
+        .summaryCard:hover {
+          transform: translateY(-2px);
+          border-color: rgba(96, 165, 250, 0.55);
+          background: rgba(15, 23, 42, 0.88);
+        }
+
+        .summaryCard:focus-visible {
+          outline: 2px solid rgba(147, 197, 253, 0.9);
+          outline-offset: 2px;
         }
 
         .summaryCard__header,
@@ -1570,6 +1682,57 @@ export default function Home({ games = [], summary, error = "", sessionExpiresAt
         .gamesGrid {
           display: grid;
           gap: 18px;
+        }
+
+        .gameDetailsModal {
+          position: fixed;
+          inset: 0;
+          z-index: 80;
+          background: rgba(2, 6, 23, 0.82);
+          backdrop-filter: blur(6px);
+          padding: 24px;
+          display: flex;
+          justify-content: center;
+          align-items: flex-start;
+          overflow-y: auto;
+        }
+
+        .gameDetailsModal__panel {
+          width: min(1320px, 100%);
+          display: grid;
+          gap: 14px;
+          margin: 0 auto;
+        }
+
+        .gameDetailsModal__header {
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          gap: 12px;
+        }
+
+        .gameDetailsModal__title {
+          margin: 0;
+          font-size: 1rem;
+          letter-spacing: 0.08em;
+          text-transform: uppercase;
+          color: #cbd5e1;
+        }
+
+        .gameDetailsModal__close {
+          border: 1px solid rgba(148, 163, 184, 0.28);
+          background: rgba(15, 23, 42, 0.88);
+          color: #e2e8f0;
+          border-radius: 999px;
+          padding: 8px 12px;
+          font-size: 0.82rem;
+          font-weight: 700;
+          cursor: pointer;
+        }
+
+        .gameDetailsModal__close:hover {
+          border-color: rgba(96, 165, 250, 0.55);
+          background: rgba(30, 41, 59, 0.96);
         }
 
         .gameCard {
@@ -2077,6 +2240,14 @@ export default function Home({ games = [], summary, error = "", sessionExpiresAt
           .gameCard,
           .emptyState {
             padding: 20px;
+          }
+
+          .gameDetailsModal {
+            padding: 12px;
+          }
+
+          .gameDetailsModal__panel {
+            gap: 10px;
           }
 
           .comparisonTable__header,
