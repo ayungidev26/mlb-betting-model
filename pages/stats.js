@@ -1,4 +1,3 @@
-import Link from "next/link"
 import { useRouter } from "next/router"
 import { useEffect, useMemo, useState } from "react"
 
@@ -27,12 +26,20 @@ function formatDateTime(value) {
     return String(value)
   }
 
-  return parsed.toLocaleString("en-US", {
-    month: "short",
+  const datePart = parsed.toLocaleDateString("en-US", {
+    month: "long",
     day: "numeric",
-    hour: "numeric",
-    minute: "2-digit"
+    year: "numeric",
+    timeZone: "America/New_York"
   })
+  const timePart = parsed.toLocaleTimeString("en-US", {
+    hour: "numeric",
+    minute: "2-digit",
+    hour12: true,
+    timeZone: "America/New_York"
+  })
+
+  return `${datePart} at ${timePart} ET`
 }
 
 function flattenRecord(record, prefix = "") {
@@ -387,36 +394,54 @@ export default function StatsPage() {
   )
   const activeSection = SECTION_ORDER.find((section) => section.key === activeTab) || SECTION_ORDER[0]
 
+  const handleLogout = async () => {
+    try {
+      await fetch("/api/logout", {
+        method: "POST"
+      })
+    } catch (logoutError) {
+      // Allow redirect even when logout network calls fail.
+    } finally {
+      await router.push("/login")
+    }
+  }
+
   return (
     <main className="dashboard">
-      <section className="hero shellCard">
-        <div className="hero__content">
-          <nav className="viewTabs" aria-label="Primary">
-            <Link href="/" className="viewTabs__link">Today&apos;s Games</Link>
-            <Link href="/stats" className="viewTabs__link viewTabs__link--active" aria-current="page">Stats</Link>
-          </nav>
-          <p className="eyebrow">Model input inspection</p>
-          <h1>Stats</h1>
-          <p className="hero__copy">Read-only view of the latest cached starting pitcher, bullpen, and offense inputs used by the model.</p>
-          <nav className="statsTabs" aria-label="Stats categories">
-            {SECTION_ORDER.map((section) => {
-              const isActive = section.key === activeTab
-              return (
-                <button
-                  key={section.key}
-                  type="button"
-                  className={`statsTabs__button${isActive ? " statsTabs__button--active" : ""}`}
-                  aria-pressed={isActive}
-                  onClick={() => setTab(section.key)}
-                >
-                  {section.title}
-                </button>
-              )
-            })}
-          </nav>
+      <section className="topNav shellCard">
+        <div className="topNav__masthead">
+          <h1 className="topNav__title">MLB Betting Edges</h1>
+          <button
+            type="button"
+            className="actionButton actionButton--button"
+            onClick={handleLogout}
+          >
+            Logout
+          </button>
         </div>
+      </section>
 
-        <div className="hero__stats">
+      <nav className="actionRow" aria-label="Dashboard sections">
+        <button
+          type="button"
+          className="actionButton actionButton--button"
+          onClick={() => router.push("/")}
+        >
+          Today&apos;s Games
+        </button>
+        <button
+          type="button"
+          className="actionButton actionButton--button actionButton--active"
+          aria-current="page"
+        >
+          Stats
+        </button>
+      </nav>
+
+      <section className="shellCard statsOverview">
+        <p className="eyebrow">Model input inspection</p>
+        <p className="statsOverview__copy">Read-only view of the latest cached starting pitcher, bullpen, and offense inputs used by the model.</p>
+        <div className="statsOverview__grid">
           {SECTION_ORDER.map((section) => {
             const details = state.sections?.[section.key]
             const isActive = section.key === activeTab
@@ -486,67 +511,50 @@ export default function StatsPage() {
       <style jsx>{`
         .dashboard { padding: 32px 20px 64px; display: grid; gap: 18px; max-width: 1400px; margin: 0 auto; }
         .shellCard { border-radius: 18px; padding: 24px; border: 1px solid rgba(148, 163, 184, 0.2); background: rgba(15, 23, 42, 0.82); }
-        .hero { display: grid; gap: 16px; }
-        .hero__stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 12px; }
-        .hero__copy { margin: 0; color: #cbd5e1; }
-        .eyebrow { margin: 0 0 8px; text-transform: uppercase; font-size: 0.75rem; letter-spacing: 0.08em; color: #93c5fd; }
-        h1 { margin: 0 0 8px; }
-        .statsTabs { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 14px; }
-        .statsTabs__button {
-          appearance: none;
-          border: 1px solid rgba(148, 163, 184, 0.35);
-          background: rgba(15, 23, 42, 0.8);
-          color: #cbd5e1;
-          border-radius: 999px;
-          padding: 8px 14px;
-          font-weight: 600;
-          font-size: 0.88rem;
-          cursor: pointer;
-          transition: border-color 0.2s ease, background 0.2s ease, color 0.2s ease, transform 0.2s ease;
-        }
-        .statsTabs__button:hover { border-color: rgba(125, 211, 252, 0.65); transform: translateY(-1px); }
-        .statsTabs__button:focus-visible { outline: 2px solid rgba(125, 211, 252, 0.95); outline-offset: 2px; }
-        .statsTabs__button--active {
-          color: #0f172a;
-          border-color: rgba(96, 165, 250, 0.95);
-          background: linear-gradient(135deg, #bae6fd, #60a5fa);
-        }
-        .viewTabs { display: inline-flex; gap: 10px; flex-wrap: wrap; margin-bottom: 12px; }
-        .viewTabs__link {
+        .topNav { display: grid; gap: 14px; padding: 20px 24px; }
+        .topNav__masthead { display: flex; justify-content: space-between; align-items: center; gap: 16px; }
+        .topNav__title { margin: 0; font-size: clamp(1.6rem, 3vw, 2.2rem); }
+        .actionButton {
           display: inline-flex;
           align-items: center;
           justify-content: center;
-          min-width: 118px;
-          padding: 9px 16px;
-          border-radius: 12px;
-          border: 1px solid rgba(148, 163, 184, 0.3);
-          background: rgba(30, 41, 59, 0.88);
-          box-shadow: 0 8px 18px rgba(2, 6, 23, 0.28);
+          min-width: 132px;
+          padding: 10px 16px;
+          border-radius: 999px;
+          border: 1px solid rgba(148, 163, 184, 0.28);
+          background: rgba(15, 23, 42, 0.78);
           text-decoration: none;
-          color: #cbd5e1;
-          font-weight: 600;
-          font-size: 0.92rem;
-          transition: transform 0.2s ease, border-color 0.2s ease, background 0.2s ease, color 0.2s ease;
+          color: #e2e8f0;
+          font-weight: 700;
+          font-size: 0.9rem;
+          line-height: 1.2;
+          transition: background 0.2s ease, border-color 0.2s ease, transform 0.2s ease;
         }
-        .viewTabs__link:hover { transform: translateY(-1px); border-color: rgba(125, 211, 252, 0.6); background: rgba(51, 65, 85, 0.95); }
-        .viewTabs__link:focus-visible { outline: 2px solid rgba(125, 211, 252, 0.95); outline-offset: 3px; }
-        .viewTabs__link--active { color: #0f172a; border-color: rgba(96, 165, 250, 0.9); background: linear-gradient(135deg, #93c5fd, #60a5fa); }
+        .actionButton:hover { transform: translateY(-1px); border-color: rgba(96, 165, 250, 0.45); background: rgba(30, 41, 59, 0.96); }
+        .actionButton:focus-visible { outline: 2px solid rgba(147, 197, 253, 0.9); outline-offset: 3px; }
+        .actionButton--button { font: inherit; cursor: pointer; }
+        .actionButton--active { border-color: rgba(96, 165, 250, 0.9); background: rgba(30, 64, 175, 0.7); }
+        .actionRow { display: flex; gap: 10px; flex-wrap: wrap; margin: 6px 0 8px; }
+        .statsOverview { display: grid; gap: 16px; }
+        .statsOverview__copy { margin: 0; color: #cbd5e1; }
+        .statsOverview__grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; }
+        .eyebrow { margin: 0 0 8px; text-transform: uppercase; font-size: 0.75rem; letter-spacing: 0.08em; color: #93c5fd; }
         .statCard {
-          border: 1px solid rgba(148, 163, 184, 0.2);
-          border-radius: 14px;
-          padding: 12px;
+          border: 1px solid rgba(148, 163, 184, 0.28);
+          border-radius: 12px;
+          padding: 14px;
           display: grid;
           gap: 6px;
-          background: rgba(15, 23, 42, 0.7);
+          background: rgba(15, 23, 42, 0.78);
           text-align: left;
           color: inherit;
           cursor: pointer;
           transition: border-color 0.2s ease, background 0.2s ease, transform 0.2s ease;
         }
-        .statCard:hover { border-color: rgba(125, 211, 252, 0.55); transform: translateY(-1px); }
+        .statCard:hover { transform: translateY(-1px); border-color: rgba(96, 165, 250, 0.45); background: rgba(30, 41, 59, 0.96); }
         .statCard:focus-visible { outline: 2px solid rgba(125, 211, 252, 0.95); outline-offset: 2px; }
-        .statCard--active { border-color: rgba(96, 165, 250, 0.8); background: rgba(30, 41, 59, 0.9); }
-        .statCard__label { font-size: 0.8rem; color: #93c5fd; }
+        .statCard--active { border-color: rgba(96, 165, 250, 0.9); background: rgba(30, 64, 175, 0.45); }
+        .statCard__label { font-size: 0.86rem; color: #e2e8f0; font-weight: 700; }
         .statCard__value { font-size: 1rem; }
         .statCard__meta { font-size: 0.78rem; color: #94a3b8; }
         .notice { margin: 0; padding: 14px; border-radius: 12px; border: 1px solid rgba(148, 163, 184, 0.24); background: rgba(30, 41, 59, 0.55); }
@@ -572,8 +580,8 @@ export default function StatsPage() {
         @media (max-width: 700px) {
           .dashboard { padding: 24px 14px 48px; }
           .shellCard { padding: 18px; }
-          .statsTabs { gap: 6px; }
-          .statsTabs__button { padding: 8px 12px; font-size: 0.82rem; }
+          .topNav { padding: 18px; }
+          .actionRow { margin-top: 0; }
         }
       `}</style>
     </main>
