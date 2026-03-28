@@ -5,24 +5,37 @@ const baseUrl = process.env.BASE_URL || "http://127.0.0.1:3000"
 const appPassword = process.env.APP_PASSWORD
 const outputDir = path.join(process.cwd(), "artifacts", "screenshots")
 const outputPath = path.join(outputDir, "dashboard.png")
+const skipNotePath = path.join(outputDir, "dashboard.SKIPPED.txt")
 
-if (!appPassword) {
-  console.error("Missing APP_PASSWORD. Set APP_PASSWORD in your environment before running this script.")
-  process.exit(1)
+async function writeSkipNote(reason) {
+  await mkdir(outputDir, { recursive: true })
+  const { writeFile } = await import("node:fs/promises")
+  const message = [
+    "Dashboard screenshot was skipped.",
+    `Reason: ${reason}`,
+    `Timestamp: ${new Date().toISOString()}`
+  ].join("\n")
+  await writeFile(skipNotePath, `${message}\n`, "utf8")
+  console.warn(`${message}\nSkip note saved to ${skipNotePath}`)
 }
 
 async function run() {
-  await mkdir(outputDir, { recursive: true })
-
   let chromium
+
+  if (!appPassword) {
+    await writeSkipNote("APP_PASSWORD is not set in the environment.")
+    return
+  }
 
   try {
     const playwright = await import("playwright")
     chromium = playwright.chromium
   } catch (error) {
-    console.error("Playwright is not installed. Run `npm install -D playwright` before using screenshot:dashboard.")
-    process.exit(1)
+    await writeSkipNote("Playwright is not installed in this environment.")
+    return
   }
+
+  await mkdir(outputDir, { recursive: true })
 
   const browser = await chromium.launch({
     headless: true
