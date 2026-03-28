@@ -352,7 +352,7 @@ export default function StatsPage() {
       <section className="hero shellCard">
         <div className="hero__content">
           <nav className="viewTabs" aria-label="Primary">
-            <Link href="/" className="viewTabs__link">Dashboard</Link>
+            <Link href="/" className="viewTabs__link">Today&apos;s Games</Link>
             <Link href="/stats" className="viewTabs__link viewTabs__link--active" aria-current="page">Stats</Link>
           </nav>
           <p className="eyebrow">Model input inspection</p>
