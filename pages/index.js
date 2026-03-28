@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useMemo, useState } from "react"
-import Link from "next/link"
 import { useRouter } from "next/router"
 
 import {
@@ -722,6 +721,15 @@ export default function Home({ games = [], summary, error = "", sessionExpiresAt
   const headingDateDisplay = formatTodayHeadingDate()
   const showEmptyState = !showInitialLoading && !fetchState.error && !hasGames
 
+  const handleJumpToGames = useCallback(() => {
+    const gamesSection = document.getElementById("todays-games")
+    gamesSection?.scrollIntoView({ behavior: "smooth", block: "start" })
+  }, [])
+
+  const handleGoToStats = useCallback(() => {
+    router.push("/stats")
+  }, [router])
+
   const handleLogout = useCallback(async (reason = "manual") => {
     try {
       setFetchState((currentState) => ({
@@ -776,8 +784,21 @@ export default function Home({ games = [], summary, error = "", sessionExpiresAt
       </section>
 
       <nav className="actionRow" aria-label="Dashboard sections">
-        <Link href="#todays-games" className="actionButton" aria-current="page">Today&apos;s Games</Link>
-        <Link href="/stats" className="actionButton">Stats</Link>
+        <button
+          type="button"
+          className="actionButton actionButton--button"
+          aria-current="page"
+          onClick={handleJumpToGames}
+        >
+          Today&apos;s Games
+        </button>
+        <button
+          type="button"
+          className="actionButton actionButton--button"
+          onClick={handleGoToStats}
+        >
+          Stats
+        </button>
       </nav>
 
       {(fetchState.isLoading || fetchState.isRefreshing) && (
