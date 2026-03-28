@@ -34,7 +34,7 @@ The web UI reads cached predictions/edges from Redis and presents the top opport
 
 There are three API access tiers:
 
-1. **Public cache read routes** (`GET /api/predictions`, `GET /api/edges`, `GET /api/stats`)
+1. **Public cache read routes** (`GET /api/predictions`, `GET /api/edges`, `GET /api/stats`, `GET /api/evaluation`)
 2. **Operational/admin routes** (all model/data pipeline mutation routes; require admin secret and `POST`)
 3. **Cron routes** (`/api/cron/*`; require cron secret; accept `GET` or `POST`)
 
@@ -69,6 +69,7 @@ pages/
     predictions.js                 # public cached predictions
     edges.js                       # public cached edges
     stats.js                       # public cached stats + metadata
+    evaluation.js                  # public cached evaluation summaries
     cron/runDailyPipeline.js       # optional market cron trigger
     cron/runDailyStatsPipeline.js  # optional stats cron trigger
 
@@ -298,6 +299,24 @@ Returns cached predictions + summary.
 
 #### `GET /api/edges`
 Returns cached edges + summary.
+
+#### `GET /api/stats`
+Returns cached stats sections + metadata.
+
+#### `GET /api/evaluation`
+Read-only endpoint for persisted daily evaluation summaries (`mlb:evaluation:<date>`).
+
+Query params:
+
+- `dateFrom` (optional, `YYYY-MM-DD`)
+- `dateTo` (optional, `YYYY-MM-DD`)
+- `limit` (optional, default `30`, max `180`)
+
+Response highlights:
+
+- `evaluations`: array of persisted day summaries sorted by date ascending
+- `metadata.returnedDays`: number of day summaries returned
+- `metadata.dateRangeApplied`: effective date window and applied limit
 
 ### Auth routes
 
