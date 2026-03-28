@@ -721,11 +721,6 @@ export default function Home({ games = [], summary, error = "", sessionExpiresAt
   const headingDateDisplay = formatTodayHeadingDate()
   const showEmptyState = !showInitialLoading && !fetchState.error && !hasGames
 
-  const handleJumpToGames = useCallback(() => {
-    const gamesSection = document.getElementById("todays-games")
-    gamesSection?.scrollIntoView({ behavior: "smooth", block: "start" })
-  }, [])
-
   const handleGoToStats = useCallback(() => {
     router.push("/stats")
   }, [router])
@@ -786,9 +781,8 @@ export default function Home({ games = [], summary, error = "", sessionExpiresAt
       <nav className="actionRow" aria-label="Dashboard sections">
         <button
           type="button"
-          className="actionButton actionButton--button"
+          className="actionButton actionButton--button actionButton--active"
           aria-current="page"
-          onClick={handleJumpToGames}
         >
           Today&apos;s Games
         </button>
@@ -1156,6 +1150,11 @@ export default function Home({ games = [], summary, error = "", sessionExpiresAt
         .actionButton--button {
           font: inherit;
           cursor: pointer;
+        }
+
+        .actionButton--active {
+          border-color: rgba(96, 165, 250, 0.9);
+          background: rgba(30, 64, 175, 0.7);
         }
 
         .actionRow {
