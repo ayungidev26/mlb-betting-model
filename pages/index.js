@@ -8,20 +8,9 @@ import {
   loadHomePageData
 } from "../lib/homePageProps"
 import {
-  filterGames,
-  getAvailableBetTypes,
-  getAvailableTeams,
   getGameBetType
 } from "../lib/gameFilters"
 import { getSessionExpirationTimestamp, readSessionCookie } from "../lib/appAuth"
-
-const EDGE_FILTER_OPTIONS = [
-  { value: 0, label: "Any edge" },
-  { value: 0.02, label: ">= 2%" },
-  { value: 0.03, label: ">= 3%" },
-  { value: 0.05, label: ">= 5%" },
-  { value: 0.07, label: ">= 7%" }
-]
 
 export async function getServerSideProps(context) {
   const response = await buildHomePageProps(() => loadHomePageData(context.req))
@@ -286,17 +275,6 @@ function DashboardStat({ label, value, emphasis = false, tone = "default" }) {
       <span className="statCard__label">{label}</span>
       <strong className="statCard__value">{value}</strong>
     </div>
-  )
-}
-
-function FilterControl({ label, value, onChange, children }) {
-  return (
-    <label className="filterControl">
-      <span className="filterControl__label">{label}</span>
-      <select className="filterControl__select" value={value} onChange={onChange}>
-        {children}
-      </select>
-    </label>
   )
 }
 
@@ -611,11 +589,6 @@ export default function Home({ games = [], summary, error = "", sessionExpiresAt
   }), [games, summary])
 
   const [viewModel, setViewModel] = useState(initialViewModel)
-  const [filters, setFilters] = useState({
-    minimumEdge: EDGE_FILTER_OPTIONS[0].value,
-    betType: "all",
-    team: "all"
-  })
   const [fetchState, setFetchState] = useState({
     isLoading: initialViewModel.games.length === 0 && !error,
     isRefreshing: false,
@@ -668,19 +641,15 @@ export default function Home({ games = [], summary, error = "", sessionExpiresAt
   const activeSummary = viewModel.summary || initialViewModel.summary
   const recommendationCount = activeGames.filter((game) => typeof game?.edge === "number").length
   const gamesLoadedCount = activeGames.length
-  const availableBetTypes = useMemo(() => getAvailableBetTypes(activeGames), [activeGames])
-  const availableTeams = useMemo(() => getAvailableTeams(activeGames), [activeGames])
-  const filteredGames = useMemo(() => filterGames(activeGames, filters), [activeGames, filters])
-  const topPlays = filteredGames.slice(0, Math.min(5, filteredGames.length))
+  const displayedGames = activeGames
+  const topPlays = displayedGames.slice(0, Math.min(5, displayedGames.length))
   const hasGames = activeGames.length > 0
-  const hasFilteredGames = filteredGames.length > 0
+  const hasDisplayedGames = displayedGames.length > 0
   const showInitialLoading = fetchState.isLoading && !hasGames
   const showCountPlaceholder = showInitialLoading || fetchState.isRefreshing
   const todayGamesDisplay = showCountPlaceholder ? "—" : String(gamesLoadedCount)
   const recommendedBetsDisplay = showCountPlaceholder ? "—" : String(recommendationCount)
   const showEmptyState = !showInitialLoading && !fetchState.error && !hasGames
-  const showFilteredEmptyState = !showInitialLoading && !fetchState.error && hasGames && !hasFilteredGames
-  const hasActiveFilters = filters.minimumEdge > 0 || filters.betType !== "all" || filters.team !== "all"
 
   const handleLogout = useCallback(async (reason = "manual") => {
     try {
@@ -719,18 +688,6 @@ export default function Home({ games = [], summary, error = "", sessionExpiresAt
       window.clearTimeout(timeoutId)
     }
   }, [handleLogout, sessionExpiresAt])
-
-  useEffect(() => {
-    setFilters((currentFilters) => ({
-      minimumEdge: currentFilters.minimumEdge,
-      betType: currentFilters.betType === "all" || availableBetTypes.includes(currentFilters.betType)
-        ? currentFilters.betType
-        : "all",
-      team: currentFilters.team === "all" || availableTeams.includes(currentFilters.team)
-        ? currentFilters.team
-        : "all"
-    }))
-  }, [availableBetTypes, availableTeams])
 
   return (
     <main className="dashboard">
@@ -800,90 +757,6 @@ export default function Home({ games = [], summary, error = "", sessionExpiresAt
 
       {showInitialLoading && <LoadingSkeleton count={3} />}
 
-      {!showInitialLoading && !fetchState.error && hasGames && (
-        <section className="shellCard boardSection" aria-label="Filter predictions">
-          <div className="sectionIntro">
-            <div>
-              <p className="eyebrow sectionIntro__eyebrow">Filter board</p>
-              <h2 className="sectionTitle">Refine the slate</h2>
-            </div>
-            <p className="sectionIntro__copy">
-              Narrow the board by edge, market, or team while keeping the layout easy to compare at a glance.
-            </p>
-          </div>
-
-          <div className="filterGrid">
-            <FilterControl
-              label="Minimum edge"
-              value={String(filters.minimumEdge)}
-              onChange={(event) => {
-                const nextValue = Number(event.target.value)
-
-                setFilters((currentFilters) => ({
-                  ...currentFilters,
-                  minimumEdge: Number.isFinite(nextValue)
-                    ? nextValue
-                    : EDGE_FILTER_OPTIONS[0].value
-                }))
-              }}
-            >
-              {EDGE_FILTER_OPTIONS.map((option) => (
-                <option key={option.value} value={option.value}>{option.label}</option>
-              ))}
-            </FilterControl>
-
-            <FilterControl
-              label="Bet type"
-              value={filters.betType}
-              onChange={(event) => {
-                const nextBetType = event.target.value
-
-                setFilters((currentFilters) => ({
-                  ...currentFilters,
-                  betType: nextBetType
-                }))
-              }}
-            >
-              <option value="all">All bet types</option>
-              {availableBetTypes.map((betType) => (
-                <option key={betType} value={betType}>{formatBetTypeLabel(betType)}</option>
-              ))}
-            </FilterControl>
-
-            <FilterControl
-              label="Team"
-              value={filters.team}
-              onChange={(event) => {
-                const nextTeam = event.target.value
-
-                setFilters((currentFilters) => ({
-                  ...currentFilters,
-                  team: nextTeam
-                }))
-              }}
-            >
-              <option value="all">All teams</option>
-              {availableTeams.map((team) => (
-                <option key={team} value={team}>{team}</option>
-              ))}
-            </FilterControl>
-
-            <DashboardStat
-              label="Filtered results"
-              value={String(filteredGames.length)}
-              tone={filteredGames.length > 0 ? "default" : "warning"}
-              emphasis
-            />
-          </div>
-
-          <div className="tagRow" aria-live="polite">
-            <span className="tag tag--muted">Edge: {EDGE_FILTER_OPTIONS.find((option) => option.value === filters.minimumEdge)?.label || "Any edge"}</span>
-            <span className="tag tag--muted">Bet type: {formatBetTypeLabel(filters.betType)}</span>
-            <span className="tag tag--muted">Team: {filters.team === "all" ? "All teams" : filters.team}</span>
-          </div>
-        </section>
-      )}
-
       {!showInitialLoading && !fetchState.error && topPlays.length > 0 && (
         <section className="shellCard boardSection" aria-label="Top Plays">
           <div className="sectionIntro">
@@ -935,18 +808,9 @@ export default function Home({ games = [], summary, error = "", sessionExpiresAt
         <EmptyState message={activeSummary?.message} isRefreshing={fetchState.isRefreshing} />
       )}
 
-      {!showInitialLoading && !fetchState.error && showFilteredEmptyState && (
-        <EmptyState
-          message={hasActiveFilters
-            ? "No games match the current filter combination yet. Try widening the edge, market, or team filters."
-            : activeSummary?.message}
-          isRefreshing={fetchState.isRefreshing}
-        />
-      )}
-
-      {!showInitialLoading && !fetchState.error && hasFilteredGames && (
+      {!showInitialLoading && !fetchState.error && hasDisplayedGames && (
         <section className="gamesGrid" aria-label="Model predictions dashboard">
-          {filteredGames.map((game, index) => {
+          {displayedGames.map((game, index) => {
             const edgeTier = getEdgeTier(game.edge)
             const recommendedSide = game.recommendedBet || edgeTier.recommendation
             const awayPitcherDetails = game.pitcherModel?.away || null
