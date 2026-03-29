@@ -212,44 +212,76 @@ jobs:
         if: steps.gate.outputs.should_run == 'true'
         env:
           PIPELINE_BASE_URL: ${{ secrets.PIPELINE_BASE_URL }}
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
           ADMIN_API_SECRET: ${{ secrets.ADMIN_API_SECRET }}
           PIPELINE_AUTH_TOKEN: ${{ secrets.PIPELINE_AUTH_TOKEN }}
         run: |
-          echo "Proceeding with market pipeline trigger inside window: ${{ steps.gate.outputs.matched_window }}"
+          echo "Proceeding with pipeline orchestration inside market window: ${{ steps.gate.outputs.matched_window }}"
 
           if [[ -z "$PIPELINE_BASE_URL" || -z "$ADMIN_API_SECRET" ]]; then
             echo "Missing required GitHub Actions secrets: PIPELINE_BASE_URL and/or ADMIN_API_SECRET"
             exit 1
           fi
 
-          ENDPOINT_URL="${PIPELINE_BASE_URL%/}/api/runPipeline"
+          STATS_ENDPOINT_URL="${PIPELINE_BASE_URL%/}/api/runStatsPipeline"
+          MARKET_ENDPOINT_URL="${PIPELINE_BASE_URL%/}/api/runPipeline"
           CLEAN_ADMIN_API_SECRET="$(printf %s "$ADMIN_API_SECRET" | tr -d "\r\n")"
           CLEAN_PIPELINE_AUTH_TOKEN="$(printf %s "${PIPELINE_AUTH_TOKEN:-$ADMIN_API_SECRET}" | tr -d "\r\n")"
+          CLEAN_CRON_SECRET="$(printf %s "$CRON_SECRET" | tr -d "\r\n")"
 
           if [[ -z "$CLEAN_ADMIN_API_SECRET" || -z "$CLEAN_PIPELINE_AUTH_TOKEN" ]]; then
             echo "Sanitized auth secret is empty; re-save ADMIN_API_SECRET (and optional PIPELINE_AUTH_TOKEN) without newlines."
             exit 1
           fi
 
+          echo "Step 1/2: run stats pipeline dependency before market pipeline."
+          if [[ -n "$CLEAN_CRON_SECRET" ]]; then
+            STATS_ENDPOINT_URL="${PIPELINE_BASE_URL%/}/api/cron/runDailyStatsPipeline?force=true"
+            curl --fail-with-body --show-error --silent \
+              --request POST \
+              --header "Authorization: Bearer ${CLEAN_CRON_SECRET}" \
+              --header "Content-Type: application/json" \
+              "$STATS_ENDPOINT_URL"
+          else
+            curl --fail-with-body --show-error --silent \
+              --request POST \
+              --header "Authorization: Bearer ${CLEAN_PIPELINE_AUTH_TOKEN}" \
+              --header "x-admin-secret: ${CLEAN_ADMIN_API_SECRET}" \
+              --header "Content-Type: application/json" \
+              --data "{\"authToken\":\"${CLEAN_PIPELINE_AUTH_TOKEN}\",\"adminSecret\":\"${CLEAN_ADMIN_API_SECRET}\"}" \
+              "$STATS_ENDPOINT_URL"
+          fi
+
+          echo "Step 2/2: run market pipeline after stats dependency succeeds."
           attempt=1
           max_attempts=3
           response_file="$(mktemp)"
 
           while (( attempt <= max_attempts )); do
-            if curl --fail-with-body --show-error --silent \
+            status_code="$(curl --show-error --silent \
               --request POST \
               --max-redirs 0 \
               --header "Authorization: Bearer ${CLEAN_PIPELINE_AUTH_TOKEN}" \
               --header "x-admin-secret: ${CLEAN_ADMIN_API_SECRET}" \
               --header "Content-Type: application/json" \
               --data "{\"authToken\":\"${CLEAN_PIPELINE_AUTH_TOKEN}\",\"adminSecret\":\"${CLEAN_ADMIN_API_SECRET}\"}" \
-              "$ENDPOINT_URL" > "$response_file"; then
+              --output "$response_file" \
+              --write-out "%{http_code}" \
+              "$MARKET_ENDPOINT_URL")"
+
+            if [[ "$status_code" =~ ^2 ]]; then
               cat "$response_file"
               rm -f "$response_file"
               exit 0
             fi
 
             cat "$response_file"
+
+            if [[ "$status_code" == "409" ]]; then
+              echo "Market pipeline blocked (HTTP 409): stats prerequisites were not ready. Run /api/runStatsPipeline first, then retry /api/runPipeline."
+              rm -f "$response_file"
+              exit 1
+            fi
 
             if grep -q '"code":"COOLDOWN_ACTIVE"' "$response_file"; then
               retry_after_seconds="$(( attempt * 30 ))"
