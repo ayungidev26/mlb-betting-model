@@ -30,6 +30,8 @@ const FETCH_PITCHER_STATS_LOCK = {
 
 const PITCHER_PAGE_LIMIT = 1000
 const PEOPLE_BATCH_SIZE = 100
+const LOW_FETCHED_PITCHERS_THRESHOLD = 200
+const SAVED_DELTA_WARNING_THRESHOLD = 0.15
 
 async function fetchTeamPitchingStats() {
   const teamsUrl = "https://statsapi.mlb.com/api/v1/teams?sportId=1"
@@ -234,6 +236,28 @@ async function savePitcherStats(redisClient, pitcherStats, statsMeta) {
   await redisClient.set("mlb:stats:pitchers:meta", statsMeta)
 }
 
+function logPitcherPipelineWarnings({ pitchersFetched, pitchersSaved }) {
+  if (pitchersFetched < LOW_FETCHED_PITCHERS_THRESHOLD) {
+    console.warn("fetchPitcherStats: unusually low pitcher fetch count", {
+      pitchersFetched,
+      threshold: LOW_FETCHED_PITCHERS_THRESHOLD
+    })
+  }
+
+  const dropoffRate = pitchersFetched > 0
+    ? (pitchersFetched - pitchersSaved) / pitchersFetched
+    : 0
+
+  if (dropoffRate >= SAVED_DELTA_WARNING_THRESHOLD) {
+    console.warn("fetchPitcherStats: pitchers saved differs significantly from fetched", {
+      pitchersFetched,
+      pitchersSaved,
+      dropoffRate: Number(dropoffRate.toFixed(3)),
+      threshold: SAVED_DELTA_WARNING_THRESHOLD
+    })
+  }
+}
+
 export default async function handler(req, res) {
   if (!requireOperationalRouteAccess(req, res)) {
     return
@@ -290,27 +314,32 @@ export default async function handler(req, res) {
     })
 
     const sample = Object.values(pitcherStats?.byId || {}).slice(0, 3)
+    const pitchersFetched = rawPitcherSplits.length
+    const pitchersSaved = savedPitchers
     const statsMeta = {
       lastUpdatedAt: new Date().toISOString(),
       source: "statsapi.mlb.com + baseballsavant.mlb.com",
       version: "v2",
       season,
       records: Object.keys(pitcherStats?.byId || {}).length,
-      fetchedPitchers: rawPitcherSplits.length,
+      fetchedPitchers: pitchersFetched,
+      pitchersFetched,
       dedupedPitchers: dedupedSplits.length,
       duplicatePitchers: duplicateCount,
       duplicateNameCollisions,
       missingStats: missingStatsCount,
       inactivePitchers,
-      savedPitchers
+      savedPitchers: pitchersSaved,
+      pitchersSaved
     }
 
     await savePitcherStats(redis, pitcherStats, statsMeta)
+    logPitcherPipelineWarnings({ pitchersFetched, pitchersSaved })
 
     console.info("fetchPitcherStats summary", {
-      fetchedPitchers: rawPitcherSplits.length,
+      pitchersFetched,
       dedupedPitchers: dedupedSplits.length,
-      savedPitchers,
+      pitchersSaved,
       missingStatsCount,
       duplicateCount,
       duplicateNameCollisions,
@@ -319,8 +348,8 @@ export default async function handler(req, res) {
     })
 
     res.status(200).json({
-      pitchersFetched: rawPitcherSplits.length,
-      pitchersSaved: savedPitchers,
+      pitchersFetched,
+      pitchersSaved,
       sample,
       metadata: statsMeta
     })

@@ -50,7 +50,9 @@ test("stats route returns cached sections and metadata", async () => {
       case "mlb:stats:pitchers:meta":
         return {
           lastUpdatedAt: "2026-03-27T10:00:00.000Z",
-          records: 1
+          records: 1,
+          pitchersFetched: 520,
+          pitchersSaved: 510
         }
       case "mlb:stats:bullpen":
         return {
@@ -85,6 +87,8 @@ test("stats route returns cached sections and metadata", async () => {
     assert.equal(res.body.sections.bullpen.recordCount, 2)
     assert.equal(res.body.sections.offense.recordCount, 0)
     assert.equal(res.body.sections.offense.available, false)
+    assert.equal(res.body.pitchersFetched, 520)
+    assert.equal(res.body.pitchersSaved, 510)
     assert.equal(res.body.summary.availableSections, 2)
   } finally {
     redis.get = originalGet

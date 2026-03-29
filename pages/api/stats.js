@@ -59,9 +59,20 @@ export default async function handler(req, res) {
     )
 
     const sections = Object.fromEntries(sectionValues)
+    const pitcherMeta = sections?.pitchers?.meta || {}
+    const pitchersFetched =
+      pitcherMeta.pitchersFetched ??
+      pitcherMeta.fetchedPitchers ??
+      0
+    const pitchersSaved =
+      pitcherMeta.pitchersSaved ??
+      pitcherMeta.savedPitchers ??
+      0
 
     return res.status(200).json({
       sections,
+      pitchersFetched,
+      pitchersSaved,
       summary: {
         availableSections: sectionValues.filter(([, section]) => section.available).length,
         generatedAt: new Date().toISOString()
