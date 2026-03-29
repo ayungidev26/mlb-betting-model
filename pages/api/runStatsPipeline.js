@@ -2,6 +2,7 @@
 import fetchPitcherStatsHandler from "./fetchPitcherStats.js"
 import fetchBullpenStatsHandler from "./fetchBullpenStats.js"
 import fetchTeamOffenseStatsHandler from "./fetchTeamOffenseStats.js"
+import fetchGamesHandler from "./fetchGames.js"
 import { redis } from "../../lib/upstash.js"
 import { requireOperationalRouteAccess } from "../../lib/apiSecurity.js"
 import { logServerError, sendRouteError } from "../../lib/apiErrors.js"
@@ -140,6 +141,10 @@ export default async function handler(req, res) {
 
     const pipeline = [
       {
+        name: "fetchGames",
+        handler: fetchGamesHandler
+      },
+      {
         name: "fetchPitcherStats",
         handler: fetchPitcherStatsHandler
       },
@@ -181,6 +186,9 @@ export default async function handler(req, res) {
           dateKey,
           steps,
           keys: {
+            games: "mlb:games:today",
+            gamesMeta: "mlb:games:today:meta",
+            ballparkFactors: "mlb:ballparkFactors:current",
             pitcherStats: "mlb:stats:pitchers",
             pitcherStatsMeta: "mlb:stats:pitchers:meta",
             bullpenStats: "mlb:stats:bullpen",
@@ -200,6 +208,9 @@ export default async function handler(req, res) {
       force,
       steps,
       keys: {
+        games: "mlb:games:today",
+        gamesMeta: "mlb:games:today:meta",
+        ballparkFactors: "mlb:ballparkFactors:current",
         pitcherStats: "mlb:stats:pitchers",
         pitcherStatsMeta: "mlb:stats:pitchers:meta",
         bullpenStats: "mlb:stats:bullpen",

@@ -6,6 +6,7 @@ import { requireOperationalRouteAccess } from "../../lib/apiSecurity.js"
 import { sendRouteError } from "../../lib/apiErrors.js"
 import { fetchJsonWithRetry } from "../../lib/upstreamFetch.js"
 import { getBallparkFactorIndex, resolveBallparkFactors } from "../../lib/ballparkFactors.js"
+import { getEasternDateKey } from "../../lib/cronSchedule.js"
 
 export default async function handler(req, res) {
   if (!requireOperationalRouteAccess(req, res)) {
@@ -16,6 +17,7 @@ export default async function handler(req, res) {
     const ballparkFactorIndex = await getBallparkFactorIndex()
 
     const today = new Date().toISOString().split("T")[0]
+    const dateKey = getEasternDateKey()
 
     const url =
       `https://statsapi.mlb.com/api/v1/schedule?sportId=1&date=${today}&hydrate=probablePitcher`
@@ -27,6 +29,16 @@ export default async function handler(req, res) {
     if (data.dates.length === 0) {
 
       await redis.set("mlb:games:today", [])
+      await redis.set("mlb:games:today:meta", {
+        fetchedAt: new Date().toISOString(),
+        dateKey,
+        gamesToday: 0
+      })
+
+      console.info("[fetchGames] cached today's games", {
+        dateKey,
+        gamesToday: 0
+      })
 
       return res.status(200).json({
         gamesToday: 0,
@@ -77,9 +89,19 @@ export default async function handler(req, res) {
     }))
 
     await redis.set("mlb:games:today", games)
+    await redis.set("mlb:games:today:meta", {
+      fetchedAt: new Date().toISOString(),
+      dateKey,
+      gamesToday: games.length
+    })
     await redis.set("mlb:ballparkFactors:current", {
       source: ballparkFactorIndex.source,
       ballparks: ballparkFactorIndex.records
+    })
+
+    console.info("[fetchGames] cached today's games", {
+      dateKey,
+      gamesToday: games.length
     })
 
     res.status(200).json({

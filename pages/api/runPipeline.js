@@ -1,9 +1,9 @@
 // Data contract reference: see docs/data-contracts.md for canonical Game, OddsRecord, Prediction, Edge, and matchKey shapes.
-import fetchGamesHandler from "./fetchGames.js"
 import fetchOddsHandler from "./fetchOdds.js"
 import runModelHandler from "./runModel.js"
 import findEdgesHandler from "./findEdges.js"
 import { redis } from "../../lib/upstash.js"
+import { getEasternDateKey } from "../../lib/cronSchedule.js"
 import { requireOperationalRouteAccess } from "../../lib/apiSecurity.js"
 import { logServerError, sendRouteError } from "../../lib/apiErrors.js"
 import {
@@ -75,6 +75,26 @@ async function invokeStep(handler, options = {}) {
   }
 }
 
+async function readCachedGamesStatus(redisClient) {
+  const [games, gamesMeta] = await Promise.all([
+    redisClient.get("mlb:games:today"),
+    redisClient.get("mlb:games:today:meta")
+  ])
+  const todayDateKey = getEasternDateKey()
+  const cachedDateKey = gamesMeta?.dateKey || null
+  const stale = Boolean(cachedDateKey && cachedDateKey !== todayDateKey)
+
+  return {
+    hasGamesCache: Array.isArray(games),
+    gamesCount: Array.isArray(games) ? games.length : null,
+    games,
+    gamesMeta,
+    todayDateKey,
+    cachedDateKey,
+    stale
+  }
+}
+
 export default async function handler(req, res) {
   if (!requireOperationalRouteAccess(req, res)) {
     return
@@ -93,11 +113,53 @@ export default async function handler(req, res) {
       return
     }
 
+    const gamesStatus = await readCachedGamesStatus(redis)
+
+    if (!gamesStatus.hasGamesCache) {
+      console.warn("[runPipeline] cached games are missing", {
+        todayDateKey: gamesStatus.todayDateKey
+      })
+
+      return res.status(409).json({
+        ok: false,
+        error: "Today's games are not cached. Run /api/runStatsPipeline first.",
+        code: "GAMES_CACHE_MISSING",
+        todayDateKey: gamesStatus.todayDateKey,
+        keys: {
+          games: "mlb:games:today",
+          gamesMeta: "mlb:games:today:meta"
+        }
+      })
+    }
+
+    if (gamesStatus.stale) {
+      console.warn("[runPipeline] cached games are stale", {
+        todayDateKey: gamesStatus.todayDateKey,
+        cachedDateKey: gamesStatus.cachedDateKey,
+        fetchedAt: gamesStatus.gamesMeta?.fetchedAt || null
+      })
+
+      return res.status(409).json({
+        ok: false,
+        error: "Today's cached games are stale. Run /api/runStatsPipeline first.",
+        code: "GAMES_CACHE_STALE",
+        todayDateKey: gamesStatus.todayDateKey,
+        cachedDateKey: gamesStatus.cachedDateKey,
+        fetchedAt: gamesStatus.gamesMeta?.fetchedAt || null,
+        keys: {
+          games: "mlb:games:today",
+          gamesMeta: "mlb:games:today:meta"
+        }
+      })
+    }
+
+    console.info("[runPipeline] using cached games", {
+      todayDateKey: gamesStatus.todayDateKey,
+      gamesCount: gamesStatus.gamesCount,
+      fetchedAt: gamesStatus.gamesMeta?.fetchedAt || null
+    })
+
     const pipeline = [
-      {
-        name: "fetchGames",
-        handler: fetchGamesHandler
-      },
       {
         name: "fetchOdds",
         handler: fetchOddsHandler,
@@ -157,6 +219,7 @@ export default async function handler(req, res) {
       steps,
       keys: {
         games: "mlb:games:today",
+        gamesMeta: "mlb:games:today:meta",
         ballparkFactors: "mlb:ballparkFactors:current",
         odds: "mlb:odds:today",
         cachedPitcherStats: "mlb:stats:pitchers",
