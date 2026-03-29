@@ -2,7 +2,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 
 import { moneylineToImpliedProbability } from '../lib/findEdges.js'
-import { normalizeBullpenStatRecord } from '../lib/bullpenStats.js'
+import { dedupePitchersById, isRelieverStat, normalizeBullpenStatRecord } from '../lib/bullpenStats.js'
 import {
   buildBullpenRatingDetails,
   calculateBullpenRating,
@@ -124,4 +124,37 @@ test('getBullpenRating returns zero for missing teams and uses the named bullpen
   assert.equal(getBullpenRating('Seattle Mariners', bullpenStats) > getBullpenRating('Houston Astros', bullpenStats), true)
   assert.equal(getBullpenRating('Chicago Cubs', bullpenStats), 0)
   assert.equal(getBullpenRating(null, bullpenStats), 0)
+})
+
+test('isRelieverStat includes relievers and swingmen while excluding starter-only profiles', () => {
+  assert.equal(isRelieverStat({
+    gamesPitched: '42',
+    gamesStarted: '0',
+    gamesInRelief: '42'
+  }), true)
+
+  assert.equal(isRelieverStat({
+    gamesPitched: '18',
+    gamesStarted: '6',
+    gamesInRelief: '12'
+  }), true)
+
+  assert.equal(isRelieverStat({
+    gamesPitched: '27',
+    gamesStarted: '27',
+    gamesInRelief: '0'
+  }), false)
+})
+
+test('dedupePitchersById removes duplicate pitcher entries and keeps first instance', () => {
+  const deduped = dedupePitchersById([
+    { playerId: '101', name: 'Pitcher A' },
+    { playerId: '101', name: 'Pitcher A duplicate' },
+    { playerId: '202', name: 'Pitcher B' },
+    { playerId: null, name: 'Missing id' }
+  ])
+
+  assert.equal(deduped.length, 2)
+  assert.deepEqual(deduped.map((entry) => entry.playerId), ['101', '202'])
+  assert.equal(deduped[0].name, 'Pitcher A')
 })

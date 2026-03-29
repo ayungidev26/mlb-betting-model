@@ -1996,8 +1996,55 @@ test("fetchBullpenStats tolerates transient team pitching upstream failures", { 
         })
       }
 
-      if (target.includes("/roster?")) {
+      if (target.includes("/api/v1/teams/147/roster?")) {
+        return createJsonResponse({
+          body: {
+            roster: [
+              { person: { id: 9001, fullName: "Yankees Reliever" }, position: { abbreviation: "P" } },
+              { person: { id: 9002, fullName: "Yankees Starter" }, position: { abbreviation: "P" } }
+            ]
+          }
+        })
+      }
+
+      if (target.includes("/api/v1/teams/111/roster?")) {
         return createJsonResponse({ body: { roster: [] } })
+      }
+
+      if (target.includes("/api/v1/people/9001/stats?stats=season&group=pitching")) {
+        return createJsonResponse({
+          body: {
+            stats: [{
+              splits: [{
+                stat: {
+                  gamesPitched: "41",
+                  gamesStarted: "0",
+                  gamesInRelief: "41",
+                  inningsPitched: "44.1",
+                  battersFaced: "179"
+                }
+              }]
+            }]
+          }
+        })
+      }
+
+      if (target.includes("/api/v1/people/9002/stats?stats=season&group=pitching")) {
+        return createJsonResponse({
+          body: {
+            stats: [{
+              splits: [{
+                stat: {
+                  gamesPitched: "22",
+                  gamesStarted: "22",
+                  gamesInRelief: "0",
+                  inningsPitched: "125.2",
+                  battersFaced: "520"
+                }
+              }]
+            }]
+          }
+        })
       }
 
       if (target.includes("/schedule?")) {
