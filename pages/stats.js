@@ -2,7 +2,7 @@ import { useRouter } from "next/router"
 import { useEffect, useMemo, useState } from "react"
 
 const SECTION_ORDER = [
-  { key: "pitchers", title: "Starting Pitchers", recordLabel: "Pitchers" },
+  { key: "pitchers", title: "Pitchers", recordLabel: "Pitchers" },
   { key: "bullpen", title: "Bullpens", recordLabel: "Teams" },
   { key: "offense", title: "Offense", recordLabel: "Teams" }
 ]
@@ -176,6 +176,17 @@ function sortRows(rows, sortKey, direction) {
   })
 }
 
+function renderPitcherPipelineText({ loading, pitchersFetched, pitchersSaved }) {
+  if (loading) {
+    return "Loading..."
+  }
+
+  const fetchedText = pitchersFetched === null || pitchersFetched === undefined ? "—" : toDisplayValue(pitchersFetched)
+  const savedText = pitchersSaved === null || pitchersSaved === undefined ? "—" : toDisplayValue(pitchersSaved)
+
+  return `${savedText} Pitchers Saved / ${fetchedText} Pitchers Fetched`
+}
+
 function StatsSection({ title, sectionKey, section, query }) {
   const records = useMemo(
     () => normalizeSectionRecords(section, sectionKey),
@@ -318,8 +329,8 @@ export default function StatsPage() {
     loading: true,
     error: "",
     sections: {},
-    pitchersFetched: 0,
-    pitchersSaved: 0
+    pitchersFetched: null,
+    pitchersSaved: null
   })
 
   useEffect(() => {
@@ -371,8 +382,8 @@ export default function StatsPage() {
           loading: false,
           error: "",
           sections: payload?.sections || {},
-          pitchersFetched: Number(payload?.pitchersFetched) || 0,
-          pitchersSaved: Number(payload?.pitchersSaved) || 0
+          pitchersFetched: Number.isFinite(Number(payload?.pitchersFetched)) ? Number(payload?.pitchersFetched) : null,
+          pitchersSaved: Number.isFinite(Number(payload?.pitchersSaved)) ? Number(payload?.pitchersSaved) : null
         })
       })
       .catch((error) => {
@@ -384,8 +395,8 @@ export default function StatsPage() {
           loading: false,
           error: error instanceof Error ? error.message : "Stats cache is currently unavailable.",
           sections: {},
-          pitchersFetched: 0,
-          pitchersSaved: 0
+          pitchersFetched: null,
+          pitchersSaved: null
         })
       })
 
@@ -447,14 +458,11 @@ export default function StatsPage() {
       <section className="shellCard statsOverview">
         <p className="eyebrow">Model input inspection</p>
         <p className="statsOverview__copy">Read-only view of the latest cached starting pitcher, bullpen, and offense inputs used by the model.</p>
-        <div className="pipelineMetrics">
-          <span className="pipelineMetrics__item">Pitchers Fetched: <strong>{toDisplayValue(state.pitchersFetched)}</strong></span>
-          <span className="pipelineMetrics__item">Pitchers Saved: <strong>{toDisplayValue(state.pitchersSaved)}</strong></span>
-        </div>
         <div className="statsOverview__grid">
           {SECTION_ORDER.map((section) => {
             const details = state.sections?.[section.key]
             const isActive = section.key === activeTab
+            const isPitcherSection = section.key === "pitchers"
 
             return (
               <button
@@ -465,7 +473,11 @@ export default function StatsPage() {
                 aria-pressed={isActive}
               >
                 <span className="statCard__label">{section.title}</span>
-                <strong className="statCard__value">{details?.recordCount || 0} {section.recordLabel}</strong>
+                <strong className="statCard__value">
+                  {isPitcherSection
+                    ? renderPitcherPipelineText(state)
+                    : `${details?.recordCount || 0} ${section.recordLabel}`}
+                </strong>
                 <span className="statCard__meta">Updated: {formatDateTime(details?.meta?.lastUpdatedAt)}</span>
               </button>
             )
@@ -521,8 +533,6 @@ export default function StatsPage() {
       <style jsx>{`
         .dashboard { padding: 32px 20px 64px; display: grid; gap: 18px; max-width: 1400px; margin: 0 auto; }
         .shellCard { border-radius: 18px; padding: 24px; border: 1px solid rgba(148, 163, 184, 0.2); background: rgba(15, 23, 42, 0.82); }
-        .pipelineMetrics { display: flex; flex-wrap: wrap; gap: 14px; margin: 10px 0 16px; color: #cbd5e1; }
-        .pipelineMetrics__item { font-size: 0.95rem; }
         .topNav { display: grid; gap: 14px; padding: 20px 24px; }
         .topNav__masthead { display: flex; justify-content: space-between; align-items: center; gap: 16px; }
         .topNav__title { margin: 0; font-size: clamp(1.6rem, 3vw, 2.2rem); }
