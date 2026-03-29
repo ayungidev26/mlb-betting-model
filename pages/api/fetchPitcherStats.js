@@ -7,7 +7,8 @@ import {
   buildLeaguePitchingContext,
   fetchSavantPitcherStatMap,
   getAdvancedPitcherStats,
-  normalizePitcherStatRecord
+  normalizePitcherStatRecord,
+  parseInningsPitched
 } from "../../lib/pitcherStats.js"
 import {
   enforceIpRateLimit,
@@ -26,6 +27,9 @@ const FETCH_PITCHER_STATS_LOCK = {
   ttlSeconds: 180,
   routeName: "fetchPitcherStats"
 }
+
+const PITCHER_PAGE_LIMIT = 1000
+const PEOPLE_BATCH_SIZE = 100
 
 async function fetchTeamPitchingStats() {
   const teamsUrl = "https://statsapi.mlb.com/api/v1/teams?sportId=1"
@@ -55,48 +59,169 @@ async function fetchTeamPitchingStats() {
   return teamStats
 }
 
-async function resolvePitcherDirectory(games) {
-  const pitcherDirectory = {}
+async function fetchAllPitchingStatSplits(season) {
+  const splits = []
+  let offset = 0
 
-  for (const game of games) {
-    const pitchers = [
-      game.homePitcher,
-      game.awayPitcher
-    ]
+  while (true) {
+    const statsUrl =
+      `https://statsapi.mlb.com/api/v1/stats?stats=season&group=pitching&season=${season}&sportIds=1&playerPool=ALL&limit=${PITCHER_PAGE_LIMIT}&offset=${offset}`
 
-    for (const name of pitchers) {
-      if (!name || pitcherDirectory[name]) {
-        continue
+    const statsData = await fetchJsonWithRetry(statsUrl)
+    const pageSplits = statsData.stats?.[0]?.splits || []
+
+    if (pageSplits.length === 0) {
+      break
+    }
+
+    splits.push(...pageSplits)
+
+    if (pageSplits.length < PITCHER_PAGE_LIMIT) {
+      break
+    }
+
+    offset += pageSplits.length
+  }
+
+  return splits
+}
+
+async function fetchPitcherMetadataById(pitcherIds = []) {
+  const metadataById = {}
+
+  for (let index = 0; index < pitcherIds.length; index += PEOPLE_BATCH_SIZE) {
+    const batch = pitcherIds.slice(index, index + PEOPLE_BATCH_SIZE)
+
+    if (batch.length === 0) {
+      continue
+    }
+
+    try {
+      const peopleUrl = `https://statsapi.mlb.com/api/v1/people?personIds=${batch.join(",")}`
+      const peopleData = await fetchJsonWithRetry(peopleUrl)
+
+      for (const person of peopleData.people || []) {
+        metadataById[String(person.id)] = {
+          throwingHand: person?.pitchHand?.code || null,
+          active: typeof person?.active === "boolean" ? person.active : null,
+          fullName: person?.fullName || null
+        }
       }
-
-      const searchUrl =
-        `https://statsapi.mlb.com/api/v1/people/search?names=${encodeURIComponent(name)}`
-      let searchData = null
-
-      try {
-        searchData = await fetchJsonWithRetry(searchUrl)
-      } catch (error) {
-        console.warn(
-          "fetchPitcherStats: unable to resolve pitcher",
-          name,
-          error?.message || error
-        )
-        continue
-      }
-
-      if (!searchData.people || searchData.people.length === 0) {
-        continue
-      }
-
-      pitcherDirectory[name] = {
-        id: searchData.people[0].id,
-        name: searchData.people[0].fullName || name,
-        throwingHand: searchData.people[0].pitchHand?.code || null
-      }
+    } catch (error) {
+      console.warn(
+        "fetchPitcherStats: unable to fetch pitcher metadata batch",
+        batch.length,
+        error?.message || error
+      )
     }
   }
 
-  return pitcherDirectory
+  return metadataById
+}
+
+function dedupePitcherSplits(splits = []) {
+  const dedupedById = new Map()
+  let missingStatsCount = 0
+  let duplicateCount = 0
+
+  for (const split of splits) {
+    const playerId = split?.player?.id
+    const stat = split?.stat
+
+    if (!playerId || !stat) {
+      missingStatsCount += 1
+      continue
+    }
+
+    const key = String(playerId)
+
+    if (!dedupedById.has(key)) {
+      dedupedById.set(key, split)
+      continue
+    }
+
+    duplicateCount += 1
+
+    const existing = dedupedById.get(key)
+    const existingInnings = parseInningsPitched(existing?.stat?.inningsPitched) || 0
+    const incomingInnings = parseInningsPitched(stat?.inningsPitched) || 0
+
+    if (incomingInnings > existingInnings) {
+      dedupedById.set(key, split)
+    }
+  }
+
+  return {
+    dedupedSplits: Array.from(dedupedById.values()),
+    missingStatsCount,
+    duplicateCount
+  }
+}
+
+function buildPitcherStatsFromSplits({
+  splits,
+  pitcherMetadataById,
+  savantPitcherStats,
+  leagueContext
+}) {
+  const pitcherStats = {}
+  const savedPitcherIds = new Set()
+  let inactivePitchers = 0
+
+  for (const split of splits) {
+    const playerId = split?.player?.id
+    const stat = split?.stat
+
+    if (!playerId || !stat) {
+      continue
+    }
+
+    const playerIdKey = String(playerId)
+    const metadata = pitcherMetadataById[playerIdKey] || null
+
+    if (metadata?.active === false) {
+      inactivePitchers += 1
+    }
+
+    const pitcherName =
+      split?.player?.fullName ||
+      metadata?.fullName ||
+      `Pitcher ${playerIdKey}`
+
+    if (pitcherStats[pitcherName]) {
+      console.warn(
+        "fetchPitcherStats: duplicate pitcher name encountered, preserving first record",
+        pitcherName,
+        playerIdKey
+      )
+      continue
+    }
+
+    const advancedStat = getAdvancedPitcherStats(
+      playerId,
+      pitcherName,
+      savantPitcherStats
+    )
+
+    pitcherStats[pitcherName] = {
+      pitcherId: playerId,
+      throwingHand: metadata?.throwingHand || null,
+      ...normalizePitcherStatRecord(stat, advancedStat, leagueContext)
+    }
+
+    savedPitcherIds.add(playerIdKey)
+  }
+
+  return {
+    pitcherStats,
+    savedPitchers: savedPitcherIds.size,
+    inactivePitchers
+  }
+}
+
+async function savePitcherStats(redisClient, pitcherStats, statsMeta) {
+  await redisClient.set("mlb:stats:pitchers", pitcherStats)
+  await redisClient.set("mlb:stats:pitchers:meta", statsMeta)
 }
 
 export default async function handler(req, res) {
@@ -117,17 +242,7 @@ export default async function handler(req, res) {
       return
     }
 
-    const games = await redis.get("mlb:games:today")
-
-    if (!games || games.length === 0) {
-      return res.status(200).json({
-        message: "No games found"
-      })
-    }
-
-    const pitcherStats = {}
     const season = new Date().getUTCFullYear()
-    const pitcherDirectory = await resolvePitcherDirectory(games)
     const teamPitchingStats = await fetchTeamPitchingStats()
     const leagueContext = buildLeaguePitchingContext(teamPitchingStats)
 
@@ -139,50 +254,61 @@ export default async function handler(req, res) {
       console.warn("fetchPitcherStats: unable to load Baseball Savant metrics", error?.message || error)
     }
 
-    for (const [requestedName, pitcherMeta] of Object.entries(pitcherDirectory)) {
-      try {
-        const statsUrl =
-          `https://statsapi.mlb.com/api/v1/people/${pitcherMeta.id}/stats?stats=season&group=pitching`
-        const statsData = await fetchJsonWithRetry(statsUrl)
-        const stat = statsData.stats?.[0]?.splits?.[0]?.stat
+    const rawPitcherSplits = await fetchAllPitchingStatSplits(season)
+    const {
+      dedupedSplits,
+      missingStatsCount,
+      duplicateCount
+    } = dedupePitcherSplits(rawPitcherSplits)
 
-        if (!stat) {
-          continue
-        }
+    const pitcherIds = dedupedSplits
+      .map(split => split?.player?.id)
+      .filter(Boolean)
 
-        const advancedStat = getAdvancedPitcherStats(
-          pitcherMeta.id,
-          pitcherMeta.name,
-          savantPitcherStats
-        )
+    const pitcherMetadataById = await fetchPitcherMetadataById(pitcherIds)
 
-        pitcherStats[requestedName] = {
-          pitcherId: pitcherMeta.id,
-          throwingHand: pitcherMeta.throwingHand || null,
-          ...normalizePitcherStatRecord(stat, advancedStat, leagueContext)
-        }
-      } catch (error) {
-        console.warn(
-          "fetchPitcherStats: unable to fetch pitcher",
-          pitcherMeta?.name || requestedName,
-          error?.message || error
-        )
-      }
-    }
+    const {
+      pitcherStats,
+      savedPitchers,
+      inactivePitchers
+    } = buildPitcherStatsFromSplits({
+      splits: dedupedSplits,
+      pitcherMetadataById,
+      savantPitcherStats,
+      leagueContext
+    })
 
+    const sample = Object.entries(pitcherStats).slice(0, 3)
     const statsMeta = {
       lastUpdatedAt: new Date().toISOString(),
       source: "statsapi.mlb.com + baseballsavant.mlb.com",
-      version: "v1",
-      records: Object.keys(pitcherStats).length
+      version: "v2",
+      season,
+      records: Object.keys(pitcherStats).length,
+      fetchedPitchers: rawPitcherSplits.length,
+      dedupedPitchers: dedupedSplits.length,
+      duplicatePitchers: duplicateCount,
+      missingStats: missingStatsCount,
+      inactivePitchers,
+      savedPitchers
     }
 
-    await redis.set("mlb:stats:pitchers", pitcherStats)
-    await redis.set("mlb:stats:pitchers:meta", statsMeta)
+    await savePitcherStats(redis, pitcherStats, statsMeta)
+
+    console.info("fetchPitcherStats summary", {
+      fetchedPitchers: rawPitcherSplits.length,
+      dedupedPitchers: dedupedSplits.length,
+      savedPitchers,
+      missingStatsCount,
+      duplicateCount,
+      inactivePitchers,
+      sample
+    })
 
     res.status(200).json({
-      pitchersCollected: Object.keys(pitcherStats).length,
-      sample: Object.entries(pitcherStats).slice(0, 3),
+      pitchersFetched: rawPitcherSplits.length,
+      pitchersSaved: savedPitchers,
+      sample,
       metadata: statsMeta
     })
   } catch (error) {

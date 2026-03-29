@@ -768,11 +768,33 @@ test("fetchPitcherStats enforces the per-IP rate limit", { concurrency: false },
   process.env.ODDS_API_KEY = "test-odds-key"
 
   const handler = await importRoute("../pages/api/fetchPitcherStats.js")
-  const redisMock = createMockRedis([
-    ["mlb:games:today", []]
-  ])
+  const redisMock = createMockRedis()
 
-  await withPatchedRedis(redisMock, async () => {
+  await withPatchedRedis(redisMock, async () => withMockedFetch(
+    async (url) => {
+      const target = String(url)
+
+      if (target.includes("/api/v1/teams?sportId=1")) {
+        return createJsonResponse({ body: { teams: [] } })
+      }
+
+      if (target.includes("/api/v1/stats?stats=season&group=pitching")) {
+        return createJsonResponse({
+          body: {
+            stats: [{ splits: [] }]
+          }
+        })
+      }
+
+      if (target.includes("baseballsavant.mlb.com/leaderboard/custom")) {
+        return createTextResponse({
+          body: "player_id,pitcher,k_percent,bb_percent,xba,xslg,xera,hard_hit_percent,barrel_batted_rate,exit_velocity_avg"
+        })
+      }
+
+      return createJsonResponse({ body: {} })
+    },
+    async () => {
     for (let attempt = 1; attempt <= 6; attempt += 1) {
       const res = createMockResponse()
       await handler(createRequest(), res)
@@ -789,7 +811,8 @@ test("fetchPitcherStats enforces the per-IP rate limit", { concurrency: false },
       retryAfterSeconds: 60
     })
     assert.equal(throttledRes.headers["Retry-After"], "60")
-  })
+    }
+  ))
 })
 
 test("fetchTeamOffenseStats stores season, split, recent, and expected offense metrics", { concurrency: false }, async () => {
@@ -867,8 +890,8 @@ test("fetchTeamOffenseStats stores season, split, recent, and expected offense m
           body: {
             stats: [{
               splits: [
-                { date: '2026-03-21', stat: { runs: 6, hits: 10, atBats: 34, baseOnBalls: 4, strikeOuts: 7, doubles: 2, triples: 0, homeRuns: 1, totalBases: 15 } },
-                { date: '2026-03-20', stat: { runs: 5, hits: 9, atBats: 33, baseOnBalls: 3, strikeOuts: 8, doubles: 1, triples: 0, homeRuns: 2, totalBases: 16 } },
+                { date: '2026-03-29', stat: { runs: 6, hits: 10, atBats: 34, baseOnBalls: 4, strikeOuts: 7, doubles: 2, triples: 0, homeRuns: 1, totalBases: 15 } },
+                { date: '2026-03-27', stat: { runs: 5, hits: 9, atBats: 33, baseOnBalls: 3, strikeOuts: 8, doubles: 1, triples: 0, homeRuns: 2, totalBases: 16 } },
                 { date: '2026-03-15', stat: { runs: 4, hits: 8, atBats: 32, baseOnBalls: 2, strikeOuts: 6, doubles: 2, triples: 0, homeRuns: 1, totalBases: 13 } },
                 { date: '2026-03-10', stat: { runs: 3, hits: 7, atBats: 31, baseOnBalls: 2, strikeOuts: 9, doubles: 1, triples: 0, homeRuns: 0, totalBases: 8 } }
               ]
@@ -1645,31 +1668,11 @@ test("fetchPitcherStats stores advanced pitcher metrics and computed K-BB%, FIP,
   process.env.ODDS_API_KEY = "test-odds-key"
 
   const handler = await importRoute("../pages/api/fetchPitcherStats.js")
-  const redisMock = createMockRedis([
-    ["mlb:games:today", [
-      {
-        gameId: "game-1",
-        homePitcher: "Home Pitcher",
-        awayPitcher: "Away Pitcher"
-      }
-    ]]
-  ])
+  const redisMock = createMockRedis()
 
   await withPatchedRedis(redisMock, async () => withMockedFetch(
     async (url) => {
       const target = String(url)
-
-      if (target.includes("/people/search?names=Home%20Pitcher")) {
-        return createJsonResponse({
-          body: { people: [{ id: 2, fullName: "Home Pitcher" }] }
-        })
-      }
-
-      if (target.includes("/people/search?names=Away%20Pitcher")) {
-        return createJsonResponse({
-          body: { people: [{ id: 1, fullName: "Away Pitcher" }] }
-        })
-      }
 
       if (target.includes("/api/v1/teams?sportId=1")) {
         return createJsonResponse({
@@ -1724,48 +1727,60 @@ test("fetchPitcherStats stores advanced pitcher metrics and computed K-BB%, FIP,
         })
       }
 
-      if (target.includes("/people/1/stats")) {
+      if (target.includes("/api/v1/stats?stats=season&group=pitching")) {
         return createJsonResponse({
           body: {
             stats: [{
-              splits: [{
-                stat: {
-                  era: "3.40",
-                  whip: "1.12",
-                  strikeOuts: 110,
-                  inningsPitched: "95.1",
-                  avg: ".229",
-                  slg: ".377",
-                  homeRuns: "10",
-                  baseOnBalls: "28",
-                  hitBatsmen: "3",
-                  flyOuts: "70"
+              splits: [
+                {
+                  player: {
+                    id: 1,
+                    fullName: "Away Pitcher"
+                  },
+                  stat: {
+                    era: "3.40",
+                    whip: "1.12",
+                    strikeOuts: 110,
+                    inningsPitched: "95.1",
+                    avg: ".229",
+                    slg: ".377",
+                    homeRuns: "10",
+                    baseOnBalls: "28",
+                    hitBatsmen: "3",
+                    flyOuts: "70"
+                  }
+                },
+                {
+                  player: {
+                    id: 2,
+                    fullName: "Home Pitcher"
+                  },
+                  stat: {
+                    era: "3.10",
+                    whip: "1.05",
+                    strikeOuts: 120,
+                    inningsPitched: "101.0",
+                    avg: ".218",
+                    slg: ".341",
+                    homeRuns: "9",
+                    baseOnBalls: "24",
+                    hitBatsmen: "2",
+                    flyOuts: "82"
+                  }
                 }
-              }]
+              ]
             }]
           }
         })
       }
 
-      if (target.includes("/people/2/stats")) {
+      if (target.includes("/api/v1/people?personIds=1,2")) {
         return createJsonResponse({
           body: {
-            stats: [{
-              splits: [{
-                stat: {
-                  era: "3.10",
-                  whip: "1.05",
-                  strikeOuts: 120,
-                  inningsPitched: "101.0",
-                  avg: ".218",
-                  slg: ".341",
-                  homeRuns: "9",
-                  baseOnBalls: "24",
-                  hitBatsmen: "2",
-                  flyOuts: "82"
-                }
-              }]
-            }]
+            people: [
+              { id: 1, fullName: "Away Pitcher", pitchHand: { code: "R" }, active: true },
+              { id: 2, fullName: "Home Pitcher", pitchHand: { code: "L" }, active: true }
+            ]
           }
         })
       }
@@ -1790,7 +1805,7 @@ test("fetchPitcherStats stores advanced pitcher metrics and computed K-BB%, FIP,
       const payload = redisMock.snapshot("mlb:stats:pitchers")
       assert.equal(Object.keys(payload).length, 2)
       assert.equal(payload["Home Pitcher"].pitcherId, 2)
-      assert.equal(payload["Home Pitcher"].throwingHand, null)
+      assert.equal(payload["Home Pitcher"].throwingHand, "L")
       assert.equal(payload["Home Pitcher"].xera, 2.98)
       assert.equal(payload["Home Pitcher"].strikeoutRate, 0.312)
       assert.ok(Math.abs(payload["Home Pitcher"].walkRate - 0.054) < 1e-9)
@@ -1802,36 +1817,20 @@ test("fetchPitcherStats stores advanced pitcher metrics and computed K-BB%, FIP,
       assert.equal(payload["Home Pitcher"].averageExitVelocity, 87.4)
       assert.equal(typeof payload["Home Pitcher"].fip, "number")
       assert.equal(typeof payload["Home Pitcher"].xfip, "number")
+      assert.equal(res.body.pitchersFetched, 2)
+      assert.equal(res.body.pitchersSaved, 2)
     }
   ))
 })
 
-test("fetchPitcherStats tolerates transient team and pitcher directory upstream failures", { concurrency: false }, async () => {
+test("fetchPitcherStats tolerates transient team and pitcher metadata upstream failures", { concurrency: false }, async () => {
   process.env.ADMIN_API_SECRET = "test-admin-secret"
   const handler = await importRoute("../pages/api/fetchPitcherStats.js")
-  const redisMock = createMockRedis([
-    ["mlb:games:today", [
-      {
-        gameId: "game-1",
-        homePitcher: "Home Pitcher",
-        awayPitcher: "Away Pitcher"
-      }
-    ]]
-  ])
+  const redisMock = createMockRedis()
 
   await withPatchedRedis(redisMock, async () => withMockedFetch(
     async (url) => {
       const target = String(url)
-
-      if (target.includes("/people/search?names=Home%20Pitcher")) {
-        return createJsonResponse({
-          body: { people: [{ id: 2, fullName: "Home Pitcher" }] }
-        })
-      }
-
-      if (target.includes("/people/search?names=Away%20Pitcher")) {
-        throw new Error("Temporary MLB API search outage")
-      }
 
       if (target.includes("/api/v1/teams?sportId=1")) {
         return createJsonResponse({
@@ -1869,11 +1868,15 @@ test("fetchPitcherStats tolerates transient team and pitcher directory upstream 
         throw new Error("Temporary MLB API team stats outage")
       }
 
-      if (target.includes("/people/2/stats")) {
+      if (target.includes("/api/v1/stats?stats=season&group=pitching")) {
         return createJsonResponse({
           body: {
             stats: [{
               splits: [{
+                player: {
+                  id: 2,
+                  fullName: "Home Pitcher"
+                },
                 stat: {
                   era: "3.10",
                   whip: "1.05",
@@ -1892,6 +1895,10 @@ test("fetchPitcherStats tolerates transient team and pitcher directory upstream 
         })
       }
 
+      if (target.includes("/api/v1/people?personIds=2")) {
+        throw new Error("Temporary MLB API people metadata outage")
+      }
+
       if (target.includes("baseballsavant.mlb.com/leaderboard/custom")) {
         return createTextResponse({
           body: [
@@ -1908,7 +1915,7 @@ test("fetchPitcherStats tolerates transient team and pitcher directory upstream 
       await handler(createRequest(), res)
 
       assert.equal(res.statusCode, 200)
-      assert.equal(res.body.pitchersCollected, 1)
+      assert.equal(res.body.pitchersSaved, 1)
       const payload = redisMock.snapshot("mlb:stats:pitchers")
       assert.deepEqual(Object.keys(payload), ["Home Pitcher"])
     }
