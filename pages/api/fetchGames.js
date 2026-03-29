@@ -63,7 +63,9 @@ export default async function handler(req, res) {
         awayTeam,
 
         homePitcher: game.teams.home.probablePitcher?.fullName || null,
+        homePitcherId: game.teams.home.probablePitcher?.id || null,
         awayPitcher: game.teams.away.probablePitcher?.fullName || null,
+        awayPitcherId: game.teams.away.probablePitcher?.id || null,
 
         venue,
         venueId: game.venue?.id ?? null,

@@ -164,9 +164,11 @@ function buildPitcherStatsFromSplits({
   savantPitcherStats,
   leagueContext
 }) {
-  const pitcherStats = {}
+  const pitchersById = {}
+  const pitcherNameAliasMap = {}
   const savedPitcherIds = new Set()
   let inactivePitchers = 0
+  let duplicateNameCollisions = 0
 
   for (const split of splits) {
     const playerId = split?.player?.id
@@ -187,15 +189,7 @@ function buildPitcherStatsFromSplits({
       split?.player?.fullName ||
       metadata?.fullName ||
       `Pitcher ${playerIdKey}`
-
-    if (pitcherStats[pitcherName]) {
-      console.warn(
-        "fetchPitcherStats: duplicate pitcher name encountered, preserving first record",
-        pitcherName,
-        playerIdKey
-      )
-      continue
-    }
+    const teamName = split?.team?.name || null
 
     const advancedStat = getAdvancedPitcherStats(
       playerId,
@@ -203,19 +197,35 @@ function buildPitcherStatsFromSplits({
       savantPitcherStats
     )
 
-    pitcherStats[pitcherName] = {
+    pitchersById[playerIdKey] = {
       pitcherId: playerId,
+      fullName: pitcherName,
+      teamName,
       throwingHand: metadata?.throwingHand || null,
       ...normalizePitcherStatRecord(stat, advancedStat, leagueContext)
     }
+    const existingAliasIds = pitcherNameAliasMap[pitcherName] || []
+
+    if (existingAliasIds.length > 0) {
+      duplicateNameCollisions += 1
+    }
+
+    pitcherNameAliasMap[pitcherName] = [...existingAliasIds, playerId]
 
     savedPitcherIds.add(playerIdKey)
+  }
+
+  const pitcherStats = {
+    version: "v3",
+    byId: pitchersById,
+    aliasMap: pitcherNameAliasMap
   }
 
   return {
     pitcherStats,
     savedPitchers: savedPitcherIds.size,
-    inactivePitchers
+    inactivePitchers,
+    duplicateNameCollisions
   }
 }
 
@@ -270,7 +280,8 @@ export default async function handler(req, res) {
     const {
       pitcherStats,
       savedPitchers,
-      inactivePitchers
+      inactivePitchers,
+      duplicateNameCollisions
     } = buildPitcherStatsFromSplits({
       splits: dedupedSplits,
       pitcherMetadataById,
@@ -278,16 +289,17 @@ export default async function handler(req, res) {
       leagueContext
     })
 
-    const sample = Object.entries(pitcherStats).slice(0, 3)
+    const sample = Object.values(pitcherStats?.byId || {}).slice(0, 3)
     const statsMeta = {
       lastUpdatedAt: new Date().toISOString(),
       source: "statsapi.mlb.com + baseballsavant.mlb.com",
       version: "v2",
       season,
-      records: Object.keys(pitcherStats).length,
+      records: Object.keys(pitcherStats?.byId || {}).length,
       fetchedPitchers: rawPitcherSplits.length,
       dedupedPitchers: dedupedSplits.length,
       duplicatePitchers: duplicateCount,
+      duplicateNameCollisions,
       missingStats: missingStatsCount,
       inactivePitchers,
       savedPitchers
@@ -301,6 +313,7 @@ export default async function handler(req, res) {
       savedPitchers,
       missingStatsCount,
       duplicateCount,
+      duplicateNameCollisions,
       inactivePitchers,
       sample
     })
