@@ -252,6 +252,23 @@ test("cron route runs the existing pipeline once per Eastern day and skips dupli
 
   const handler = await importRoute("../pages/api/cron/runDailyPipeline.js")
   const redisMock = createMockRedis([
+    ["mlb:games:today", [
+      {
+        gameId: 123,
+        matchKey: "2026-07-01|Boston Red Sox|New York Yankees",
+        date: "2026-07-01T23:05:00Z",
+        homeTeam: "New York Yankees",
+        awayTeam: "Boston Red Sox",
+        homePitcher: "Home Pitcher",
+        awayPitcher: "Away Pitcher",
+        seasonType: "regular"
+      }
+    ]],
+    ["mlb:games:today:meta", {
+      dateKey: "2026-07-02",
+      fetchedAt: "2026-07-02T13:00:00.000Z",
+      gamesToday: 1
+    }],
     ["mlb:ratings:teams", {
       Yankees: 1500,
       RedSox: 1480
@@ -487,7 +504,7 @@ test("cron route runs the existing pipeline once per Eastern day and skips dupli
       assert.equal(firstRun.statusCode, 200)
       assert.equal(firstRun.body.ok, true)
       assert.equal(firstRun.body.pipeline.ok, true)
-	      assert.equal(firstRun.body.pipeline.completedSteps, 4)
+      assert.equal(firstRun.body.pipeline.completedSteps, 3)
 
       const secondRun = createMockResponse()
       await handler(createRequest(), secondRun)

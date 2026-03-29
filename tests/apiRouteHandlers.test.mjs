@@ -1534,11 +1534,17 @@ test("runPipeline returns a redacted failed-step payload when a child route fail
   process.env.ODDS_API_KEY = "test-odds-key"
 
   const handler = await importRoute("../pages/api/runPipeline.js")
-  const redisMock = createMockRedis()
+  const redisMock = createMockRedis([
+    ["mlb:games:today", []],
+    ["mlb:games:today:meta", {
+      fetchedAt: "2026-01-15T11:00:00.000Z",
+      gamesToday: 0
+    }]
+  ])
 
   await withSilencedConsole(async () => withPatchedRedis(redisMock, async () => withMockedFetch(
     async (url) => {
-      if (String(url).includes("/schedule?")) {
+      if (String(url).includes("/v4/sports/baseball_mlb/odds")) {
         return createJsonResponse({ ok: false, status: 401, body: { message: "denied" } })
       }
 
@@ -1552,10 +1558,10 @@ test("runPipeline returns a redacted failed-step payload when a child route fail
 
       assert.equal(res.statusCode, 500)
       assert.equal(res.body.ok, false)
-      assert.equal(res.body.failedStep, "fetchGames")
+      assert.equal(res.body.failedStep, "fetchOdds")
       assert.equal(res.body.completedSteps, 0)
       assert.deepEqual(res.body.steps[0], {
-        step: "fetchGames",
+        step: "fetchOdds",
         status: "failed",
         statusCode: 500,
         result: {
