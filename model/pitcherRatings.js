@@ -72,6 +72,132 @@ export async function getPitcherStats(stats = null) {
   return await redis.get("mlb:stats:pitchers")
 }
 
+function toNumericInnings(value) {
+  return typeof value === "number" && Number.isFinite(value) ? value : 0
+}
+
+function normalizePitcherStatsStore(rawStats = null) {
+  if (!rawStats || typeof rawStats !== "object") {
+    return {
+      byId: {},
+      aliasMap: {},
+      byName: {}
+    }
+  }
+
+  if (rawStats.byId && typeof rawStats.byId === "object") {
+    const byId = rawStats.byId
+    const aliasMap = rawStats.aliasMap && typeof rawStats.aliasMap === "object"
+      ? rawStats.aliasMap
+      : {}
+    const byName = {}
+
+    Object.values(byId).forEach((pitcher) => {
+      if (!pitcher || typeof pitcher !== "object") {
+        return
+      }
+
+      const fullName = pitcher.fullName
+
+      if (typeof fullName === "string" && fullName.length > 0 && !byName[fullName]) {
+        byName[fullName] = pitcher
+      }
+    })
+
+    return { byId, aliasMap, byName }
+  }
+
+  return {
+    byId: {},
+    aliasMap: {},
+    byName: rawStats
+  }
+}
+
+function resolvePitcherRecord({
+  pitcherName = null,
+  pitcherId = null,
+  team = null,
+  stats = null
+}) {
+  const { byId, aliasMap, byName } = normalizePitcherStatsStore(stats)
+  const pitcherIdKey = pitcherId !== undefined && pitcherId !== null ? String(pitcherId) : null
+
+  if (pitcherIdKey && byId[pitcherIdKey]) {
+    return {
+      pitcher: byId[pitcherIdKey],
+      pitcherId: byId[pitcherIdKey]?.pitcherId || pitcherId
+    }
+  }
+
+  if (!pitcherName) {
+    return { pitcher: null, pitcherId: pitcherId || null }
+  }
+
+  const aliasPitcherIds = Array.isArray(aliasMap[pitcherName]) ? aliasMap[pitcherName] : []
+
+  if (aliasPitcherIds.length === 1) {
+    const onlyPitcher = byId[String(aliasPitcherIds[0])] || null
+    return {
+      pitcher: onlyPitcher,
+      pitcherId: onlyPitcher?.pitcherId || aliasPitcherIds[0] || null
+    }
+  }
+
+  if (aliasPitcherIds.length > 1) {
+    const candidates = aliasPitcherIds
+      .map(id => byId[String(id)])
+      .filter(Boolean)
+
+    let selected = null
+
+    if (team) {
+      selected = candidates.find((candidate) => candidate?.teamName === team) || null
+    }
+
+    if (!selected && candidates.length > 0) {
+      selected = [...candidates].sort((a, b) => {
+        const inningsDiff = toNumericInnings(b?.innings) - toNumericInnings(a?.innings)
+
+        if (inningsDiff !== 0) {
+          return inningsDiff
+        }
+
+        const eraA = typeof a?.era === "number" ? a.era : Number.POSITIVE_INFINITY
+        const eraB = typeof b?.era === "number" ? b.era : Number.POSITIVE_INFINITY
+
+        return eraA - eraB
+      })[0]
+
+      console.warn("pitcherRatings: duplicate pitcher name collision fallback", {
+        pitcherName,
+        candidatePitcherIds: candidates.map(candidate => candidate?.pitcherId).filter(Boolean),
+        team,
+        selectedPitcherId: selected?.pitcherId || null,
+        strategy: "highest_innings_then_lowest_era"
+      })
+    } else {
+      console.info("pitcherRatings: duplicate pitcher name resolved using team context", {
+        pitcherName,
+        candidatePitcherIds: candidates.map(candidate => candidate?.pitcherId).filter(Boolean),
+        team,
+        selectedPitcherId: selected?.pitcherId || null
+      })
+    }
+
+    return {
+      pitcher: selected,
+      pitcherId: selected?.pitcherId || null
+    }
+  }
+
+  const namedPitcher = byName[pitcherName] || null
+  return {
+    pitcher: namedPitcher,
+    pitcherId: namedPitcher?.pitcherId || pitcherId || null
+  }
+}
+
 export function buildPitcherRatingDetails(pitcher = null) {
   if (!pitcher) {
     return {
@@ -109,19 +235,37 @@ export function buildPitcherRatingDetails(pitcher = null) {
   }
 }
 
-export async function getPitcherRatingDetails(name, stats = null) {
-  if (!name) {
+export async function getPitcherRatingDetails(input, stats = null) {
+  const pitcherName = typeof input === "string" ? input : input?.name || null
+  const pitcherId = typeof input === "object" ? input?.pitcherId : null
+  const team = typeof input === "object" ? input?.team : null
+
+  if (!pitcherName && !pitcherId) {
     return {
       rating: 0,
+      pitcherId: null,
       stats: null,
       components: []
     }
   }
 
   const pitcherStats = await getPitcherStats(stats)
-  const pitcher = pitcherStats?.[name] || null
+  const {
+    pitcher,
+    pitcherId: resolvedPitcherId
+  } = resolvePitcherRecord({
+    pitcherName,
+    pitcherId,
+    team,
+    stats: pitcherStats
+  })
 
-  return buildPitcherRatingDetails(pitcher)
+  const details = buildPitcherRatingDetails(pitcher)
+
+  return {
+    ...details,
+    pitcherId: resolvedPitcherId
+  }
 }
 
 export async function getPitcherRating(name, stats = null) {

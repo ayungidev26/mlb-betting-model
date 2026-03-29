@@ -7,12 +7,8 @@ import {
   resolveBallparkFactors
 } from "../lib/ballparkFactors.js"
 
-function resolveOpposingPitcherHand(pitcherName, pitcherStats) {
-  if (!pitcherName || !pitcherStats || typeof pitcherStats !== "object") {
-    return null
-  }
-
-  const throwingHand = pitcherStats?.[pitcherName]?.throwingHand || null
+function resolveOpposingPitcherHand(pitcherDetails) {
+  const throwingHand = pitcherDetails?.stats?.throwingHand || null
   return typeof throwingHand === "string" && throwingHand.length > 0 ? throwingHand : null
 }
 
@@ -122,9 +118,17 @@ export async function predictGame(game, teamRatings, bullpenStats, pitcherStats 
     const awayTeamRating = teamRatings?.[awayTeam] || 1500
 
     const homePitcherDetails =
-      await getPitcherRatingDetails(game.homePitcher, pitcherStats)
+      await getPitcherRatingDetails({
+        name: game.homePitcher,
+        pitcherId: game.homePitcherId,
+        team: homeTeam
+      }, pitcherStats)
     const awayPitcherDetails =
-      await getPitcherRatingDetails(game.awayPitcher, pitcherStats)
+      await getPitcherRatingDetails({
+        name: game.awayPitcher,
+        pitcherId: game.awayPitcherId,
+        team: awayTeam
+      }, pitcherStats)
 
     const homePitcherRating = homePitcherDetails.rating
     const awayPitcherRating = awayPitcherDetails.rating
@@ -140,11 +144,11 @@ export async function predictGame(game, teamRatings, bullpenStats, pitcherStats 
 
     const homeOffenseDetails = getOffenseRatingDetails(homeTeam, offenseStats, {
       isHomeTeam: true,
-      opposingPitcherHand: resolveOpposingPitcherHand(game.awayPitcher, pitcherStats)
+      opposingPitcherHand: resolveOpposingPitcherHand(awayPitcherDetails)
     })
     const awayOffenseDetails = getOffenseRatingDetails(awayTeam, offenseStats, {
       isHomeTeam: false,
-      opposingPitcherHand: resolveOpposingPitcherHand(game.homePitcher, pitcherStats)
+      opposingPitcherHand: resolveOpposingPitcherHand(homePitcherDetails)
     })
 
     const homeOffenseRating = homeOffenseDetails.rating
@@ -157,14 +161,14 @@ export async function predictGame(game, teamRatings, bullpenStats, pitcherStats 
       team: homeTeam,
       offenseDetails: homeOffenseDetails,
       opposingPitcherDetails: awayPitcherDetails,
-      opposingPitcherHand: resolveOpposingPitcherHand(game.awayPitcher, pitcherStats),
+      opposingPitcherHand: resolveOpposingPitcherHand(awayPitcherDetails),
       ballpark
     })
     const awayBallparkAdjustment = buildBallparkAdjustmentDetails({
       team: awayTeam,
       offenseDetails: awayOffenseDetails,
       opposingPitcherDetails: homePitcherDetails,
-      opposingPitcherHand: resolveOpposingPitcherHand(game.homePitcher, pitcherStats),
+      opposingPitcherHand: resolveOpposingPitcherHand(homePitcherDetails),
       ballpark
     })
 
@@ -202,7 +206,9 @@ export async function predictGame(game, teamRatings, bullpenStats, pitcherStats 
       awayTeam,
 
       homePitcher: game.homePitcher || null,
+      homePitcherId: homePitcherDetails.pitcherId || game.homePitcherId || null,
       awayPitcher: game.awayPitcher || null,
+      awayPitcherId: awayPitcherDetails.pitcherId || game.awayPitcherId || null,
       venue: game.venue || ballpark.venue || null,
       ballpark,
 
@@ -212,12 +218,14 @@ export async function predictGame(game, teamRatings, bullpenStats, pitcherStats 
       pitcherModel: {
         home: {
           name: game.homePitcher || null,
+          pitcherId: homePitcherDetails.pitcherId || game.homePitcherId || null,
           rating: homePitcherRating,
           stats: homePitcherDetails.stats,
           components: homePitcherDetails.components
         },
         away: {
           name: game.awayPitcher || null,
+          pitcherId: awayPitcherDetails.pitcherId || game.awayPitcherId || null,
           rating: awayPitcherRating,
           stats: awayPitcherDetails.stats,
           components: awayPitcherDetails.components
