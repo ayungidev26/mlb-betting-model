@@ -503,6 +503,8 @@ test("cron route runs the existing pipeline once per Eastern day and skips dupli
 
       assert.equal(firstRun.statusCode, 200)
       assert.equal(firstRun.body.ok, true)
+      assert.deepEqual(firstRun.body.orchestration.order, ["runStatsPipeline", "runPipeline"])
+      assert.equal(firstRun.body.statsPipeline.ok, true)
       assert.equal(firstRun.body.pipeline.ok, true)
       assert.equal(firstRun.body.pipeline.completedSteps, 3)
 
@@ -515,6 +517,43 @@ test("cron route runs the existing pipeline once per Eastern day and skips dupli
       assert.ok(redisMock.snapshot("mlb:cron:dailyPipeline:2026-07-02"))
     }
   )))
+})
+
+test("cron route returns explicit dependency context when market pipeline is blocked with 409", { concurrency: false }, async () => {
+  process.env.CRON_SECRET = "cron-secret"
+  process.env.ADMIN_API_SECRET = "admin-secret"
+
+  const handler = await importRoute("../pages/api/cron/runDailyPipeline.js")
+  const redisMock = createMockRedis([
+    ["mlb:cron:statsPipeline:2026-07-02", {
+      triggeredAt: "2026-07-02T09:31:00.000Z",
+      triggerType: "cron"
+    }],
+    ["mlb:games:today", [
+      {
+        gameId: 123,
+        matchKey: "2026-07-01|Boston Red Sox|New York Yankees",
+        date: "2026-07-01T23:05:00Z",
+        homeTeam: "New York Yankees",
+        awayTeam: "Boston Red Sox"
+      }
+    ]],
+    ["mlb:games:today:meta", {
+      dateKey: "2026-07-01",
+      fetchedAt: "2026-07-01T23:06:00.000Z",
+      gamesToday: 1
+    }]
+  ])
+
+  await withPatchedRedis(redisMock, async () => withMockedDate("2026-07-02T14:00:00.000Z", async () => {
+    const res = createMockResponse()
+    await handler(createRequest(), res)
+
+    assert.equal(res.statusCode, 409)
+    assert.equal(res.body.ok, false)
+    assert.equal(res.body.marketPipeline.code, "GAMES_CACHE_STALE")
+    assert.match(res.body.marketPipeline.error, /Run \/api\/runStatsPipeline first/)
+  }))
 })
 
 test("cron route supports secure manual force runs", { concurrency: false }, async () => {

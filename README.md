@@ -181,9 +181,10 @@ fetchPitcherStats -> fetchBullpenStats -> fetchTeamOffenseStats
 Runs, in order:
 
 ```text
-fetchGames -> fetchOdds?refresh=true -> runModel -> findEdges
+fetchOdds?refresh=true -> runModel -> findEdges
 ```
 
+Requires same-day games/stats caches from `runStatsPipeline` to exist first. If not prepared yet, returns `409` (`GAMES_CACHE_MISSING` or `GAMES_CACHE_STALE`) with guidance to run stats first.
 Writes game, odds, prediction, and edge cache keys used by dashboard/public routes.
 
 ### 10) Historical + evaluation workflow
@@ -366,8 +367,10 @@ Workflow file: `.github/workflows/schedule-pipeline.yml`.
   - 10:19 AM – 11:49 AM ET
   - 2:19 PM – 3:49 PM ET
   - 5:19 PM – 6:49 PM ET
-- Trigger path:
-  - `POST /api/runPipeline`
+- Trigger order:
+  1. Run stats dependency first (`POST /api/cron/runDailyStatsPipeline?force=true` when `CRON_SECRET` is present, else `POST /api/runStatsPipeline`).
+  2. Run market pipeline (`POST /api/runPipeline`) only after stats succeeds.
+  3. If market returns `409`, workflow logs an explicit dependency message and stops (no silent/unknown failure).
 
 > Note: The optional cron entry route `GET|POST /api/cron/runDailyPipeline` has its own strict internal check and runs only at **10:00 ET minute-match** unless `?force=true` is supplied.
 
@@ -380,7 +383,7 @@ Workflow file: `.github/workflows/schedule-pipeline.yml`.
 
 ### Optional direct cron usage
 
-You may call `/api/cron/runDailyStatsPipeline` and/or `/api/cron/runDailyPipeline` from Vercel Cron or any external scheduler. Provide `Authorization: Bearer <CRON_SECRET>`.
+You may call `/api/cron/runDailyStatsPipeline` and/or `/api/cron/runDailyPipeline` from Vercel Cron or any external scheduler. Provide `Authorization: Bearer <CRON_SECRET>`. Any caller that triggers `/api/runPipeline` should invoke stats first in the same orchestration flow.
 
 ---
 
@@ -474,7 +477,9 @@ Behavior:
 
 - Runs only at **10:00 ET exact minute** unless `?force=true`.
 - Uses ET-date idempotency marker `mlb:cron:dailyPipeline:YYYY-MM-DD`.
-- Internally invokes `runPipeline` with operational auth.
+- Internally orchestrates dependency order: `runStatsPipeline` first, then `runPipeline`.
+- If stats fails, route stops and returns the stats error payload.
+- If market returns `409`, payload includes clear dependency context (`runStatsPipeline` must run first).
 
 ---
 
@@ -529,6 +534,11 @@ curl -X POST "http://localhost:3000/api/runStatsPipeline" \
 ### Run market pipeline
 
 ```bash
+# required dependency first
+curl -X POST "http://localhost:3000/api/runStatsPipeline" \
+  -H "Authorization: Bearer $ADMIN_API_SECRET"
+
+# then run market pipeline
 curl -X POST "http://localhost:3000/api/runPipeline" \
   -H "Authorization: Bearer $ADMIN_API_SECRET"
 ```
@@ -576,6 +586,7 @@ CRON_SECRET=your-secret SCHEDULER_BASE_URL=http://localhost:3000 npm run test:sc
 - `npm run build` — build for production.
 - `npm run start` — run production server.
 - `npm test` — run Node test suite (`tests/*.test.mjs`).
+- `npm test -- --run tests/cronRoute.test.mjs tests/statsCronRoute.test.mjs tests/cronSchedule.test.mjs` — run targeted test files only.
 - `npm run test:scheduler` — local cron-route trigger helper.
 - `npm run screenshot:dashboard` — capture dashboard screenshot helper (if local app is running).
 

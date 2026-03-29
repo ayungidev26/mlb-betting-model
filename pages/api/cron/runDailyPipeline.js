@@ -1,4 +1,5 @@
 import runPipelineHandler from "../runPipeline.js"
+import runStatsPipelineHandler from "../runStatsPipeline.js"
 import { redis } from "../../../lib/upstash.js"
 import {
   getOperationalRouteSecret,
@@ -34,6 +35,28 @@ function shouldForceRun(query = {}) {
 
 function buildMarkerKey(dateKey) {
   return `${DAILY_PIPELINE_MARKER_PREFIX}:${dateKey}`
+}
+
+async function invokeInternalHandler(handler, { force, operationalSecret, triggerSource }) {
+  const internalResponse = createMockResponse()
+
+  await handler(
+    {
+      method: "POST",
+      query: force ? { force: "true" } : {},
+      headers: {
+        authorization: `Bearer ${operationalSecret}`,
+        "x-forwarded-for": "127.0.0.1",
+        "x-scheduler-source": triggerSource
+      },
+      socket: {
+        remoteAddress: "127.0.0.1"
+      }
+    },
+    internalResponse
+  )
+
+  return internalResponse
 }
 
 export default async function handler(req, res) {
@@ -95,35 +118,78 @@ export default async function handler(req, res) {
     })
   }
 
-  const internalResponse = createMockResponse()
+  const triggerSource = force ? "manual" : "vercel-cron"
 
   try {
-    await runPipelineHandler(
-      {
-        method: "POST",
-        query: {},
-        headers: {
-          authorization: `Bearer ${operationalSecret}`,
-          "x-forwarded-for": "127.0.0.1",
-          "x-scheduler-source": force ? "manual" : "vercel-cron"
-        },
-        socket: {
-          remoteAddress: "127.0.0.1"
-        }
-      },
-      internalResponse
-    )
+    console.info("[runDailyPipeline] running stats pipeline before market pipeline", {
+      markerKey,
+      trigger: force ? "manual" : "cron",
+      schedulerWindow
+    })
 
-    if (internalResponse.statusCode >= 400 && !force) {
+    const statsPipelineResponse = await invokeInternalHandler(runStatsPipelineHandler, {
+      force,
+      operationalSecret,
+      triggerSource
+    })
+
+    if (statsPipelineResponse.statusCode >= 400) {
+      if (!force) {
+        await redis.del(markerKey)
+      }
+
+      console.warn("[runDailyPipeline] stopping because stats pipeline failed", {
+        markerKey,
+        statusCode: statsPipelineResponse.statusCode,
+        trigger: force ? "manual" : "cron"
+      })
+
+      return res.status(statsPipelineResponse.statusCode).json({
+        ok: false,
+        trigger: force ? "manual" : "cron",
+        markerKey,
+        schedulerWindow,
+        stoppedAfter: "statsPipeline",
+        reason: "Stats pipeline must succeed before the market pipeline can run.",
+        statsPipeline: statsPipelineResponse.body
+      })
+    }
+
+    const marketPipelineResponse = await invokeInternalHandler(runPipelineHandler, {
+      force: false,
+      operationalSecret,
+      triggerSource
+    })
+
+    if (marketPipelineResponse.statusCode === 409) {
+      console.warn("[runDailyPipeline] market pipeline blocked because stats prerequisites are missing", {
+        markerKey,
+        trigger: force ? "manual" : "cron",
+        marketPipelineCode: marketPipelineResponse.body?.code || null
+      })
+    }
+
+    if (marketPipelineResponse.statusCode >= 400 && !force) {
       await redis.del(markerKey)
     }
 
-    return res.status(internalResponse.statusCode).json({
-      ok: internalResponse.statusCode < 400,
+    return res.status(marketPipelineResponse.statusCode).json({
+      ok: marketPipelineResponse.statusCode < 400,
       trigger: force ? "manual" : "cron",
       markerKey,
       schedulerWindow,
-      pipeline: internalResponse.body
+      orchestration: {
+        order: [
+          "runStatsPipeline",
+          "runPipeline"
+        ],
+        stoppedAfter: marketPipelineResponse.statusCode >= 400
+          ? "runPipeline"
+          : null
+      },
+      statsPipeline: statsPipelineResponse.body,
+      marketPipeline: marketPipelineResponse.body,
+      pipeline: marketPipelineResponse.body
     })
   } catch (error) {
     if (!force) {

@@ -6,7 +6,7 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "test": "node --test tests/*.test.mjs",
+    "test": "node scripts/run-tests.mjs",
     "test:scheduler": "node scripts/run-daily-scheduler.mjs",
     "screenshot:dashboard": "node scripts/capture-dashboard-shot.mjs"
   },
