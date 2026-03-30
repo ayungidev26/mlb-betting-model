@@ -9,6 +9,63 @@ const SECTION_ORDER = [
 
 const MAX_COLUMNS = 14
 const DEFAULT_TAB = "pitchers"
+const MISSING_VALUE = "—"
+
+const PITCHER_COLUMN_CONFIG = [
+  { key: "pitcherName", label: "Pitcher Name", align: "left" },
+  { key: "__teamDisplay", label: "Team", align: "left" },
+  { key: "throwingHand", label: "Hand", align: "center" },
+  { key: "wins", label: "Wins", align: "right", format: "integer" },
+  { key: "losses", label: "Losses", align: "right", format: "integer" },
+  { key: "era", label: "ERA", align: "right", format: "decimal2" },
+  { key: "xera", label: "xERA", align: "right", format: "decimal2" },
+  { key: "whip", label: "WHIP", align: "right", format: "decimal3" },
+  { key: "fip", label: "FIP", align: "right", format: "decimal2" },
+  { key: "xfip", label: "xFIP", align: "right", format: "decimal2" },
+  { key: "strikeouts", label: "Strikeouts", align: "right", format: "integer" },
+  { key: "walks", label: "Walks", align: "right", format: "integer" },
+  { key: "strikeoutRate", label: "K%", align: "right", format: "percent" },
+  { key: "walkRate", label: "BB%", align: "right", format: "percent" },
+  { key: "strikeoutMinusWalkRate", label: "K-BB%", align: "right", format: "percent" }
+]
+
+const MLB_TEAM_ABBREVIATIONS = {
+  ARI: "Arizona Diamondbacks",
+  ATL: "Atlanta Braves",
+  BAL: "Baltimore Orioles",
+  BOS: "Boston Red Sox",
+  CHC: "Chicago Cubs",
+  CHW: "Chicago White Sox",
+  CIN: "Cincinnati Reds",
+  CLE: "Cleveland Guardians",
+  COL: "Colorado Rockies",
+  DET: "Detroit Tigers",
+  HOU: "Houston Astros",
+  KCR: "Kansas City Royals",
+  LAA: "Los Angeles Angels",
+  LAD: "Los Angeles Dodgers",
+  MIA: "Miami Marlins",
+  MIL: "Milwaukee Brewers",
+  MIN: "Minnesota Twins",
+  NYM: "New York Mets",
+  NYY: "New York Yankees",
+  ATH: "Oakland Athletics",
+  OAK: "Oakland Athletics",
+  PHI: "Philadelphia Phillies",
+  PIT: "Pittsburgh Pirates",
+  SDP: "San Diego Padres",
+  SD: "San Diego Padres",
+  SFG: "San Francisco Giants",
+  SF: "San Francisco Giants",
+  SEA: "Seattle Mariners",
+  STL: "St. Louis Cardinals",
+  TBR: "Tampa Bay Rays",
+  TB: "Tampa Bay Rays",
+  TEX: "Texas Rangers",
+  TOR: "Toronto Blue Jays",
+  WSN: "Washington Nationals",
+  WAS: "Washington Nationals"
+}
 
 function normalizeTabKey(value) {
   const match = SECTION_ORDER.find((section) => section.key === value)
@@ -94,7 +151,7 @@ function flattenRecord(record, prefix = "") {
 
 function toDisplayValue(value) {
   if (value === null || value === undefined || value === "") {
-    return "—"
+    return MISSING_VALUE
   }
 
   if (typeof value === "number") {
@@ -106,6 +163,69 @@ function toDisplayValue(value) {
   }
 
   return String(value)
+}
+
+function toDisplayPercentage(value) {
+  if (value === null || value === undefined || value === "") {
+    return MISSING_VALUE
+  }
+
+  const numericValue = Number(value)
+
+  if (!Number.isFinite(numericValue)) {
+    return MISSING_VALUE
+  }
+
+  return `${(numericValue * 100).toFixed(1)}%`
+}
+
+function formatStatValue(value, format = "default") {
+  if (value === null || value === undefined || value === "") {
+    return MISSING_VALUE
+  }
+
+  const numericValue = Number(value)
+
+  if (format === "percent") {
+    return toDisplayPercentage(value)
+  }
+
+  if (!Number.isFinite(numericValue)) {
+    return toDisplayValue(value)
+  }
+
+  if (format === "integer") {
+    return Math.round(numericValue).toString()
+  }
+
+  if (format === "decimal2") {
+    return numericValue.toFixed(2)
+  }
+
+  if (format === "decimal3") {
+    return numericValue.toFixed(3)
+  }
+
+  return toDisplayValue(value)
+}
+
+function resolvePitcherTeamName(row) {
+  const teamName = typeof row?.teamName === "string" ? row.teamName.trim() : ""
+  if (teamName) {
+    return teamName
+  }
+
+  const rawAbbreviation = typeof row?.teamAbbr === "string" ? row.teamAbbr.trim().toUpperCase() : ""
+  if (rawAbbreviation && MLB_TEAM_ABBREVIATIONS[rawAbbreviation]) {
+    return MLB_TEAM_ABBREVIATIONS[rawAbbreviation]
+  }
+
+  const fallbackAbbreviation = typeof row?.team === "string" ? row.team.trim().toUpperCase() : ""
+  if (fallbackAbbreviation && MLB_TEAM_ABBREVIATIONS[fallbackAbbreviation]) {
+    return MLB_TEAM_ABBREVIATIONS[fallbackAbbreviation]
+  }
+
+  return MISSING_VALUE
 }
 
 function normalizeSectionRecords(section, sectionKey) {
@@ -211,6 +331,10 @@ function StatsSection({ title, sectionKey, section, query }) {
     () => normalizeSectionRecords(section, sectionKey),
     [section, sectionKey]
   )
+  const decoratedRows = useMemo(
+    () => records.map((row) => ({ ...row, __teamDisplay: resolvePitcherTeamName(row) })),
+    [records]
+  )
   const [sort, setSort] = useState({
     key: getDefaultSortKey(records),
     direction: "asc"
@@ -225,15 +349,22 @@ function StatsSection({ title, sectionKey, section, query }) {
 
   const visibleRows = useMemo(() => {
     const normalizedQuery = query.trim().toLowerCase()
+    const sourceRows = sectionKey === "pitchers" ? decoratedRows : records
 
     const filtered = normalizedQuery
-      ? records.filter((row) => Object.values(row).some((value) => String(value || "").toLowerCase().includes(normalizedQuery)))
-      : records
+      ? sourceRows.filter((row) => Object.values(row).some((value) => String(value || "").toLowerCase().includes(normalizedQuery)))
+      : sourceRows
 
     return sortRows(filtered, sort.key, sort.direction)
-  }, [records, query, sort])
+  }, [decoratedRows, records, query, sectionKey, sort])
 
   const columns = useMemo(() => {
+    if (sectionKey === "pitchers") {
+      return PITCHER_COLUMN_CONFIG.filter((column) =>
+        column.key === "__teamDisplay" || decoratedRows.some((row) => row[column.key] !== undefined)
+      )
+    }
+
     const keyWeights = new Map()
 
     for (const row of records) {
@@ -272,7 +403,7 @@ function StatsSection({ title, sectionKey, section, query }) {
     ]
 
     return merged.slice(0, MAX_COLUMNS)
-  }, [records])
+  }, [decoratedRows, records, sectionKey])
 
   const handleSort = (column) => {
     setSort((current) => {
@@ -312,12 +443,20 @@ function StatsSection({ title, sectionKey, section, query }) {
           <table className="statsTable">
             <thead>
               <tr>
-                <th scope="col">Record</th>
+                {sectionKey !== "pitchers" && <th scope="col">Record</th>}
                 {columns.map((column) => (
-                  <th scope="col" key={column}>
-                    <button type="button" className="sortButton" onClick={() => handleSort(column)}>
-                      {column}
-                      {sort.key === column ? (sort.direction === "asc" ? " ↑" : " ↓") : ""}
+                  <th
+                    scope="col"
+                    key={typeof column === "string" ? column : column.key}
+                    className={sectionKey === "pitchers" ? `statsTable__header statsTable__header--${column.align || "left"}` : ""}
+                  >
+                    <button
+                      type="button"
+                      className={`sortButton${sectionKey === "pitchers" ? " sortButton--dashboard" : ""}`}
+                      onClick={() => handleSort(typeof column === "string" ? column : column.key)}
+                    >
+                      {typeof column === "string" ? column : column.label}
+                      {sort.key === (typeof column === "string" ? column : column.key) ? (sort.direction === "asc" ? " ↑" : " ↓") : ""}
                     </button>
                   </th>
                 ))}
@@ -326,9 +465,16 @@ function StatsSection({ title, sectionKey, section, query }) {
             <tbody>
               {visibleRows.map((row) => (
                 <tr key={row.__id}>
-                  <td>{row.__label}</td>
+                  {sectionKey !== "pitchers" && <td>{row.__label}</td>}
                   {columns.map((column) => (
-                    <td key={`${row.__id}-${column}`}>{toDisplayValue(row[column])}</td>
+                    <td
+                      key={`${row.__id}-${typeof column === "string" ? column : column.key}`}
+                      className={sectionKey === "pitchers" ? `statsTable__cell statsTable__cell--${column.align || "left"}` : ""}
+                    >
+                      {sectionKey === "pitchers"
+                        ? formatStatValue(row[column.key], column.format)
+                        : toDisplayValue(row[column])}
+                    </td>
                   ))}
                 </tr>
               ))}
@@ -619,8 +765,11 @@ export default function StatsPage() {
         .tag--muted { color: #cbd5e1; background: rgba(15, 23, 42, 0.5); }
         .tableWrap { width: 100%; overflow: auto; border: 1px solid rgba(148, 163, 184, 0.2); border-radius: 12px; }
         .statsTable { width: 100%; border-collapse: collapse; min-width: 900px; }
-        .statsTable th, .statsTable td { padding: 10px; border-bottom: 1px solid rgba(148, 163, 184, 0.15); text-align: left; vertical-align: top; font-size: 0.84rem; }
-        .statsTable thead th { position: sticky; top: 0; background: rgba(15, 23, 42, 0.98); z-index: 1; }
+        .statsTable th, .statsTable td { padding: 10px 14px; border-bottom: 1px solid rgba(148, 163, 184, 0.15); text-align: left; vertical-align: middle; font-size: 0.84rem; white-space: nowrap; }
+        .statsTable thead th { position: sticky; top: 0; background: rgba(15, 23, 42, 0.98); z-index: 1; border-bottom: 1px solid rgba(148, 163, 184, 0.35); }
+        .statsTable__header--right, .statsTable__cell--right { text-align: right; }
+        .statsTable__header--center, .statsTable__cell--center { text-align: center; }
+        .sortButton--dashboard { width: 100%; display: inline-flex; justify-content: inherit; font-weight: 700; color: #dbeafe; letter-spacing: 0.01em; }
         .sortButton { border: 0; background: none; color: #bfdbfe; cursor: pointer; font: inherit; padding: 0; text-align: left; }
         .emptyState { text-align: center; }
         .emptyState__title { margin: 0 0 8px; }
