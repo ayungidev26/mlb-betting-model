@@ -42,6 +42,25 @@ function formatDateTime(value) {
   return `${datePart} at ${timePart} ET`
 }
 
+function formatSlateLoadedAt(value) {
+  if (!value) {
+    return "Not loaded"
+  }
+
+  const parsed = new Date(value)
+
+  if (Number.isNaN(parsed.getTime())) {
+    return "Not loaded"
+  }
+
+  return `${parsed.toLocaleTimeString("en-US", {
+    hour: "numeric",
+    minute: "2-digit",
+    hour12: true,
+    timeZone: "America/New_York"
+  })} ET`
+}
+
 function flattenRecord(record, prefix = "") {
   if (!record || typeof record !== "object" || Array.isArray(record)) {
     return {}
@@ -330,7 +349,8 @@ export default function StatsPage() {
     error: "",
     sections: {},
     pitchersFetched: null,
-    pitchersSaved: null
+    pitchersSaved: null,
+    todaySlateFetchedAt: null
   })
 
   useEffect(() => {
@@ -383,7 +403,8 @@ export default function StatsPage() {
           error: "",
           sections: payload?.sections || {},
           pitchersFetched: Number.isFinite(Number(payload?.pitchersFetched)) ? Number(payload?.pitchersFetched) : null,
-          pitchersSaved: Number.isFinite(Number(payload?.pitchersSaved)) ? Number(payload?.pitchersSaved) : null
+          pitchersSaved: Number.isFinite(Number(payload?.pitchersSaved)) ? Number(payload?.pitchersSaved) : null,
+          todaySlateFetchedAt: payload?.todaySlateFetchedAt || null
         })
       })
       .catch((error) => {
@@ -396,7 +417,8 @@ export default function StatsPage() {
           error: error instanceof Error ? error.message : "Stats cache is currently unavailable.",
           sections: {},
           pitchersFetched: null,
-          pitchersSaved: null
+          pitchersSaved: null,
+          todaySlateFetchedAt: null
         })
       })
 
@@ -458,6 +480,9 @@ export default function StatsPage() {
       <section className="shellCard statsOverview">
         <p className="eyebrow">Model input inspection</p>
         <p className="statsOverview__copy">Read-only view of the latest cached starting pitcher, bullpen, and offense inputs used by the model.</p>
+        <p className="statsOverview__copy statsOverview__copy--meta">
+          Today&apos;s slate loaded at: {formatSlateLoadedAt(state.todaySlateFetchedAt)}
+        </p>
         <div className="statsOverview__grid">
           {SECTION_ORDER.map((section) => {
             const details = state.sections?.[section.key]
@@ -559,6 +584,7 @@ export default function StatsPage() {
         .actionRow { display: flex; gap: 10px; flex-wrap: wrap; margin: 6px 0 8px; }
         .statsOverview { display: grid; gap: 16px; }
         .statsOverview__copy { margin: 0; color: #cbd5e1; }
+        .statsOverview__copy--meta { color: #94a3b8; font-size: 0.92rem; }
         .statsOverview__grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; }
         .eyebrow { margin: 0 0 8px; text-transform: uppercase; font-size: 0.75rem; letter-spacing: 0.08em; color: #93c5fd; }
         .statCard {
