@@ -106,7 +106,9 @@ async function fetchPitcherMetadataById(pitcherIds = []) {
         metadataById[String(person.id)] = {
           throwingHand: person?.pitchHand?.code || null,
           active: typeof person?.active === "boolean" ? person.active : null,
-          fullName: person?.fullName || null
+          fullName: person?.fullName || null,
+          teamName: person?.currentTeam?.name || null,
+          teamAbbr: person?.currentTeam?.abbreviation || null
         }
       }
     } catch (error) {
@@ -191,7 +193,8 @@ function buildPitcherStatsFromSplits({
       split?.player?.fullName ||
       metadata?.fullName ||
       `Pitcher ${playerIdKey}`
-    const teamName = split?.team?.name || null
+    const teamName = split?.team?.name || metadata?.teamName || null
+    const teamAbbr = split?.team?.abbreviation || metadata?.teamAbbr || null
 
     const advancedStat = getAdvancedPitcherStats(
       playerId,
@@ -201,8 +204,10 @@ function buildPitcherStatsFromSplits({
 
     pitchersById[playerIdKey] = {
       pitcherId: playerId,
+      pitcherName,
       fullName: pitcherName,
       teamName,
+      teamAbbr,
       throwingHand: metadata?.throwingHand || null,
       ...normalizePitcherStatRecord(stat, advancedStat, leagueContext)
     }

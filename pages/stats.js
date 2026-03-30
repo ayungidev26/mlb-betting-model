@@ -220,9 +220,14 @@ function resolvePitcherTeamName(row) {
     return MLB_TEAM_ABBREVIATIONS[rawAbbreviation]
   }
 
-  const fallbackAbbreviation = typeof row?.team === "string" ? row.team.trim().toUpperCase() : ""
+  const fallbackTeam = typeof row?.team === "string" ? row.team.trim() : ""
+  const fallbackAbbreviation = fallbackTeam.toUpperCase()
   if (fallbackAbbreviation && MLB_TEAM_ABBREVIATIONS[fallbackAbbreviation]) {
     return MLB_TEAM_ABBREVIATIONS[fallbackAbbreviation]
+  }
+
+  if (fallbackTeam) {
+    return fallbackTeam
   }
 
   return MISSING_VALUE
@@ -243,13 +248,39 @@ function normalizeSectionRecords(section, sectionKey) {
     }))
   }
 
+  if (sectionKey === "pitchers" && rawData.byId && typeof rawData.byId === "object") {
+    return Object.entries(rawData.byId).map(([pitcherId, record]) => {
+      const flattened = flattenRecord(record)
+      const pitcherName = flattened.pitcherName || flattened.fullName || `Pitcher ${pitcherId}`
+
+      return {
+        __id: `${sectionKey}-${pitcherId}`,
+        __label: String(pitcherName),
+        ...flattened,
+        pitcherName,
+        teamName: flattened.teamName || null
+      }
+    })
+  }
+
   return Object.entries(rawData).map(([recordKey, record]) => {
     const flattened = flattenRecord(record)
-
-    return {
+    const normalizedRecord = {
       __id: `${sectionKey}-${recordKey}`,
       __label: recordKey,
-      ...flattened,
+      ...flattened
+    }
+
+    if (sectionKey === "pitchers") {
+      return {
+        ...normalizedRecord,
+        pitcherName: flattened.pitcherName || flattened.fullName || recordKey,
+        teamName: flattened.teamName || flattened.team || null
+      }
+    }
+
+    return {
+      ...normalizedRecord,
       ...(flattened.teamName ? {} : { teamName: recordKey })
     }
   })
