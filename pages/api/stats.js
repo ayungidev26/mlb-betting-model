@@ -15,6 +15,8 @@ const STAT_SECTIONS = {
   }
 }
 
+const TODAY_GAMES_META_KEY = "mlb:games:today:meta"
+
 function getRecordCount(data) {
   if (Array.isArray(data)) {
     return data.length
@@ -36,6 +38,7 @@ export default async function handler(req, res) {
   }
 
   try {
+    const gamesMetaPromise = redis.get(TODAY_GAMES_META_KEY)
     const sectionEntries = Object.entries(STAT_SECTIONS)
     const sectionValues = await Promise.all(
       sectionEntries.map(async ([name, section]) => {
@@ -57,6 +60,7 @@ export default async function handler(req, res) {
         ]
       })
     )
+    const gamesMeta = await gamesMetaPromise
 
     const sections = Object.fromEntries(sectionValues)
     const pitcherMeta = sections?.pitchers?.meta || {}
@@ -69,10 +73,19 @@ export default async function handler(req, res) {
       pitcherMeta.savedPitchers ??
       0
 
+    const todaySlateFetchedAt = gamesMeta?.fetchedAt || null
+
+    if (!todaySlateFetchedAt) {
+      console.warn("[stats] missing today's games freshness metadata", {
+        gamesMetaKey: TODAY_GAMES_META_KEY
+      })
+    }
+
     return res.status(200).json({
       sections,
       pitchersFetched,
       pitchersSaved,
+      todaySlateFetchedAt,
       summary: {
         availableSections: sectionValues.filter(([, section]) => section.available).length,
         generatedAt: new Date().toISOString()

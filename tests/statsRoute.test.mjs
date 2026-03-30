@@ -72,6 +72,10 @@ test("stats route returns cached sections and metadata", async () => {
         return null
       case "mlb:stats:offense:meta":
         return null
+      case "mlb:games:today:meta":
+        return {
+          fetchedAt: "2026-03-27T11:02:00.000Z"
+        }
       default:
         return null
     }
@@ -89,7 +93,25 @@ test("stats route returns cached sections and metadata", async () => {
     assert.equal(res.body.sections.offense.available, false)
     assert.equal(res.body.pitchersFetched, 520)
     assert.equal(res.body.pitchersSaved, 510)
+    assert.equal(res.body.todaySlateFetchedAt, "2026-03-27T11:02:00.000Z")
     assert.equal(res.body.summary.availableSections, 2)
+  } finally {
+    redis.get = originalGet
+  }
+})
+
+test("stats route returns null slate freshness when games meta is missing", async () => {
+  const originalGet = redis.get
+
+  redis.get = async () => null
+
+  try {
+    const res = createMockResponse()
+
+    await statsHandler({ method: "GET" }, res)
+
+    assert.equal(res.statusCode, 200)
+    assert.equal(res.body.todaySlateFetchedAt, null)
   } finally {
     redis.get = originalGet
   }
