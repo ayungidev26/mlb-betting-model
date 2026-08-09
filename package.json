@@ -8,6 +8,7 @@
     "build": "next build",
     "start": "next start",
     "test": "node scripts/run-tests.mjs",
+    "lint": "eslint .",
     "test:scheduler": "node scripts/run-daily-scheduler.mjs",
     "screenshot:dashboard": "node scripts/capture-dashboard-shot.mjs"
   },

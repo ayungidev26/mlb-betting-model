@@ -2,12 +2,22 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 
 import {
+  buildPublicApiUrl,
   buildHomePageProps,
   buildHomePageViewModel,
   loadCachedEdgesFromApi,
   loadCachedOddsFromApi,
   loadHomePageData
 } from '../lib/homePageProps.js'
+
+process.env.DEPLOYMENT_ORIGIN = 'https://localhost:3000'
+
+test('buildPublicApiUrl rejects an unexpected Host instead of constructing an SSRF target', () => {
+  assert.throws(
+    () => buildPublicApiUrl({ headers: { host: 'attacker.example' } }, '/api/odds'),
+    /Unexpected request host/
+  )
+})
 
 
 test('buildHomePageViewModel returns a friendly empty summary when no predictions are available', () => {

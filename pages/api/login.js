@@ -13,9 +13,10 @@ export default async function handler(req, res) {
   }
 
   const configuredPassword = process.env.APP_PASSWORD
+  const signingSecret = process.env.SESSION_SIGNING_SECRET
 
-  if (!configuredPassword) {
-    return res.status(500).json({ error: "APP_PASSWORD is not configured" })
+  if (!configuredPassword || !signingSecret) {
+    return res.status(500).json({ error: "Authentication is not configured" })
   }
 
   const submittedPassword = typeof req.body?.password === "string"
@@ -29,7 +30,7 @@ export default async function handler(req, res) {
     return res.status(401).json({ error: "Incorrect password" })
   }
 
-  const sessionToken = await createSessionToken(configuredPassword)
+  const sessionToken = await createSessionToken(signingSecret)
 
   res.setHeader("Set-Cookie", buildSessionCookie(sessionToken))
 

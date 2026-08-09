@@ -18,13 +18,14 @@ export async function middleware(req) {
   }
 
   const configuredPassword = process.env.APP_PASSWORD
+  const signingSecret = process.env.SESSION_SIGNING_SECRET
 
-  if (!configuredPassword) {
+  if (!configuredPassword || !signingSecret) {
     return NextResponse.redirect(new URL("/login?error=config", req.url))
   }
 
   const sessionToken = readSessionCookie(req.headers.get("cookie") || "")
-  const hasValidSession = await isValidSession(sessionToken, configuredPassword)
+  const hasValidSession = await isValidSession(sessionToken, signingSecret)
 
   if (hasValidSession) {
     return NextResponse.next()

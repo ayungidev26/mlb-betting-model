@@ -3,6 +3,8 @@ import assert from "node:assert/strict"
 
 import { loadCachedPredictionsFromApi } from "../lib/homePageProps.js"
 
+process.env.DEPLOYMENT_ORIGIN = "https://localhost:3000"
+
 test("homepage data loader reads cached predictions from the public predictions endpoint", async () => {
   const requestedUrls = []
 

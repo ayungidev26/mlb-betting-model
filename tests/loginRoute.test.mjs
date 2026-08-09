@@ -24,6 +24,7 @@ function createMockResponse() {
 
 test("login route sets a session cookie for a correct password", async () => {
   process.env.APP_PASSWORD = "dugout"
+  process.env.SESSION_SIGNING_SECRET = "test-only-independent-session-signing-secret"
 
   const req = {
     method: "POST",
@@ -43,6 +44,7 @@ test("login route sets a session cookie for a correct password", async () => {
 
 test("login route rejects an incorrect password", async () => {
   process.env.APP_PASSWORD = "dugout"
+  process.env.SESSION_SIGNING_SECRET = "test-only-independent-session-signing-secret"
 
   const req = {
     method: "POST",
@@ -61,6 +63,7 @@ test("login route rejects an incorrect password", async () => {
 
 test("login route reports missing APP_PASSWORD configuration", async () => {
   delete process.env.APP_PASSWORD
+  process.env.SESSION_SIGNING_SECRET = "test-only-independent-session-signing-secret"
 
   const req = {
     method: "POST",
@@ -73,5 +76,5 @@ test("login route reports missing APP_PASSWORD configuration", async () => {
   await loginHandler(req, res)
 
   assert.equal(res.statusCode, 500)
-  assert.deepEqual(res.body, { error: "APP_PASSWORD is not configured" })
+  assert.deepEqual(res.body, { error: "Authentication is not configured" })
 })

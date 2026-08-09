@@ -53,10 +53,6 @@ function createRequest(overrides = {}) {
   return {
     method: "POST",
     query: {},
-    headers: {
-      ...defaultHeaders,
-      ...(overrides.headers || {})
-    },
     socket: {
       remoteAddress: "203.0.113.40"
     },
