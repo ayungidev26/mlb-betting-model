@@ -1,5 +1,6 @@
 // Data contract reference: see docs/data-contracts.md for canonical Game, OddsRecord, Prediction, Edge, and matchKey shapes.
 import { redis } from "../../lib/upstash.js"
+import { getEasternDateKey } from "../../lib/cronSchedule.js"
 import { requireOperationalRouteAccess } from "../../lib/apiSecurity.js"
 import { sendRouteError } from "../../lib/apiErrors.js"
 import { fetchJsonWithRetry } from "../../lib/upstreamFetch.js"
@@ -323,6 +324,7 @@ export default async function handler(req, res) {
     const pitchersSaved = savedPitchers
     const statsMeta = {
       lastUpdatedAt: new Date().toISOString(),
+      dateKey: getEasternDateKey(),
       source: "statsapi.mlb.com + baseballsavant.mlb.com",
       version: "v2",
       season,

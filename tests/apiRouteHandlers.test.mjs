@@ -890,10 +890,10 @@ test("fetchTeamOffenseStats stores season, split, recent, and expected offense m
           body: {
             stats: [{
               splits: [
-                { date: '2026-03-29', stat: { runs: 6, hits: 10, atBats: 34, baseOnBalls: 4, strikeOuts: 7, doubles: 2, triples: 0, homeRuns: 1, totalBases: 15 } },
-                { date: '2026-03-27', stat: { runs: 5, hits: 9, atBats: 33, baseOnBalls: 3, strikeOuts: 8, doubles: 1, triples: 0, homeRuns: 2, totalBases: 16 } },
-                { date: '2026-03-15', stat: { runs: 4, hits: 8, atBats: 32, baseOnBalls: 2, strikeOuts: 6, doubles: 2, triples: 0, homeRuns: 1, totalBases: 13 } },
-                { date: '2026-03-10', stat: { runs: 3, hits: 7, atBats: 31, baseOnBalls: 2, strikeOuts: 9, doubles: 1, triples: 0, homeRuns: 0, totalBases: 8 } }
+                { date: '2026-08-08', stat: { runs: 6, hits: 10, atBats: 34, baseOnBalls: 4, strikeOuts: 7, doubles: 2, triples: 0, homeRuns: 1, totalBases: 15 } },
+                { date: '2026-08-06', stat: { runs: 5, hits: 9, atBats: 33, baseOnBalls: 3, strikeOuts: 8, doubles: 1, triples: 0, homeRuns: 2, totalBases: 16 } },
+                { date: '2026-07-25', stat: { runs: 4, hits: 8, atBats: 32, baseOnBalls: 2, strikeOuts: 6, doubles: 2, triples: 0, homeRuns: 1, totalBases: 13 } },
+                { date: '2026-07-20', stat: { runs: 3, hits: 7, atBats: 31, baseOnBalls: 2, strikeOuts: 9, doubles: 1, triples: 0, homeRuns: 0, totalBases: 8 } }
               ]
             }]
           }
@@ -905,9 +905,9 @@ test("fetchTeamOffenseStats stores season, split, recent, and expected offense m
           body: {
             stats: [{
               splits: [
-                { date: '2026-03-21', stat: { runs: 4, hits: 8, atBats: 35, baseOnBalls: 2, strikeOuts: 8, doubles: 1, triples: 0, homeRuns: 1, totalBases: 12 } },
-                { date: '2026-03-18', stat: { runs: 3, hits: 7, atBats: 34, baseOnBalls: 3, strikeOuts: 9, doubles: 2, triples: 0, homeRuns: 0, totalBases: 9 } },
-                { date: '2026-03-11', stat: { runs: 5, hits: 9, atBats: 34, baseOnBalls: 4, strikeOuts: 10, doubles: 1, triples: 0, homeRuns: 2, totalBases: 16 } }
+                { date: '2026-08-08', stat: { runs: 4, hits: 8, atBats: 35, baseOnBalls: 2, strikeOuts: 8, doubles: 1, triples: 0, homeRuns: 1, totalBases: 12 } },
+                { date: '2026-08-05', stat: { runs: 3, hits: 7, atBats: 34, baseOnBalls: 3, strikeOuts: 9, doubles: 2, triples: 0, homeRuns: 0, totalBases: 9 } },
+                { date: '2026-08-01', stat: { runs: 5, hits: 9, atBats: 34, baseOnBalls: 4, strikeOuts: 10, doubles: 1, triples: 0, homeRuns: 2, totalBases: 16 } }
               ]
             }]
           }
@@ -996,7 +996,7 @@ test("fetchTeamOffenseStats tolerates transient team offense upstream failures",
           body: {
             stats: [{
               splits: [
-                { date: "2026-03-21", stat: { runs: 6, hits: 10, atBats: 34, baseOnBalls: 4, strikeOuts: 7, doubles: 2, triples: 0, homeRuns: 1, totalBases: 15 } }
+                { date: "2026-08-08", stat: { runs: 6, hits: 10, atBats: 34, baseOnBalls: 4, strikeOuts: 7, doubles: 2, triples: 0, homeRuns: 1, totalBases: 15 } }
               ]
             }]
           }

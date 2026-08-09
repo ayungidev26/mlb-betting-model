@@ -7,6 +7,7 @@ import { sendRouteError } from "../../lib/apiErrors.js"
 import { fetchJsonWithRetry } from "../../lib/upstreamFetch.js"
 import { getBallparkFactorIndex, resolveBallparkFactors } from "../../lib/ballparkFactors.js"
 import { getEasternDateKey } from "../../lib/cronSchedule.js"
+import { classifyMlbGameType, isEligibleMlbGame } from "../../lib/mlbGameEligibility.js"
 
 export default async function handler(req, res) {
   if (!requireOperationalRouteAccess(req, res)) {
@@ -16,11 +17,10 @@ export default async function handler(req, res) {
   try {
     const ballparkFactorIndex = await getBallparkFactorIndex()
 
-    const today = new Date().toISOString().split("T")[0]
     const dateKey = getEasternDateKey()
 
     const url =
-      `https://statsapi.mlb.com/api/v1/schedule?sportId=1&date=${today}&hydrate=probablePitcher`
+      `https://statsapi.mlb.com/api/v1/schedule?sportId=1&date=${dateKey}&hydrate=probablePitcher`
 
     const data = await fetchJsonWithRetry(url)
 
@@ -47,17 +47,19 @@ export default async function handler(req, res) {
 
     }
 
-    const games = await Promise.all(data.dates[0].games.map(async (game) => {
+    const skippedByReason = {}
+    const eligibleGames = data.dates
+      .flatMap((dateEntry) => dateEntry.games)
+      .filter((game) => {
+        const eligibility = isEligibleMlbGame(game)
+        if (!eligibility.eligible) {
+          skippedByReason[eligibility.reason] = (skippedByReason[eligibility.reason] || 0) + 1
+        }
+        return eligibility.eligible
+      })
 
-      let seasonType = "regular"
-
-      if (game.gameType === "S") {
-        seasonType = "spring"
-      }
-
-      if (["P","F","D","L","W"].includes(game.gameType)) {
-        seasonType = "playoffs"
-      }
+    const games = await Promise.all(eligibleGames.map(async (game) => {
+      const seasonType = classifyMlbGameType(game.gameType)
 
       const homeTeam = game.teams.home.team.name
       const awayTeam = game.teams.away.team.name
@@ -83,6 +85,7 @@ export default async function handler(req, res) {
         venueId: game.venue?.id ?? null,
         ballpark,
         status: game.status.detailedState,
+        statusCode: game.status.codedGameState || null,
         seasonType
       }
 
@@ -92,7 +95,9 @@ export default async function handler(req, res) {
     await redis.set("mlb:games:today:meta", {
       fetchedAt: new Date().toISOString(),
       dateKey,
-      gamesToday: games.length
+      gamesToday: games.length,
+      gamesFetched: data.dates.flatMap((entry) => entry.games).length,
+      skippedByReason
     })
     await redis.set("mlb:ballparkFactors:current", {
       source: ballparkFactorIndex.source,
@@ -101,7 +106,8 @@ export default async function handler(req, res) {
 
     console.info("[fetchGames] cached today's games", {
       dateKey,
-      gamesToday: games.length
+      gamesToday: games.length,
+      skippedByReason
     })
 
     res.status(200).json({
