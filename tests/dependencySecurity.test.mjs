@@ -15,4 +15,5 @@ test("production dependency manifest remains aligned with the lock file", () => 
     packageJson.dependencies.next,
     packageLock.packages[""].dependencies.next
   )
+  assert.equal(packageJson.overrides.sharp, "^0.35.0")
 })
