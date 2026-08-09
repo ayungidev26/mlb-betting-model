@@ -15,6 +15,12 @@ test("production dependency manifest remains aligned with the lock file", () => 
     packageJson.dependencies.next,
     packageLock.packages[""].dependencies.next
   )
+  assert.equal(packageJson.devDependencies.eslint, "10.2.1")
+  assert.equal(
+    packageJson.devDependencies.eslint,
+    packageLock.packages[""].devDependencies.eslint
+  )
+  assert.equal(packageLock.packages["node_modules/eslint"].version, "10.2.1")
   assert.equal(packageJson.overrides.sharp, "^0.35.0")
   assert.equal(packageJson.overrides.nanoid, "^3.3.17")
   assert.equal(packageJson.overrides.postcss, "^8.5.23")
