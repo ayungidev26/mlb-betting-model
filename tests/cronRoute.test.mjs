@@ -273,6 +273,13 @@ test("cron route runs the existing pipeline once per Eastern day and skips dupli
       Yankees: 1500,
       RedSox: 1480
     }],
+    ["mlb:ratings:teams:meta", {
+      generatedAt: "2026-07-02T13:00:00.000Z",
+      dataThrough: "2026-07-01",
+      season: 2026,
+      source: "test fixture",
+      version: "elo-v1"
+    }],
     ["mlb:stats:pitchers", {
       "Away Pitcher": { era: 3.4, whip: 1.12, strikeoutRate: 0.284, walkRate: 0.071, strikeoutMinusWalkRate: 0.213 },
       "Home Pitcher": { era: 3.1, whip: 1.05, strikeoutRate: 0.312, walkRate: 0.054, strikeoutMinusWalkRate: 0.258 }

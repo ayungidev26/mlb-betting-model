@@ -2,6 +2,22 @@
 
 This document defines the canonical field names and required keys used across schedule ingestion, odds ingestion, prediction generation, and edge detection. Treat these contracts as the source of truth before changing API or model logic.
 
+## Cache freshness metadata
+
+Daily games, pitcher, bullpen, offense, predictions, and odds caches have adjacent
+`:meta` keys. A missing daily metadata key remains readable for a non-destructive
+legacy rollout. Once present, metadata must be an object with an ISO `dateKey` and
+must match the current Eastern MLB date; malformed or stale metadata blocks model
+or edge generation. Writers publish payload first and metadata last, while pipeline
+locks prevent concurrent writers. Prediction metadata includes a record count so
+edge generation cannot consume a partially published prediction snapshot.
+
+`mlb:ratings:teams:meta` is mandatory and contains `generatedAt`, `dataThrough`,
+`season`, `source`, `version`, and `gamesProcessed`. Ratings are accepted for eight
+days. During the active season, `dataThrough` must also be within eight days. A stale
+baseline fails with instructions to run `loadHistorical` followed by `buildRatings`;
+the expensive historical API load is never triggered implicitly by a market refresh.
+
 ## Shared conventions
 
 ### `matchKey`

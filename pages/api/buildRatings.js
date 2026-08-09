@@ -126,13 +126,29 @@ export default async function handler(req, res) {
     // Run ELO rating calculation
     const ratings = calculateElo(allGames)
 
+    const dataThrough = allGames.reduce((latest, game) => {
+      const dateKey = typeof game?.date === "string" ? game.date.slice(0, 10) : ""
+      return dateKey > latest ? dateKey : latest
+    }, "")
+    const ratingsMeta = {
+      generatedAt: new Date().toISOString(),
+      dataThrough,
+      season: endSeason,
+      startSeason,
+      source: "MLB Stats API final games",
+      version: "elo-v1",
+      gamesProcessed: allGames.length
+    }
+
     // Store ratings
     await redis.set("mlb:ratings:teams", ratings)
+    await redis.set("mlb:ratings:teams:meta", ratingsMeta)
 
     res.status(200).json({
       seasonsUsed: seasons.length,
       gamesProcessed: allGames.length,
       teamsRated: Object.keys(ratings).length,
+      metadata: ratingsMeta,
       sampleRatings: Object.entries(ratings).slice(0,5)
     })
   } catch (error) {
