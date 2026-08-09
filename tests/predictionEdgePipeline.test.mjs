@@ -9,6 +9,15 @@ import { ValidationError } from '../lib/payloadValidation.js'
 
 function createMockRedis(seed = {}) {
   const store = new Map(Object.entries(seed))
+  if (store.has('mlb:ratings:teams') && !store.has('mlb:ratings:teams:meta')) {
+    store.set('mlb:ratings:teams:meta', {
+      generatedAt: new Date().toISOString(),
+      dataThrough: new Date().toISOString().slice(0, 10),
+      season: new Date().getUTCFullYear(),
+      source: 'test fixture',
+      version: 'elo-v1'
+    })
+  }
   const getCounts = new Map()
 
   return {

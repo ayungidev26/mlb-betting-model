@@ -160,16 +160,17 @@ export default async function handler(req, res) {
     })
 
     const pipeline = [
+      // Validate free/cached model prerequisites before spending Odds API quota.
+      {
+        name: "runModel",
+        handler: runModelHandler
+      },
       {
         name: "fetchOdds",
         handler: fetchOddsHandler,
         query: {
           refresh: "true"
         }
-      },
-      {
-        name: "runModel",
-        handler: runModelHandler
       },
       {
         name: "findEdges",

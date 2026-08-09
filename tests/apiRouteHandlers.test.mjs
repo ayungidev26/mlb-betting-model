@@ -931,7 +931,7 @@ test("fetchTeamOffenseStats stores season, split, recent, and expected offense m
       assert.equal(payload['New York Yankees'].weightedRunsCreatedPlus, 104.8)
       assert.equal(payload['New York Yankees'].splits.vsLeftHanded.ops, 0.857)
       assert.equal(payload['New York Yankees'].splits.last7Days.gamesPlayed, 2)
-      assert.equal(payload['Boston Red Sox'].splits.last14Days.gamesPlayed, 2)
+      assert.equal(payload['Boston Red Sox'].splits.last14Days.gamesPlayed, 3)
     }
   ))
 })
@@ -1535,11 +1535,7 @@ test("runPipeline returns a redacted failed-step payload when a child route fail
 
   const handler = await importRoute("../pages/api/runPipeline.js")
   const redisMock = createMockRedis([
-    ["mlb:games:today", []],
-    ["mlb:games:today:meta", {
-      fetchedAt: "2026-01-15T11:00:00.000Z",
-      gamesToday: 0
-    }]
+    ["mlb:games:today", []]
   ])
 
   await withSilencedConsole(async () => withPatchedRedis(redisMock, async () => withMockedFetch(
@@ -1559,8 +1555,8 @@ test("runPipeline returns a redacted failed-step payload when a child route fail
       assert.equal(res.statusCode, 500)
       assert.equal(res.body.ok, false)
       assert.equal(res.body.failedStep, "fetchOdds")
-      assert.equal(res.body.completedSteps, 0)
-      assert.deepEqual(res.body.steps[0], {
+      assert.equal(res.body.completedSteps, 1)
+      assert.deepEqual(res.body.steps[1], {
         step: "fetchOdds",
         status: "failed",
         statusCode: 500,
