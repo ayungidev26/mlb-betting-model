@@ -8,6 +8,7 @@ import { fetchJsonWithRetry } from "../../lib/upstreamFetch.js"
 import { getBallparkFactorIndex, resolveBallparkFactors } from "../../lib/ballparkFactors.js"
 import { getEasternDateKey } from "../../lib/cronSchedule.js"
 import { classifyMlbGameType, isEligibleMlbGame } from "../../lib/mlbGameEligibility.js"
+import { buildMlbScheduleUrl } from "../../lib/mlbSchedule.js"
 
 export default async function handler(req, res) {
   if (!requireOperationalRouteAccess(req, res)) {
@@ -19,8 +20,7 @@ export default async function handler(req, res) {
 
     const dateKey = getEasternDateKey()
 
-    const url =
-      `https://statsapi.mlb.com/api/v1/schedule?sportId=1&date=${dateKey}&hydrate=probablePitcher`
+    const url = buildMlbScheduleUrl(dateKey)
 
     const data = await fetchJsonWithRetry(url)
 
