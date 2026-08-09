@@ -289,7 +289,6 @@ test('prediction output includes advanced pitcher feature inputs for scoring', a
       'Los Angeles Dodgers': 1600
     },
     'mlb:stats:bullpen': {},
-    'mlb:stats:offense': {},
     'mlb:stats:pitchers': {
       'Pitcher A': {
         throwingHand: 'R', era: 2.9, whip: 1.0, strikeouts: 120, innings: 95, xera: 3.05, fip: 3.12, xfip: 3.2,

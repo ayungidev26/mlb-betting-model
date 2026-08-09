@@ -9,6 +9,11 @@ if (!auditPath) {
 }
 
 const audit = JSON.parse(fs.readFileSync(auditPath, 'utf8'));
+
+if (audit.error || audit.message || !audit.metadata || !audit.vulnerabilities) {
+  console.error('Audit policy cannot evaluate an incomplete or failed npm audit response.');
+  process.exit(1);
+}
 const repoRoot = process.cwd();
 const hasAppDirectory = [path.join(repoRoot, 'app'), path.join(repoRoot, 'src', 'app')].some((candidate) => fs.existsSync(candidate));
 const hasMiddleware = [

@@ -355,6 +355,8 @@ Copy `.env.example` to `.env.local` for local development.
 | `ADMIN_API_SECRET` | Yes (recommended) | Operational `POST` routes | Main admin/ops auth token |
 | `CRON_SECRET` | Required for `/api/cron/*` | Cron entry routes + scheduler helper | Separate secret for cron triggers |
 | `APP_PASSWORD` | Yes (for protected UI) | `/api/login`, middleware session validation | Shared app password |
+| `SESSION_SIGNING_SECRET` | Yes | `/api/login`, middleware session validation | Independent high-entropy HMAC secret; do not reuse any password/admin/cron secret |
+| `DEPLOYMENT_ORIGIN` | Yes | Server-rendered dashboard | Canonical allowlisted origin, for example `https://staging.example.com`; request Host must match |
 | `SCHEDULER_BASE_URL` | Optional | `npm run test:scheduler` | Defaults to `http://localhost:3000` |
 | `BALLPARK_FACTORS_URL` | Optional | Ballpark factor resolver | Remote JSON/CSV source; falls back to bundled `data/ballparkFactors.js` |
 
