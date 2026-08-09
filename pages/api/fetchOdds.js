@@ -17,6 +17,7 @@ import {
   markCooldown,
   releaseJobLock
 } from "../../lib/apiGuards.js"
+import { getEasternDateKey } from "../../lib/cronSchedule.js"
 
 const ODDS_API_URL = buildOddsApiUrl().toString()
 const FETCH_ODDS_RATE_LIMIT = {
@@ -126,12 +127,15 @@ export default async function handler(req, res) {
 
     // Prevent unnecessary API calls unless refresh requested
     if (!refresh) {
-      const existing = await redis.get("mlb:odds:today")
+      const [existing, existingMeta] = await Promise.all([
+        redis.get("mlb:odds:today"),
+        redis.get("mlb:odds:today:meta")
+      ])
       const cachedOdds = Array.isArray(existing)
         ? normalizeStoredOddsRecords(existing)
         : null
 
-      if (cachedOdds?.length) {
+      if (cachedOdds?.length && existingMeta?.dateKey === getEasternDateKey()) {
         await redis.set("mlb:odds:today", cachedOdds)
 
         return res.status(200).json({
@@ -156,6 +160,11 @@ export default async function handler(req, res) {
       : fetchedOdds
 
     await redis.set("mlb:odds:today", odds)
+    await redis.set("mlb:odds:today:meta", {
+      dateKey: getEasternDateKey(),
+      fetchedAt: new Date().toISOString(),
+      records: odds.length
+    })
 
     if (refresh) {
       await markCooldown(

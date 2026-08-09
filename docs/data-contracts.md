@@ -256,6 +256,26 @@ When present on a `Game` or `Prediction`, `ballpark` should use normalized facto
   - `preservedStarted`
   - `droppedInvalid`
 
+## Redis persistence types and freshness
+
+All application payload keys are Redis **strings containing JSON** written with `SET` and read with `GET`; no application payload is stored as a Redis hash/list/set. Guard keys (`mlb:lock:*`, `mlb:limit:*`, and `mlb:cooldown:*`) are scalar strings/counters with short TTLs.
+
+| Key | JSON shape | Main writer | Main reader |
+| --- | --- | --- | --- |
+| `mlb:games:today` | `Game[]` | `fetchGames` | model/stats pipeline |
+| `mlb:games:today:meta` | `{dateKey,fetchedAt,gamesToday,...}` | `fetchGames` | pipeline/dashboard |
+| `mlb:stats:pitchers` | `{version,byId,aliasMap}` | `fetchPitcherStats` | predictor |
+| `mlb:stats:bullpen` | team-name keyed object | `fetchBullpenStats` | predictor |
+| `mlb:stats:offense` | team-name keyed object | `fetchTeamOffenseStats` | predictor |
+| `mlb:stats:*:meta` | `{dateKey,lastUpdatedAt,...}` | matching stats route | model/stats dashboard |
+| `mlb:odds:today` | `OddsRecord[]` | `fetchOdds` | edges/dashboard |
+| `mlb:odds:today:meta` | `{dateKey,fetchedAt,records}` | `fetchOdds` | edge pipeline/cache validation |
+| `mlb:predictions:today` | `Prediction[]` | model pipeline | edges/dashboard |
+| `mlb:predictions:<Eastern date>` | `Prediction[]` | model pipeline | evaluation |
+| `mlb:edges:today` | `Edge[]` | edge pipeline | dashboard |
+
+Daily metadata uses the `America/New_York` date. Existing deployments without the newer stats/odds metadata remain readable for a non-destructive rollout, but once metadata exists a mismatched date is rejected rather than treated as current data.
+
 ## Endpoint examples (new behavior)
 
 ### `POST /api/loadHistorical?startSeason=2022&endSeason=2025`

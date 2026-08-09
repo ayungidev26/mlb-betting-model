@@ -1,5 +1,6 @@
 // Data contract reference: see docs/data-contracts.md for canonical Game, OddsRecord, Prediction, Edge, and matchKey shapes.
 import { redis } from "../../lib/upstash.js"
+import { getEasternDateKey } from "../../lib/cronSchedule.js"
 import { requireOperationalRouteAccess } from "../../lib/apiSecurity.js"
 import { sendRouteError } from "../../lib/apiErrors.js"
 import { fetchBullpenStatsByTeam } from "../../lib/bullpenStats.js"
@@ -43,6 +44,7 @@ export default async function handler(req, res) {
 
     const statsMeta = {
       lastUpdatedAt: new Date().toISOString(),
+      dateKey: getEasternDateKey(),
       source: "statsapi.mlb.com + baseballsavant.mlb.com",
       version: "v1",
       records: Object.keys(bullpenStats).length
