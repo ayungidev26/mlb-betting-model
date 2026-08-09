@@ -1057,6 +1057,15 @@ test("loadHistorical ingests a custom season range including 2026 and writes met
                     home: { team: { name: "New York Yankees" }, score: 7 },
                     away: { team: { name: "Boston Red Sox" }, score: 5 }
                   }
+                },
+                {
+                  gameDate: "2025-07-02T23:00:00Z",
+                  gameType: "R",
+                  status: { detailedState: "Final" },
+                  teams: {
+                    home: { team: { name: "Athletics" }, score: 5 },
+                    away: { team: { name: "Boston Red Sox" }, score: 3 }
+                  }
                 }
               ]
             }]
@@ -1125,13 +1134,14 @@ test("loadHistorical ingests a custom season range including 2026 and writes met
         "mlb:games:historical:2026",
         "mlb:games:historical:meta"
       ])
-      assert.equal(res.body.gamesCollected, 2)
+      assert.equal(res.body.gamesCollected, 3)
 
-      assert.equal(redisMock.snapshot("mlb:games:historical:2025").length, 1)
+      assert.equal(redisMock.snapshot("mlb:games:historical:2025").length, 2)
+      assert.equal(redisMock.snapshot("mlb:games:historical:2025")[1].homeTeam, "Athletics")
       assert.equal(redisMock.snapshot("mlb:games:historical:2026").length, 1)
       assert.equal(redisMock.snapshot("mlb:games:historical:meta").startSeason, 2025)
       assert.equal(redisMock.snapshot("mlb:games:historical:meta").endSeason, 2026)
-      assert.equal(redisMock.snapshot("mlb:games:historical:meta").totalGames, 2)
+      assert.equal(redisMock.snapshot("mlb:games:historical:meta").totalGames, 3)
       assert.equal(typeof redisMock.snapshot("mlb:games:historical:meta").loadedAt, "string")
     }
   ))

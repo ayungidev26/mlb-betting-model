@@ -156,6 +156,7 @@ export default async function handler(req, res) {
       "Minnesota Twins",
       "New York Mets",
       "New York Yankees",
+      "Athletics",
       "Oakland Athletics",
       "Philadelphia Phillies",
       "Pittsburgh Pirates",
