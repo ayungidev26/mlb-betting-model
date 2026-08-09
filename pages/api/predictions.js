@@ -11,9 +11,12 @@ export default async function handler(req, res) {
 
   try {
     const predictions = await getCachedPredictions(redis)
+    let metadata = null
+    try { metadata = await redis.get("mlb:predictions:today:meta") } catch { /* legacy/mock cache */ }
 
     return res.status(200).json({
       predictions,
+      metadata,
       summary: {
         predictionsCreated: predictions.length,
         message: predictions.length > 0

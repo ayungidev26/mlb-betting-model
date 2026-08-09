@@ -4,6 +4,7 @@ import { getEasternDateKey } from "../../lib/cronSchedule.js"
 import { requireOperationalRouteAccess } from "../../lib/apiSecurity.js"
 import { sendRouteError } from "../../lib/apiErrors.js"
 import { fetchJsonWithRetry } from "../../lib/upstreamFetch.js"
+import { publishStatsCandidate, validateStatsCandidate } from "../../lib/statsQuality.js"
 import {
   buildLeaguePitchingContext,
   fetchSavantPitcherStatMap,
@@ -322,7 +323,9 @@ export default async function handler(req, res) {
     const sample = Object.values(pitcherStats?.byId || {}).slice(0, 3)
     const pitchersFetched = rawPitcherSplits.length
     const pitchersSaved = savedPitchers
+    const games = await redis.get("mlb:games:today")
     const statsMeta = {
+      ...validateStatsCandidate({ kind: "pitchers", candidate: pitcherStats, games: Array.isArray(games) ? games : [], minimumPitchers: Array.isArray(games) && games.length ? LOW_FETCHED_PITCHERS_THRESHOLD : 0 }),
       lastUpdatedAt: new Date().toISOString(),
       dateKey: getEasternDateKey(),
       source: "statsapi.mlb.com + baseballsavant.mlb.com",
@@ -340,8 +343,9 @@ export default async function handler(req, res) {
       pitchersSaved
     }
 
-    await savePitcherStats(redis, pitcherStats, statsMeta)
+    const publication = await publishStatsCandidate(redis, { kind: "pitchers", candidate: pitcherStats, metadata: statsMeta })
     logPitcherPipelineWarnings({ pitchersFetched, pitchersSaved })
+    if (!publication.published) return res.status(503).json({ error: "Pitcher refresh failed quality gates; last-known-good cache preserved.", metadata: statsMeta })
 
     console.info("fetchPitcherStats summary", {
       pitchersFetched,

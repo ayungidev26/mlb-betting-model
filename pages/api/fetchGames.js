@@ -1,6 +1,6 @@
 // Data contract reference: see docs/data-contracts.md for canonical Game, OddsRecord, Prediction, Edge, and matchKey shapes.
 import { redis } from "../../lib/upstash.js"
-import { buildMatchKey } from "../../lib/matchKey.js"
+import { buildMlbGameIdentity, getEasternDate } from "../../lib/gameIdentity.js"
 import { validateExternalMlbSchedulePayload } from "../../lib/payloadValidation.js"
 import { requireOperationalRouteAccess } from "../../lib/apiSecurity.js"
 import { sendRouteError } from "../../lib/apiErrors.js"
@@ -71,8 +71,14 @@ export default async function handler(req, res) {
 
       return {
         gameId: game.gamePk,
-        matchKey: buildMatchKey(game.gameDate, awayTeam, homeTeam),
+        gamePk: game.gamePk,
+        identityVersion: "v2",
+        matchKey: buildMlbGameIdentity(game.gamePk),
         date: game.gameDate,
+        easternDate: getEasternDate(game.gameDate),
+        scheduledTime: game.gameDate,
+        gameNumber: game.gameNumber ?? null,
+        doubleHeader: game.doubleHeader ?? null,
         homeTeam,
         awayTeam,
 

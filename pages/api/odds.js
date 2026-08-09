@@ -11,9 +11,12 @@ export default async function handler(req, res) {
 
   try {
     const odds = await getCachedOdds(redis)
+    let metadata = null
+    try { metadata = await redis.get("mlb:odds:today:meta") } catch { /* legacy/mock cache */ }
 
     return res.status(200).json({
       odds,
+      metadata,
       summary: {
         games: odds.length,
         message: odds.length > 0

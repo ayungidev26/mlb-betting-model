@@ -18,6 +18,7 @@ import {
   releaseJobLock
 } from "../../lib/apiGuards.js"
 import { getEasternDateKey } from "../../lib/cronSchedule.js"
+import { resolveProviderGames } from "../../lib/gameIdentity.js"
 
 const ODDS_API_URL = buildOddsApiUrl().toString()
 const FETCH_ODDS_RATE_LIMIT = {
@@ -50,7 +51,7 @@ function dedupeByMatchKey(records) {
   const byMatchKey = new Map()
 
   for (const record of records) {
-    byMatchKey.set(record.matchKey, record)
+    byMatchKey.set(record.providerGameId || record.gameId || record.matchKey, record)
   }
 
   return Array.from(byMatchKey.values())
@@ -146,12 +147,26 @@ export default async function handler(req, res) {
       }
     }
 
-    const existing = await redis.get("mlb:odds:today")
+    const [existing, scheduleGames] = await Promise.all([
+      redis.get("mlb:odds:today"), redis.get("mlb:games:today")
+    ])
     const cachedOdds = Array.isArray(existing)
       ? normalizeStoredOddsRecords(existing)
       : []
     const data = await fetchJsonWithRetry(ODDS_API_URL)
-    const fetchedOdds = normalizeOddsPayload(data)
+    const normalizedProviderOdds = normalizeOddsPayload(data)
+    const hasSchedule = Array.isArray(scheduleGames) && scheduleGames.length > 0
+    const resolution = hasSchedule
+      ? resolveProviderGames(scheduleGames, normalizedProviderOdds)
+      : { matches: normalizedProviderOdds.map(providerGame => ({ scheduleGame: null, providerGame })), unmatched: [], ambiguous: [] }
+    const fetchedOdds = resolution.matches.map(({ scheduleGame, providerGame }) => ({
+      ...providerGame,
+      provider: "the-odds-api",
+      providerGameId: providerGame.gameId,
+      gameId: scheduleGame?.gameId || providerGame.gameId,
+      gamePk: scheduleGame?.gamePk || scheduleGame?.gameId,
+      matchKey: scheduleGame?.matchKey || providerGame.matchKey
+    }))
     const mergedRefresh = refresh
       ? buildSelectiveRefreshOdds(cachedOdds, fetchedOdds)
       : null
@@ -163,7 +178,14 @@ export default async function handler(req, res) {
     await redis.set("mlb:odds:today:meta", {
       dateKey: getEasternDateKey(),
       fetchedAt: new Date().toISOString(),
-      records: odds.length
+      records: odds.length,
+      generatedAt: new Date().toISOString(),
+      status: resolution.ambiguous.length || resolution.unmatched.length ? "degraded" : "healthy",
+      scheduleGameCount: Array.isArray(scheduleGames) ? scheduleGames.length : 0,
+      matchedGameCount: resolution.matches.length,
+      unmatchedProviderGames: resolution.unmatched,
+      ambiguousProviderGames: resolution.ambiguous,
+      sourceVersion: "game-identity-v2"
     })
 
     if (refresh) {

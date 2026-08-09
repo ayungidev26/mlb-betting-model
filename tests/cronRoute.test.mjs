@@ -440,6 +440,41 @@ test("cron route runs the existing pipeline once per Eastern day and skips dupli
         })
       }
 
+      // The integrity gate intentionally requires realistic league-wide pitcher
+      // coverage in addition to the announced starters. Keep this orchestration
+      // fixture healthy rather than weakening the production threshold.
+      if (target.includes("/api/v1/stats?stats=season&group=pitching")) {
+        const splits = Array.from({ length: 200 }, (_, index) => ({
+          player: {
+            id: index + 1,
+            fullName: index === 0
+              ? "Away Pitcher"
+              : index === 1
+                ? "Home Pitcher"
+                : `Fixture Pitcher ${index + 1}`
+          },
+          team: {
+            name: index % 2 === 0 ? "Boston Red Sox" : "New York Yankees"
+          },
+          stat: {
+            era: "3.50",
+            whip: "1.20",
+            strikeOuts: 100,
+            inningsPitched: "90.0",
+            avg: ".230",
+            slg: ".380",
+            homeRuns: "10",
+            baseOnBalls: "25",
+            hitBatsmen: "2",
+            flyOuts: "75"
+          }
+        }))
+
+        return createJsonResponse({
+          body: { stats: [{ splits }] }
+        })
+      }
+
       if (target.includes("/api/v1/teams/147/stats?stats=season&group=pitching")) {
         return createJsonResponse({
           body: {
@@ -488,6 +523,38 @@ test("cron route runs the existing pipeline once per Eastern day and skips dupli
                 ]
               }
             ]
+          }
+        })
+      }
+
+      if (target.includes("/api/v1/teams/147/roster?")) {
+        return createJsonResponse({
+          body: { roster: [{ person: { id: 9001, fullName: "Yankees Reliever" }, position: { abbreviation: "P" } }] }
+        })
+      }
+
+      if (target.includes("/api/v1/teams/111/roster?")) {
+        return createJsonResponse({
+          body: { roster: [{ person: { id: 9002, fullName: "Red Sox Reliever" }, position: { abbreviation: "P" } }] }
+        })
+      }
+
+      if (target.includes("/api/v1/people/9001/stats") || target.includes("/api/v1/people/9002/stats")) {
+        return createJsonResponse({
+          body: {
+            stats: [{ splits: [{ stat: {
+              gamesPitched: 35,
+              gamesStarted: 0,
+              gamesInRelief: 35,
+              inningsPitched: "40.0",
+              era: "3.20",
+              whip: "1.10",
+              strikeOuts: 45,
+              baseOnBalls: 12,
+              homeRuns: 4,
+              hitBatsmen: 1,
+              flyOuts: 30
+            } }] }]
           }
         })
       }

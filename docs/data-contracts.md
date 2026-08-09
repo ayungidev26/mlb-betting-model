@@ -394,3 +394,17 @@ Response highlights:
   }
 }
 ```
+
+## Game identity v2 and publication metadata
+
+MLB schedule games use `v2|mlb|<gamePk>` as `matchKey`; `gamePk` is authoritative and
+the schedule also retains Eastern date, scheduled time, game number, doubleheader
+designation, and status. Odds provider IDs remain as `providerGameId`. Cross-provider
+matching uses normalized teams plus Eastern date, then an explicit provider mapping or
+nearest scheduled time within 90 minutes. Equal-distance or otherwise ambiguous matches
+are rejected and reported, never guessed. Legacy team/date keys remain readable but are
+not rewritten or deleted.
+
+Stats refresh candidates are staged at `mlb:stats:<kind>:candidate`, with every attempt's
+diagnostics at `mlb:stats:<kind>:refresh:meta`. Only healthy candidates replace current
+payload and metadata. Edges have companion lineage metadata at `mlb:edges:today:meta`.
