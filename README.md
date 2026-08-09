@@ -321,6 +321,7 @@ Copy `.env.example` to `.env.local` for local development.
 | `UPSTASH_REDIS_REST_URL` | Yes | API + SSR/UI data loads | Upstash REST endpoint URL |
 | `UPSTASH_REDIS_REST_TOKEN` | Yes | API + SSR/UI data loads | Upstash REST auth token |
 | `ODDS_API_KEY` | Yes (for odds ingestion) | `/api/fetchOdds` | The Odds API key |
+| `PRODUCTION_VALIDATION_ENABLED` | No | `/api/validateProductionIntegrations` | Set to `true` only for a one-time authenticated production integration check; default is disabled |
 | `ADMIN_API_SECRET` | Yes (recommended) | Operational `POST` routes | Main admin/ops auth token |
 | `CRON_SECRET` | Required for `/api/cron/*` | Cron entry routes + scheduler helper | Separate secret for cron triggers |
 | `APP_PASSWORD` | Yes (for protected UI) | `/api/login`, middleware session validation | Shared app password |
