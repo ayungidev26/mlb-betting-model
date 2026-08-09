@@ -10,7 +10,9 @@ import { isWeeklyRatingsRefreshWindow } from "../../../lib/cronSchedule.js"
 
 const RATINGS_REFRESH_LOCK = {
   key: "mlb:lock:weeklyRatingsRefresh",
-  ttlSeconds: 30 * 60
+  // Keep the distributed lock longer than the 35-minute Actions timeout so a
+  // replacement/manual run cannot overlap a worker that is still winding down.
+  ttlSeconds: 40 * 60
 }
 const DEFAULT_START_SEASON = 2015
 
@@ -78,6 +80,9 @@ export default async function handler(req, res) {
     })
   }
 
+  const startedAtMs = Date.now()
+  const startedAt = new Date(startedAtMs).toISOString()
+
   try {
     const operationalSecret = getOperationalRouteSecret()
     if (!operationalSecret) {
@@ -88,12 +93,6 @@ export default async function handler(req, res) {
     const historicalMeta = await redis.get("mlb:games:historical:meta")
     const ratingsRange = await redis.get("mlb:ratings:historicalRange")
     const startSeason = configuredStartSeason(ratingsRange, historicalMeta, currentSeason)
-    await redis.set("mlb:ratings:historicalRange", {
-      startSeason,
-      endSeason: currentSeason,
-      updatedAt: new Date().toISOString()
-    })
-
     console.info("[runWeeklyRatingsRefresh] refreshing current-season historical games", {
       currentSeason,
       configuredRange: { startSeason, endSeason: currentSeason },
@@ -113,6 +112,9 @@ export default async function handler(req, res) {
       })
       return res.status(historical.statusCode).json({
         ok: false,
+        status: "failed",
+        startedAt,
+        durationMs: Date.now() - startedAtMs,
         seasonRefreshed: currentSeason,
         stoppedAfter: "loadHistorical",
         historical: historical.body,
@@ -133,6 +135,9 @@ export default async function handler(req, res) {
       })
       return res.status(ratings.statusCode).json({
         ok: false,
+        status: "failed",
+        startedAt,
+        durationMs: Date.now() - startedAtMs,
         seasonRefreshed: currentSeason,
         stoppedAfter: "buildRatings",
         historical: historical.body,
@@ -141,10 +146,18 @@ export default async function handler(req, res) {
     }
 
     const storedMetadata = await redis.get("mlb:ratings:teams:meta")
+    const storedRatings = await redis.get("mlb:ratings:teams")
+    const storedRatingsCount = storedRatings && typeof storedRatings === "object"
+      ? Object.keys(storedRatings).length
+      : 0
     const metadataVerified = Boolean(
       storedMetadata &&
       storedMetadata.generatedAt === ratings.body?.metadata?.generatedAt &&
-      Number(storedMetadata.season) === currentSeason
+      Number(storedMetadata.season) === currentSeason &&
+      Number(storedMetadata.startSeason) === startSeason &&
+      Number(storedMetadata.gamesProcessed) === Number(ratings.body?.gamesProcessed) &&
+      storedRatingsCount > 0 &&
+      storedRatingsCount === Number(ratings.body?.teamsRated)
     )
 
     if (!metadataVerified) {
@@ -154,6 +167,9 @@ export default async function handler(req, res) {
       })
       return res.status(500).json({
         ok: false,
+        status: "failed",
+        startedAt,
+        durationMs: Date.now() - startedAtMs,
         seasonRefreshed: currentSeason,
         stoppedAfter: "metadataVerification",
         historical: historical.body,
@@ -162,27 +178,49 @@ export default async function handler(req, res) {
       })
     }
 
+    // This is configuration/operational metadata, not ratings freshness. Only
+    // advance it after both writes above have been read back and verified.
+    await redis.set("mlb:ratings:historicalRange", {
+      startSeason,
+      endSeason: currentSeason,
+      updatedAt: new Date().toISOString()
+    })
+
+    const durationMs = Date.now() - startedAtMs
+
     console.info("[runWeeklyRatingsRefresh] weekly ratings refresh completed", {
       currentSeason,
       gamesLoaded: historical.body?.gamesCollected,
       ratingsGeneratedAt: storedMetadata.generatedAt,
-      latestSeasonIncluded: storedMetadata.season
+      latestSeasonIncluded: storedMetadata.season,
+      ratingsCount: storedRatingsCount,
+      durationMs
     })
 
     return res.status(200).json({
       ok: true,
+      status: "succeeded",
       trigger: force ? "manual" : "cron",
+      startedAt,
+      durationMs,
       seasonRefreshed: currentSeason,
       historicalGamesLoaded: historical.body?.gamesCollected || 0,
       historical: historical.body,
       ratingsBuild: ratings.body,
       ratingsGeneratedAt: storedMetadata.generatedAt,
       latestSeasonIncluded: storedMetadata.season,
+      ratingsCount: storedRatingsCount,
       metadataVerified: true
     })
   } catch (error) {
     console.error("[runWeeklyRatingsRefresh] unexpected failure", { message: error.message })
-    return res.status(500).json({ ok: false, error: error.message })
+    return res.status(500).json({
+      ok: false,
+      status: "failed",
+      startedAt,
+      durationMs: Date.now() - startedAtMs,
+      error: error.message
+    })
   } finally {
     await releaseJobLock(redis, RATINGS_REFRESH_LOCK.key, lock.ownerToken)
   }

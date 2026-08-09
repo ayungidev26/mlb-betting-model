@@ -128,7 +128,12 @@ from the configured historical start season through the current season. The
 configured range is retained at `mlb:ratings:historicalRange`, so the narrow
 weekly download does not narrow future Elo builds. A failed historical load
 stops before ratings are touched, and success is reported only after the stored
-ratings metadata matches the build response.
+ratings metadata and stored team count match the build response. The configured
+range is advanced only after that verification succeeds. The Actions run writes
+a compact job summary with the refreshed season, game/rating counts, generated
+timestamp, historical range, status, and duration. A 40-minute Redis lock spans
+the 35-minute workflow timeout to prevent a retry from overlapping a worker that
+is still terminating.
 
 To trigger the job safely, use **Actions → Weekly Ratings Refresh → Run
 workflow**. GitHub uses the repository's `PIPELINE_BASE_URL` and `CRON_SECRET`
