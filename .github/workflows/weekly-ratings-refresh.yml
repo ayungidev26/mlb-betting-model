@@ -1,0 +1,64 @@
+name: Weekly Ratings Refresh
+
+on:
+  schedule:
+    # Paired UTC triggers cover 01:07 ET across daylight-saving changes. The
+    # application route admits only the matching Eastern-time invocation.
+    - cron: "7 5 * 3-10 1"
+    - cron: "7 6 * 3-10 1"
+  workflow_dispatch:
+
+concurrency:
+  group: weekly-ratings-refresh-production
+  cancel-in-progress: false
+
+jobs:
+  refresh-ratings:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - name: Trigger authenticated weekly ratings refresh
+        env:
+          PIPELINE_BASE_URL: ${{ secrets.PIPELINE_BASE_URL }}
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+          MANUAL_RUN: ${{ github.event_name == 'workflow_dispatch' }}
+        run: |
+          if [[ -z "$PIPELINE_BASE_URL" || -z "$CRON_SECRET" ]]; then
+            echo "Missing required GitHub Actions secrets: PIPELINE_BASE_URL and/or CRON_SECRET"
+            exit 1
+          fi
+
+          CLEAN_CRON_SECRET="$(printf %s "$CRON_SECRET" | tr -d "\r\n")"
+          ENDPOINT_URL="${PIPELINE_BASE_URL%/}/api/cron/runWeeklyRatingsRefresh"
+
+          if [[ "$MANUAL_RUN" == "true" ]]; then
+            ENDPOINT_URL="${ENDPOINT_URL}?force=true"
+          fi
+
+          response_file="$(mktemp)"
+          trap 'rm -f "$response_file"' EXIT
+          status_code="$(curl --show-error --silent \
+            --request POST \
+            --header "Authorization: Bearer ${CLEAN_CRON_SECRET}" \
+            --header "Content-Type: application/json" \
+            --output "$response_file" \
+            --write-out "%{http_code}" \
+            "$ENDPOINT_URL")"
+
+          cat "$response_file"
+
+          if [[ ! "$status_code" =~ ^2 ]]; then
+            echo "Weekly ratings refresh failed with HTTP ${status_code}."
+            exit 1
+          fi
+
+          if ! node -e '
+            const fs = require("node:fs");
+            const payload = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
+            if (payload.skipped) process.exit(0);
+            if (!payload.ok || !payload.metadataVerified) process.exit(1);
+            console.log(`Refresh complete: season=${payload.seasonRefreshed}, games=${payload.historicalGamesLoaded}, generatedAt=${payload.ratingsGeneratedAt}, latestSeason=${payload.latestSeasonIncluded}`);
+          ' "$response_file"; then
+            echo "Weekly ratings refresh response did not confirm successful metadata verification."
+            exit 1
+          fi
