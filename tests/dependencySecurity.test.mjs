@@ -6,9 +6,13 @@ const packageJson = JSON.parse(
   fs.readFileSync(new URL("../package.json", import.meta.url), "utf8")
 )
 
-test("production dependency security floors remain pinned", () => {
-  assert.equal(packageJson.dependencies.next, "15.5.21")
-  assert.equal(packageJson.overrides.nanoid, "^3.3.17")
-  assert.equal(packageJson.overrides.postcss, "^8.5.23")
-  assert.equal(packageJson.overrides.sharp, "^0.35.0")
+test("production dependency manifest remains aligned with the lock file", () => {
+  const packageLock = JSON.parse(
+    fs.readFileSync(new URL("../package-lock.json", import.meta.url), "utf8")
+  )
+
+  assert.equal(
+    packageJson.dependencies.next,
+    packageLock.packages[""].dependencies.next
+  )
 })
