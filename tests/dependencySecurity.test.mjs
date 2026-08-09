@@ -16,4 +16,9 @@ test("production dependency manifest remains aligned with the lock file", () => 
     packageLock.packages[""].dependencies.next
   )
   assert.equal(packageJson.overrides.sharp, "^0.35.0")
+  assert.equal(packageJson.overrides.nanoid, "^3.3.17")
+  assert.equal(packageJson.overrides.postcss, "^8.5.23")
+  assert.equal(packageLock.packages["node_modules/nanoid"].version, "3.3.18")
+  assert.equal(packageLock.packages["node_modules/postcss"].version, "8.5.26")
+  assert.equal(packageLock.packages["node_modules/sharp"].version, "0.35.3")
 })
