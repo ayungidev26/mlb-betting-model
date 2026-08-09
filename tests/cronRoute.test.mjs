@@ -621,3 +621,79 @@ test("weekly ratings refresh loads only the current season before rebuilding con
     }
   )))
 })
+
+test("weekly ratings refresh rejects unauthenticated requests", { concurrency: false }, async () => {
+  process.env.CRON_SECRET = "cron-secret"
+  const handler = await importRoute("../pages/api/cron/runWeeklyRatingsRefresh.js")
+  const res = createMockResponse()
+
+  await handler(createRequest({ method: "POST", headers: { authorization: "" } }), res)
+
+  assert.equal(res.statusCode, 401)
+  assert.match(res.body.error, /Missing Authorization header/)
+})
+
+test("weekly ratings refresh stops before ratings when historical loading fails", { concurrency: false }, async () => {
+  process.env.CRON_SECRET = "cron-secret"
+  process.env.ADMIN_API_SECRET = "admin-secret"
+  const handler = await importRoute("../pages/api/cron/runWeeklyRatingsRefresh.js")
+  const previousMetadata = {
+    generatedAt: "2026-08-01T05:07:00.000Z",
+    dataThrough: "2026-07-31",
+    season: 2026,
+    startSeason: 2025,
+    gamesProcessed: 100
+  }
+  const redisMock = createMockRedis([
+    ["mlb:ratings:historicalRange", { startSeason: 2025, endSeason: 2026 }],
+    ["mlb:ratings:teams:meta", previousMetadata]
+  ])
+
+  await withPatchedRedis(redisMock, async () => withMockedDate("2026-08-10T05:07:00Z", async () => withMockedFetch(
+    async () => createTextResponse({ body: "not json" }),
+    async () => {
+      const res = createMockResponse()
+      await handler(createRequest({ method: "POST" }), res)
+
+      assert.equal(res.body.ok, false)
+      assert.equal(res.body.status, "failed")
+      assert.equal(res.body.stoppedAfter, "loadHistorical")
+      assert.equal(res.body.ratingsBuild, null)
+      assert.deepEqual(redisMock.snapshot("mlb:ratings:teams:meta"), previousMetadata)
+    }
+  )))
+})
+
+test("weekly ratings refresh does not mark ratings fresh when the build fails", { concurrency: false }, async () => {
+  process.env.CRON_SECRET = "cron-secret"
+  process.env.ADMIN_API_SECRET = "admin-secret"
+  const handler = await importRoute("../pages/api/cron/runWeeklyRatingsRefresh.js")
+  const previousMetadata = {
+    generatedAt: "2026-08-01T05:07:00.000Z",
+    dataThrough: "2026-07-31",
+    season: 2026,
+    startSeason: 2026,
+    gamesProcessed: 100
+  }
+  const previousRange = { startSeason: 2026, endSeason: 2026, updatedAt: "2026-08-01T05:07:00.000Z" }
+  const redisMock = createMockRedis([
+    ["mlb:ratings:historicalRange", previousRange],
+    ["mlb:ratings:teams:meta", previousMetadata],
+    ["mlb:ratings:teams", { "Boston Red Sox": 1500 }]
+  ])
+
+  await withPatchedRedis(redisMock, async () => withMockedDate("2026-08-10T05:07:00Z", async () => withMockedFetch(
+    async () => createJsonResponse({ body: { dates: [] } }),
+    async () => {
+      const res = createMockResponse()
+      await handler(createRequest({ method: "POST" }), res)
+
+      assert.equal(res.body.ok, false)
+      assert.equal(res.body.status, "failed")
+      assert.equal(res.body.stoppedAfter, "buildRatings")
+      assert.equal(res.body.ratingsBuild.code, "HISTORICAL_DATA_UNAVAILABLE")
+      assert.deepEqual(redisMock.snapshot("mlb:ratings:teams:meta"), previousMetadata)
+      assert.deepEqual(redisMock.snapshot("mlb:ratings:historicalRange"), previousRange)
+    }
+  )))
+})

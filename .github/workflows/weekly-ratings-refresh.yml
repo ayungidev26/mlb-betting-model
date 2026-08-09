@@ -48,6 +48,8 @@ jobs:
           cat "$response_file"
 
           if [[ ! "$status_code" =~ ^2 ]]; then
+            printf '## Weekly ratings refresh\n\n- Status: failed (HTTP %s)\n- Ratings build did not receive a verified success response.\n' \
+              "$status_code" >> "$GITHUB_STEP_SUMMARY"
             echo "Weekly ratings refresh failed with HTTP ${status_code}."
             exit 1
           fi
@@ -57,8 +59,22 @@ jobs:
             const payload = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
             if (payload.skipped) process.exit(0);
             if (!payload.ok || !payload.metadataVerified) process.exit(1);
-            console.log(`Refresh complete: season=${payload.seasonRefreshed}, games=${payload.historicalGamesLoaded}, generatedAt=${payload.ratingsGeneratedAt}, latestSeason=${payload.latestSeasonIncluded}`);
+            const summary = [
+              "## Weekly ratings refresh",
+              "",
+              `- Status: ${payload.status}`,
+              `- Current season refreshed: ${payload.seasonRefreshed}`,
+              `- Historical loader: succeeded (${payload.historicalGamesLoaded} final games)`,
+              `- Ratings build: succeeded (${payload.ratingsCount} team ratings)`,
+              `- Historical range: ${payload.ratingsBuild.metadata.startSeason}-${payload.latestSeasonIncluded}`,
+              `- Ratings generated: ${payload.ratingsGeneratedAt}`,
+              `- Duration: ${payload.durationMs} ms`
+            ].join("\n");
+            fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, `${summary}\n`);
+            console.log(`Refresh complete: season=${payload.seasonRefreshed}, games=${payload.historicalGamesLoaded}, ratings=${payload.ratingsCount}, generatedAt=${payload.ratingsGeneratedAt}, durationMs=${payload.durationMs}`);
           ' "$response_file"; then
+            printf '## Weekly ratings refresh\n\n- Status: failed (metadata verification was not confirmed)\n' \
+              >> "$GITHUB_STEP_SUMMARY"
             echo "Weekly ratings refresh response did not confirm successful metadata verification."
             exit 1
           fi
