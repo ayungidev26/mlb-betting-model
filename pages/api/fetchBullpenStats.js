@@ -3,6 +3,7 @@ import { redis } from "../../lib/upstash.js"
 import { getEasternDateKey } from "../../lib/cronSchedule.js"
 import { requireOperationalRouteAccess } from "../../lib/apiSecurity.js"
 import { sendRouteError } from "../../lib/apiErrors.js"
+import { publishStatsCandidate, validateStatsCandidate } from "../../lib/statsQuality.js"
 import { fetchBullpenStatsByTeam } from "../../lib/bullpenStats.js"
 import {
   enforceIpRateLimit,
@@ -41,17 +42,17 @@ export default async function handler(req, res) {
     }
 
     const bullpenStats = await fetchBullpenStatsByTeam()
-
+    const games = await redis.get("mlb:games:today")
     const statsMeta = {
-      lastUpdatedAt: new Date().toISOString(),
-      dateKey: getEasternDateKey(),
+      ...validateStatsCandidate({ kind: "bullpen", candidate: bullpenStats, games: Array.isArray(games) ? games : [] }),
+      lastUpdatedAt: new Date().toISOString(), dateKey: getEasternDateKey(),
       source: "statsapi.mlb.com + baseballsavant.mlb.com",
       version: "v1",
       records: Object.keys(bullpenStats).length
     }
 
-    await redis.set("mlb:stats:bullpen", bullpenStats)
-    await redis.set("mlb:stats:bullpen:meta", statsMeta)
+    const publication = await publishStatsCandidate(redis, { kind: "bullpen", candidate: bullpenStats, metadata: statsMeta })
+    if (!publication.published) return res.status(503).json({ error: "Bullpen refresh failed quality gates; last-known-good cache preserved.", metadata: statsMeta })
 
     res.status(200).json({
       teamsCollected: Object.keys(bullpenStats).length,

@@ -785,7 +785,7 @@ async function fetchHomePageData() {
   })
 }
 
-export default function Home({ games = [], summary, error = "", sessionExpiresAt = null }) {
+export default function Home({ games = [], summary, freshness = null, error = "", sessionExpiresAt = null }) {
   const router = useRouter()
   const initialViewModel = useMemo(() => ({
     games: Array.isArray(games) ? games : [],
@@ -1008,6 +1008,11 @@ export default function Home({ games = [], summary, error = "", sessionExpiresAt
       {fetchState.error && (
         <p className="notice notice--error">
           Error loading cached predictions: {fetchState.error}
+        </p>
+      )}
+      {!fetchState.error && freshness && freshness.status !== "healthy" && (
+        <p className="notice notice--error" role="alert">
+          Data status: {freshness.status}. {freshness.message}
         </p>
       )}
 

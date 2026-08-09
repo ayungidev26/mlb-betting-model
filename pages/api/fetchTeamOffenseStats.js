@@ -3,6 +3,7 @@ import { redis } from "../../lib/upstash.js"
 import { getEasternDateKey } from "../../lib/cronSchedule.js"
 import { requireOperationalRouteAccess } from "../../lib/apiSecurity.js"
 import { sendRouteError } from "../../lib/apiErrors.js"
+import { publishStatsCandidate, validateStatsCandidate } from "../../lib/statsQuality.js"
 import { fetchTeamOffenseStatsByTeam } from "../../lib/offenseStats.js"
 import {
   enforceIpRateLimit,
@@ -41,8 +42,9 @@ export default async function handler(req, res) {
     }
 
     const offenseStats = await fetchTeamOffenseStatsByTeam()
-
+    const games = await redis.get("mlb:games:today")
     const statsMeta = {
+      ...validateStatsCandidate({ kind: "offense", candidate: offenseStats, games: Array.isArray(games) ? games : [] }),
       lastUpdatedAt: new Date().toISOString(),
       dateKey: getEasternDateKey(),
       source: "statsapi.mlb.com + baseballsavant.mlb.com",
@@ -50,8 +52,8 @@ export default async function handler(req, res) {
       records: Object.keys(offenseStats).length
     }
 
-    await redis.set("mlb:stats:offense", offenseStats)
-    await redis.set("mlb:stats:offense:meta", statsMeta)
+    const publication = await publishStatsCandidate(redis, { kind: "offense", candidate: offenseStats, metadata: statsMeta })
+    if (!publication.published) return res.status(503).json({ error: "Offense refresh failed quality gates; last-known-good cache preserved.", metadata: statsMeta })
 
     res.status(200).json({
       teamsCollected: Object.keys(offenseStats).length,

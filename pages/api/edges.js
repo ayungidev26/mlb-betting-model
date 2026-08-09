@@ -11,9 +11,12 @@ export default async function handler(req, res) {
 
   try {
     const edges = await getCachedEdges(redis)
+    let metadata = null
+    try { metadata = await redis.get("mlb:edges:today:meta") } catch { /* legacy/mock cache */ }
 
     return res.status(200).json({
       edges,
+      metadata,
       summary: {
         edgesFound: edges.length,
         message: edges.length > 0
