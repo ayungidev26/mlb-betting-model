@@ -5,7 +5,8 @@ import {
   getEasternDateKey,
   getEasternTimeParts,
   isDailyPipelineWindow,
-  isDailyStatsPipelineWindow
+  isDailyStatsPipelineWindow,
+  isWeeklyRatingsRefreshWindow
 } from "../lib/cronSchedule.js"
 
 test("getEasternTimeParts converts UTC time into Eastern Daylight Time", () => {
@@ -63,4 +64,14 @@ test("isDailyStatsPipelineWindow rejects times outside the configured morning wi
   assert.equal(schedulerWindow.hour, 9)
   assert.equal(schedulerWindow.minute, 0)
   assert.equal(schedulerWindow.matchesWindow, false)
+})
+
+test("weekly ratings window follows Monday 01:07 Eastern across DST", () => {
+  assert.equal(isWeeklyRatingsRefreshWindow(new Date("2026-08-10T05:07:00Z")).matchesTargetTime, true)
+  assert.equal(isWeeklyRatingsRefreshWindow(new Date("2026-03-02T06:07:00Z")).matchesTargetTime, true)
+})
+
+test("weekly ratings window rejects inactive months and the paired extra UTC run", () => {
+  assert.equal(isWeeklyRatingsRefreshWindow(new Date("2026-01-05T06:07:00Z")).matchesTargetTime, false)
+  assert.equal(isWeeklyRatingsRefreshWindow(new Date("2026-08-10T06:07:00Z")).matchesTargetTime, false)
 })

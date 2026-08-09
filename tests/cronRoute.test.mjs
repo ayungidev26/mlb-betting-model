@@ -581,3 +581,43 @@ test("cron route supports secure manual force runs", { concurrency: false }, asy
     }
   )))
 })
+
+test("weekly ratings refresh loads only the current season before rebuilding configured range", { concurrency: false }, async () => {
+  process.env.CRON_SECRET = "cron-secret"
+  process.env.ADMIN_API_SECRET = "admin-secret"
+  const handler = await importRoute("../pages/api/cron/runWeeklyRatingsRefresh.js")
+  const redisMock = createMockRedis([
+    ["mlb:games:historical:meta", { startSeason: 2025, endSeason: 2026 }],
+    ["mlb:games:historical:2025", [{
+      season: 2025, date: "2025-04-01T00:00:00Z",
+      homeTeam: "New York Yankees", awayTeam: "Boston Red Sox",
+      homeScore: 5, awayScore: 3, seasonType: "regular"
+    }]]
+  ])
+  const fetchedSeasons = []
+
+  await withPatchedRedis(redisMock, async () => withMockedDate("2026-08-10T05:07:00Z", async () => withMockedFetch(
+    async (url) => {
+      fetchedSeasons.push(Number(new URL(String(url)).searchParams.get("season")))
+      return createJsonResponse({ body: { dates: [{ games: [{
+        gameDate: "2026-08-09T17:00:00Z", gameType: "R",
+        status: { detailedState: "Final" },
+        teams: {
+          home: { team: { name: "Chicago Cubs" }, score: 4 },
+          away: { team: { name: "St. Louis Cardinals" }, score: 2 }
+        }
+      }] }] } })
+    },
+    async () => {
+      const res = createMockResponse()
+      await handler(createRequest({ method: "POST" }), res)
+
+      assert.equal(res.statusCode, 200)
+      assert.equal(res.body.ok, true)
+      assert.equal(res.body.metadataVerified, true)
+      assert.deepEqual(fetchedSeasons, [2026])
+      assert.equal(res.body.ratingsBuild.metadata.startSeason, 2025)
+      assert.equal(redisMock.snapshot("mlb:ratings:historicalRange").startSeason, 2025)
+    }
+  )))
+})

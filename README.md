@@ -46,6 +46,13 @@ There are two main operational workflows:
 
 There is also a **historical workflow** used to build team Elo ratings and evaluate stored predictions.
 
+During the active MLB season (March through October), a dedicated GitHub Actions
+workflow refreshes the current season's final games and rebuilds ratings every
+Monday at **1:07 AM America/New_York**. The paired UTC schedule handles EDT/EST;
+the authenticated API route rejects the non-matching invocation. This completes
+more than four hours before the earliest 5:30 AM ET stats refresh and never adds
+historical traffic to the frequent market pipeline.
+
 ---
 
 ## Architecture
@@ -110,6 +117,24 @@ Operational ingestion/orchestration routes enforce:
 - Loads final MLB games by season range.
 - Builds Elo ratings and stores team baseline ratings.
 - Required because `runModel` expects `mlb:ratings:teams`.
+
+### Weekly ratings refresh
+
+`.github/workflows/weekly-ratings-refresh.yml` calls
+`POST /api/cron/runWeeklyRatingsRefresh`, authenticated with `CRON_SECRET`. The
+route locks the complete operation in Redis, refreshes only the current UTC/MLB
+season via `/api/loadHistorical`, waits for success, then runs `/api/buildRatings`
+from the configured historical start season through the current season. The
+configured range is retained at `mlb:ratings:historicalRange`, so the narrow
+weekly download does not narrow future Elo builds. A failed historical load
+stops before ratings are touched, and success is reported only after the stored
+ratings metadata matches the build response.
+
+To trigger the job safely, use **Actions → Weekly Ratings Refresh → Run
+workflow**. GitHub uses the repository's `PIPELINE_BASE_URL` and `CRON_SECRET`
+secrets and adds `force=true` only for this authenticated manual dispatch. Avoid
+calling `/api/loadHistorical` separately immediately beforehand because its
+six-hour cooldown intentionally prevents redundant provider downloads.
 
 ### 1) Schedule ingestion
 
