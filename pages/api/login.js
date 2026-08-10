@@ -5,6 +5,7 @@ import {
   getSessionExpirationTimestamp,
   isValidPassword
 } from "../../lib/appAuth.js"
+import { getMissingAuthEnvironmentVariables } from "../../lib/authConfig.js"
 
 export default async function handler(req, res) {
   if (req.method !== "POST") {
@@ -15,8 +16,13 @@ export default async function handler(req, res) {
   const configuredPassword = process.env.APP_PASSWORD
   const signingSecret = process.env.SESSION_SIGNING_SECRET
 
-  if (!configuredPassword || !signingSecret) {
-    return res.status(500).json({ error: "Authentication is not configured" })
+  const missingConfiguration = getMissingAuthEnvironmentVariables()
+
+  if (missingConfiguration.length > 0) {
+    return res.status(500).json({
+      error: "Authentication is not configured",
+      missing: missingConfiguration
+    })
   }
 
   const submittedPassword = typeof req.body?.password === "string"
