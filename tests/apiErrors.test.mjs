@@ -42,6 +42,39 @@ test("sendRouteError normalizes missing upstream data failures", () => {
   })
 })
 
+test("sendRouteError makes stale ratings failures actionable without exposing internals", () => {
+  const res = createMockResponse()
+
+  sendRouteError(
+    res,
+    "runModel",
+    new Error("Team ratings stale: historical results are more than 8 days behind. Run /api/loadHistorical, then /api/buildRatings.")
+  )
+
+  assert.equal(res.statusCode, 503)
+  assert.deepEqual(res.body, {
+    error: "Team ratings must be refreshed before model execution",
+    code: "RATINGS_REFRESH_REQUIRED"
+  })
+})
+
+test("sendRouteError identifies invalid dated model caches", () => {
+  const statsRes = createMockResponse()
+  const gamesRes = createMockResponse()
+
+  sendRouteError(statsRes, "runModel", new Error("mlb:stats:pitchers:meta cache stale (private details). Refresh the upstream cache."))
+  sendRouteError(gamesRes, "runModel", new Error("Games metadata/payload record count disagreement. Refresh the upstream cache."))
+
+  assert.deepEqual(statsRes.body, {
+    error: "Stats cache must be refreshed before model execution",
+    code: "STATS_CACHE_INVALID"
+  })
+  assert.deepEqual(gamesRes.body, {
+    error: "Games cache must be refreshed before model execution",
+    code: "GAMES_CACHE_INVALID"
+  })
+})
+
 test("sendRouteError exposes safe prediction batch diagnostics", () => {
   const res = createMockResponse()
   const error = new Error("Prediction batch rejected: internal detail")
