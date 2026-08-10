@@ -396,8 +396,8 @@ jobs:
               exit 1
             fi
 
-            if grep -Eq '"code"[[:space:]]*:[[:space:]]*"(STATS_PIPELINE_REQUIRED|STATS_CACHE_INVALID|GAMES_CACHE_INVALID)"' "$response_file"; then
-              echo "Model prerequisites are missing, stale, or invalid even after the forced stats refresh. Review the failed-step response and stats pipeline logs."
+            if grep -Eq '"code"[[:space:]]*:[[:space:]]*"(STATS_PIPELINE_REQUIRED|STATS_CACHE_INVALID|GAMES_CACHE_INVALID|ODDS_CACHE_INVALID)"' "$response_file"; then
+              echo "Pipeline prerequisites are missing, stale, or invalid after refresh. Review the failed-step response and dependency logs."
               rm -f "$response_file"
               exit 1
             fi

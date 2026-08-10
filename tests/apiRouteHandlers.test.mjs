@@ -592,6 +592,62 @@ test("fetchOdds selective refresh falls back to fetched odds when cache is empty
   }
 })
 
+test("fetchOdds keeps matched odds healthy when the provider also returns an out-of-slate game", { concurrency: false }, async () => {
+  process.env.ADMIN_API_SECRET = "test-admin-secret"
+  process.env.ODDS_API_KEY = "test-odds-key"
+
+  const handler = await importRoute("../pages/api/fetchOdds.js")
+  const redisMock = createMockRedis([
+    ["mlb:games:today", [{
+      gameId: 101,
+      gamePk: 101,
+      matchKey: "v2|mlb|101",
+      date: "2026-08-10T23:10:00Z",
+      scheduledTime: "2026-08-10T23:10:00Z",
+      homeTeam: "Boston Red Sox",
+      awayTeam: "New York Yankees"
+    }]]
+  ])
+
+  await withPatchedRedis(redisMock, async () => withMockedFetch(
+    async () => createJsonResponse({
+      body: [
+        createOddsApiGame({
+          id: "provider-today",
+          commenceTime: "2026-08-10T23:10:00Z",
+          homeTeam: "Boston Red Sox",
+          awayTeam: "New York Yankees",
+          homePrice: -115,
+          awayPrice: 105
+        }),
+        createOddsApiGame({
+          id: "provider-tomorrow",
+          commenceTime: "2026-08-11T17:10:00Z",
+          homeTeam: "Chicago Cubs",
+          awayTeam: "Milwaukee Brewers",
+          homePrice: -120,
+          awayPrice: 110
+        })
+      ]
+    }),
+    async () => {
+      const res = createMockResponse()
+      await handler(createRequest({ query: { refresh: "true" } }), res)
+
+      assert.equal(res.statusCode, 200)
+      assert.equal(redisMock.snapshot("mlb:odds:today").length, 1)
+      const metadata = redisMock.snapshot("mlb:odds:today:meta")
+      assert.equal(metadata.status, "healthy")
+      assert.equal(metadata.reconciliationStatus, "partial")
+      assert.equal(metadata.matchedGameCount, 1)
+      assert.deepEqual(metadata.unmatchedProviderGames, [{
+        providerGameId: "provider-tomorrow",
+        reason: "no candidate"
+      }])
+    }
+  ))
+})
+
 
 test("fetchOdds selective refresh deterministically drops invalid commenceTime records", { concurrency: false }, async () => {
   process.env.ADMIN_API_SECRET = "test-admin-secret"

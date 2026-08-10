@@ -75,6 +75,22 @@ test("sendRouteError identifies invalid dated model caches", () => {
   })
 })
 
+test("sendRouteError identifies an invalid odds cache", () => {
+  const res = createMockResponse()
+
+  sendRouteError(
+    res,
+    "findEdges",
+    new Error("Odds cache is degraded. Refresh the upstream cache.")
+  )
+
+  assert.equal(res.statusCode, 503)
+  assert.deepEqual(res.body, {
+    error: "Odds cache must be refreshed before edge generation",
+    code: "ODDS_CACHE_INVALID"
+  })
+})
+
 test("sendRouteError exposes safe prediction batch diagnostics", () => {
   const res = createMockResponse()
   const error = new Error("Prediction batch rejected: internal detail")
