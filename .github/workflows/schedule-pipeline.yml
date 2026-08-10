@@ -228,6 +228,7 @@ jobs:
           # daily marker cannot leave a stale or incomplete cache in place.
           STATS_ENDPOINT_URL="${PIPELINE_BASE_URL%/}/api/runStatsPipeline?force=true"
           MARKET_ENDPOINT_URL="${PIPELINE_BASE_URL%/}/api/runPipeline"
+          RATINGS_ENDPOINT_URL="${PIPELINE_BASE_URL%/}/api/cron/runWeeklyRatingsRefresh?force=true"
           CLEAN_ADMIN_API_SECRET="$(printf %s "$ADMIN_API_SECRET" | tr -d "\r\n")"
           CLEAN_PIPELINE_AUTH_TOKEN="$(printf %s "${PIPELINE_AUTH_TOKEN:-$ADMIN_API_SECRET}" | tr -d "\r\n")"
           CLEAN_CRON_SECRET="$(printf %s "$CRON_SECRET" | tr -d "\r\n")"
@@ -258,7 +259,9 @@ jobs:
           echo "Step 2/2: run market pipeline after stats dependency succeeds."
           attempt=1
           max_attempts=3
+          ratings_refresh_attempted=false
           response_file="$(mktemp)"
+          trap 'rm -f "$response_file"' EXIT
 
           while (( attempt <= max_attempts )); do
             status_code="$(curl --show-error --silent \
@@ -293,9 +296,22 @@ jobs:
             fi
 
             if grep -q '"code":"RATINGS_REFRESH_REQUIRED"' "$response_file"; then
-              echo "Team ratings are stale or invalid. Run /api/loadHistorical and /api/buildRatings, then retry the market pipeline."
-              rm -f "$response_file"
-              exit 1
+              if [[ "$ratings_refresh_attempted" == "true" ]]; then
+                echo "Team ratings remain stale after the forced ratings refresh. Review the ratings refresh response and server logs."
+                exit 1
+              fi
+
+              echo "Team ratings are stale or invalid. Running the authenticated ratings refresh before retrying the market pipeline."
+              curl --fail-with-body --show-error --silent \
+                --request POST \
+                --header "Authorization: Bearer ${CLEAN_ADMIN_API_SECRET}" \
+                --header "x-admin-secret: ${CLEAN_ADMIN_API_SECRET}" \
+                --header "Content-Type: application/json" \
+                --data "{\"authToken\":\"${CLEAN_PIPELINE_AUTH_TOKEN}\",\"adminSecret\":\"${CLEAN_ADMIN_API_SECRET}\"}" \
+                "$RATINGS_ENDPOINT_URL"
+              ratings_refresh_attempted=true
+              ((attempt += 1))
+              continue
             fi
 
             if [[ "$status_code" == "409" ]]; then
