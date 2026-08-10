@@ -277,6 +277,12 @@ jobs:
 
             cat "$response_file"
 
+            if grep -q '"code":"INCOMPLETE_PREDICTION_BATCH"' "$response_file"; then
+              echo "Model generation failed for part of today's slate. Review details.failedGameIds and the runModel logs; verify pitcher aliases and cached stats for those games."
+              rm -f "$response_file"
+              exit 1
+            fi
+
             if [[ "$status_code" == "409" ]]; then
               echo "Market pipeline blocked (HTTP 409): stats prerequisites were not ready. Run /api/runStatsPipeline first, then retry /api/runPipeline."
               rm -f "$response_file"

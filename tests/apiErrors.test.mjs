@@ -42,6 +42,34 @@ test("sendRouteError normalizes missing upstream data failures", () => {
   })
 })
 
+test("sendRouteError exposes safe prediction batch diagnostics", () => {
+  const res = createMockResponse()
+  const error = new Error("Prediction batch rejected: internal detail")
+  error.code = "INCOMPLETE_PREDICTION_BATCH"
+  error.diagnostics = {
+    eligibleGames: 15,
+    predictionsSucceeded: 14,
+    predictionsFailed: 1,
+    failedGameIds: [777],
+    failures: [{ gameId: 777, message: "sensitive implementation detail" }]
+  }
+
+  sendRouteError(res, "runModel", error)
+
+  assert.equal(res.statusCode, 503)
+  assert.deepEqual(res.body, {
+    error: "One or more game predictions could not be generated",
+    code: "INCOMPLETE_PREDICTION_BATCH",
+    details: {
+      eligibleGames: 15,
+      predictionsSucceeded: 14,
+      predictionsFailed: 1,
+      failedGameIds: [777]
+    }
+  })
+  assert.equal(JSON.stringify(res.body).includes("sensitive"), false)
+})
+
 test("buildPublicPageError returns a generic page-safe message", () => {
   const errorMessage = buildPublicPageError(
     "homePageProps",
