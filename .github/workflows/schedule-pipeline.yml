@@ -289,27 +289,48 @@ jobs:
           fi
 
           echo "Step 1/2: run stats pipeline dependency before market pipeline."
-          if [[ -n "$CLEAN_CRON_SECRET" ]]; then
-            STATS_ENDPOINT_URL="${PIPELINE_BASE_URL%/}/api/cron/runDailyStatsPipeline?force=true"
-            curl --fail-with-body --show-error --silent \
-              --request POST \
-              --header "Authorization: Bearer ${CLEAN_CRON_SECRET}" \
-              --header "Content-Type: application/json" \
-              "$STATS_ENDPOINT_URL"
-          else
-            curl --fail-with-body --show-error --silent \
-              --request POST \
-              --header "Authorization: Bearer ${CLEAN_PIPELINE_AUTH_TOKEN}" \
-              --header "x-admin-secret: ${CLEAN_ADMIN_API_SECRET}" \
-              --header "Content-Type: application/json" \
-              --data "{\"authToken\":\"${CLEAN_PIPELINE_AUTH_TOKEN}\",\"adminSecret\":\"${CLEAN_ADMIN_API_SECRET}\"}" \
-              "$STATS_ENDPOINT_URL"
-          fi
+          refresh_stats_dependency() {
+            local stats_response_file
+            local stats_status
+            stats_response_file="$(mktemp)"
+
+            if [[ -n "$CLEAN_CRON_SECRET" ]]; then
+              STATS_ENDPOINT_URL="${PIPELINE_BASE_URL%/}/api/cron/runDailyStatsPipeline?force=true"
+              stats_status="$(curl --show-error --silent \
+                --request POST \
+                --header "Authorization: Bearer ${CLEAN_CRON_SECRET}" \
+                --header "Content-Type: application/json" \
+                --output "$stats_response_file" \
+                --write-out "%{http_code}" \
+                "$STATS_ENDPOINT_URL")"
+            else
+              stats_status="$(curl --show-error --silent \
+                --request POST \
+                --header "Authorization: Bearer ${CLEAN_PIPELINE_AUTH_TOKEN}" \
+                --header "x-admin-secret: ${CLEAN_ADMIN_API_SECRET}" \
+                --header "Content-Type: application/json" \
+                --data "{\"authToken\":\"${CLEAN_PIPELINE_AUTH_TOKEN}\",\"adminSecret\":\"${CLEAN_ADMIN_API_SECRET}\"}" \
+                --output "$stats_response_file" \
+                --write-out "%{http_code}" \
+                "$STATS_ENDPOINT_URL")"
+            fi
+
+            cat "$stats_response_file"
+            rm -f "$stats_response_file"
+
+            if [[ ! "$stats_status" =~ ^2 ]]; then
+              echo "Forced stats dependency refresh failed with HTTP ${stats_status}."
+              return 1
+            fi
+          }
+
+          refresh_stats_dependency
 
           echo "Step 2/2: run market pipeline after stats dependency succeeds."
           attempt=1
           max_attempts=3
           ratings_refresh_attempted=false
+          prediction_recovery_attempted=false
           response_file="$(mktemp)"
           trap 'rm -f "$response_file"' EXIT
 
@@ -334,7 +355,15 @@ jobs:
             cat "$response_file"
 
             if grep -q '"code":"INCOMPLETE_PREDICTION_BATCH"' "$response_file"; then
-              echo "Model generation failed for part of today's slate. Review details.failedGameIds and the runModel logs; verify pitcher aliases and cached stats for those games."
+              if [[ "$prediction_recovery_attempted" == "false" && $attempt -lt $max_attempts ]]; then
+                echo "Prediction coverage was incomplete. Refreshing all stats caches and retrying the complete market pipeline once."
+                refresh_stats_dependency
+                prediction_recovery_attempted=true
+                ((attempt += 1))
+                continue
+              fi
+
+              echo "Prediction coverage remains incomplete after a forced stats recovery. Review top-level details.failedGameIds and the runModel logs."
               rm -f "$response_file"
               exit 1
             fi

@@ -1562,6 +1562,8 @@ test("runPipeline returns a redacted failed-step payload when a child route fail
       assert.equal(res.body.ok, false)
       assert.equal(res.body.failedStep, "fetchOdds")
       assert.equal(res.body.completedSteps, 1)
+      assert.equal(res.body.code, "INTERNAL_SERVER_ERROR")
+      assert.equal(res.body.error, "Internal server error")
       assert.deepEqual(res.body.steps[1], {
         step: "fetchOdds",
         status: "failed",
