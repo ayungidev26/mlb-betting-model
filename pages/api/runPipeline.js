@@ -195,10 +195,16 @@ export default async function handler(req, res) {
       })
 
       if (!result.ok) {
+        const childError = result.body && typeof result.body === "object"
+          ? result.body
+          : {}
         // Preserve the child route's status and safe error payload. Flattening every
         // failure to an opaque 500 made scheduled-run failures impossible to triage.
         return res.status(result.statusCode).json({
           ok: false,
+          error: childError.error || `Pipeline step ${step.name} failed`,
+          code: childError.code || "PIPELINE_STEP_FAILED",
+          ...(childError.details ? { details: childError.details } : {}),
           completedSteps: steps.filter(item => item.status === "success").length,
           failedStep: step.name,
           steps,
