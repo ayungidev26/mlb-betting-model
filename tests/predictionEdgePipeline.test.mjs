@@ -258,6 +258,43 @@ test('edge pipeline fails fast when odds payload fields are removed or renamed',
   )
 })
 
+test('edge pipeline resolves duplicate odds snapshots by using the newest record', async () => {
+  const matchKey = '2025-04-10|Los Angeles Dodgers|Oakland Athletics'
+  const prediction = {
+    gameId: 'game-1',
+    matchKey,
+    homeTeam: 'Oakland Athletics',
+    awayTeam: 'Los Angeles Dodgers',
+    homeWinProbability: 0.31,
+    awayWinProbability: 0.69
+  }
+  const oddsRecord = {
+    gameId: 'odds-1',
+    matchKey,
+    commenceTime: '2025-04-10T23:10:00Z',
+    homeTeam: 'Oakland Athletics',
+    awayTeam: 'Los Angeles Dodgers',
+    homeMoneyline: 170,
+    awayMoneyline: -185,
+    sportsbook: 'draftkings'
+  }
+  const redis = createMockRedis({
+    'mlb:predictions:today': [prediction],
+    'mlb:odds:today': [
+      { ...oddsRecord, lastUpdated: '2025-04-10T17:00:00Z' },
+      { ...oddsRecord, gameId: 'odds-2', awayMoneyline: -150, lastUpdated: '2025-04-10T18:00:00Z' }
+    ]
+  })
+
+  const result = await generateEdges(redis)
+
+  assert.equal(result.matchedGames, 1)
+  assert.equal(result.edges[0].odds, -150)
+  assert.equal(result.metadata.oddsCount, 1)
+  assert.equal(result.metadata.receivedOddsCount, 2)
+  assert.equal(result.metadata.duplicateOddsCount, 1)
+})
+
 
 test('prediction output includes advanced pitcher feature inputs for scoring', async () => {
   const redis = createMockRedis({
