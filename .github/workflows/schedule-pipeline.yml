@@ -292,36 +292,64 @@ jobs:
           refresh_stats_dependency() {
             local stats_response_file
             local stats_status
+            local retry_after_seconds
+            local attempt=1
+            local max_attempts=3
             stats_response_file="$(mktemp)"
 
-            if [[ -n "$CLEAN_CRON_SECRET" ]]; then
-              STATS_ENDPOINT_URL="${PIPELINE_BASE_URL%/}/api/cron/runDailyStatsPipeline?force=true"
-              stats_status="$(curl --show-error --silent \
-                --request POST \
-                --header "Authorization: Bearer ${CLEAN_CRON_SECRET}" \
-                --header "Content-Type: application/json" \
-                --output "$stats_response_file" \
-                --write-out "%{http_code}" \
-                "$STATS_ENDPOINT_URL")"
-            else
-              stats_status="$(curl --show-error --silent \
-                --request POST \
-                --header "Authorization: Bearer ${CLEAN_PIPELINE_AUTH_TOKEN}" \
-                --header "x-admin-secret: ${CLEAN_ADMIN_API_SECRET}" \
-                --header "Content-Type: application/json" \
-                --data "{\"authToken\":\"${CLEAN_PIPELINE_AUTH_TOKEN}\",\"adminSecret\":\"${CLEAN_ADMIN_API_SECRET}\"}" \
-                --output "$stats_response_file" \
-                --write-out "%{http_code}" \
-                "$STATS_ENDPOINT_URL")"
-            fi
+            while (( attempt <= max_attempts )); do
+              if [[ -n "$CLEAN_CRON_SECRET" ]]; then
+                STATS_ENDPOINT_URL="${PIPELINE_BASE_URL%/}/api/cron/runDailyStatsPipeline?force=true"
+                stats_status="$(curl --show-error --silent \
+                  --request POST \
+                  --header "Authorization: Bearer ${CLEAN_CRON_SECRET}" \
+                  --header "Content-Type: application/json" \
+                  --output "$stats_response_file" \
+                  --write-out "%{http_code}" \
+                  "$STATS_ENDPOINT_URL")"
+              else
+                stats_status="$(curl --show-error --silent \
+                  --request POST \
+                  --header "Authorization: Bearer ${CLEAN_PIPELINE_AUTH_TOKEN}" \
+                  --header "x-admin-secret: ${CLEAN_ADMIN_API_SECRET}" \
+                  --header "Content-Type: application/json" \
+                  --data "{\"authToken\":\"${CLEAN_PIPELINE_AUTH_TOKEN}\",\"adminSecret\":\"${CLEAN_ADMIN_API_SECRET}\"}" \
+                  --output "$stats_response_file" \
+                  --write-out "%{http_code}" \
+                  "$STATS_ENDPOINT_URL")"
+              fi
 
-            cat "$stats_response_file"
-            rm -f "$stats_response_file"
+              cat "$stats_response_file"
 
-            if [[ ! "$stats_status" =~ ^2 ]]; then
-              echo "Forced stats dependency refresh failed with HTTP ${stats_status}."
+              if [[ "$stats_status" =~ ^2 ]]; then
+                rm -f "$stats_response_file"
+                return 0
+              fi
+
+              if [[ "$stats_status" == "409" ]] && grep -q '"code":"JOB_ALREADY_RUNNING"' "$stats_response_file"; then
+                retry_after_seconds="$(node -e '
+                  const fs = require("node:fs");
+                  try {
+                    const payload = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
+                    const seconds = Number(payload.retryAfterSeconds);
+                    process.stdout.write(String(Number.isFinite(seconds) && seconds > 0 ? Math.ceil(seconds) : 300));
+                  } catch {
+                    process.stdout.write("300");
+                  }
+                ' "$stats_response_file")"
+
+                if (( attempt < max_attempts )); then
+                  echo "Stats pipeline is already running. Waiting ${retry_after_seconds}s before retry $((attempt + 1))/${max_attempts}."
+                  sleep "$retry_after_seconds"
+                  ((attempt += 1))
+                  continue
+                fi
+              fi
+
+              echo "Forced stats dependency refresh failed with HTTP ${stats_status} on attempt ${attempt}/${max_attempts}."
+              rm -f "$stats_response_file"
               return 1
-            fi
+            done
           }
 
           refresh_stats_dependency
