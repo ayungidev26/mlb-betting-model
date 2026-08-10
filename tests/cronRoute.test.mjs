@@ -696,6 +696,29 @@ test("weekly ratings refresh rejects unauthenticated requests", { concurrency: f
   assert.match(res.body.error, /Missing Authorization header/)
 })
 
+test("forced ratings refresh accepts the operational admin credential", { concurrency: false }, async () => {
+  process.env.CRON_SECRET = "cron-secret"
+  process.env.ADMIN_API_SECRET = "admin-secret"
+  const handler = await importRoute("../pages/api/cron/runWeeklyRatingsRefresh.js")
+
+  await withPatchedRedis(createMockRedis(), async () => withMockedDate("2026-08-10T12:00:00Z", async () => withMockedFetch(
+    async () => createTextResponse({ body: "not json" }),
+    async () => {
+      const res = createMockResponse()
+      await handler(createRequest({
+        method: "POST",
+        query: { force: "true" },
+        headers: { authorization: "Bearer admin-secret" }
+      }), res)
+
+      assert.notEqual(res.statusCode, 401)
+      assert.notEqual(res.statusCode, 403)
+      assert.equal(res.body.status, "failed")
+      assert.equal(res.body.stoppedAfter, "loadHistorical")
+    }
+  )))
+})
+
 test("weekly ratings refresh stops before ratings when historical loading fails", { concurrency: false }, async () => {
   process.env.CRON_SECRET = "cron-secret"
   process.env.ADMIN_API_SECRET = "admin-secret"

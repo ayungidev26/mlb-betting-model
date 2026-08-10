@@ -3,6 +3,7 @@ import buildRatingsHandler from "../buildRatings.js"
 import { redis } from "../../../lib/upstash.js"
 import {
   getOperationalRouteSecret,
+  requireCronOrOperationalRouteAccess,
   requireCronRouteAccess
 } from "../../../lib/apiSecurity.js"
 import { acquireJobLock, releaseJobLock } from "../../../lib/apiGuards.js"
@@ -50,9 +51,17 @@ function configuredStartSeason(config, meta, currentSeason) {
 }
 
 export default async function handler(req, res) {
-  if (!requireCronRouteAccess(req, res)) return
-
   const force = req?.query?.force === "true"
+
+  // Scheduled invocations remain restricted to CRON_SECRET. A forced recovery
+  // is also available to the operational admin credential so the market
+  // workflow can repair stale ratings when CRON_SECRET is intentionally not
+  // configured in GitHub Actions.
+  const authorized = force
+    ? requireCronOrOperationalRouteAccess(req, res)
+    : requireCronRouteAccess(req, res)
+  if (!authorized) return
+
   const schedulerWindow = isWeeklyRatingsRefreshWindow()
 
   if (!force && !schedulerWindow.matchesTargetTime) {
