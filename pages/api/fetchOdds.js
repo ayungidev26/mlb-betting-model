@@ -180,7 +180,14 @@ export default async function handler(req, res) {
       fetchedAt: new Date().toISOString(),
       records: odds.length,
       generatedAt: new Date().toISOString(),
-      status: resolution.ambiguous.length || resolution.unmatched.length ? "degraded" : "healthy",
+      // Provider feeds can legitimately include games outside today's MLB slate
+      // (most commonly tomorrow's early markets). Those records are intentionally
+      // omitted, but they do not make the matched, validated cache unhealthy.
+      status: "healthy",
+      reconciliationStatus:
+        resolution.ambiguous.length || resolution.unmatched.length
+          ? "partial"
+          : "complete",
       scheduleGameCount: Array.isArray(scheduleGames) ? scheduleGames.length : 0,
       matchedGameCount: resolution.matches.length,
       unmatchedProviderGames: resolution.unmatched,

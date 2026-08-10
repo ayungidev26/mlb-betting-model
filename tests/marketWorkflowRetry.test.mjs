@@ -27,6 +27,7 @@ test("market workflow error-code checks accept formatted JSON", async () => {
   for (const code of [
     "INCOMPLETE_PREDICTION_BATCH",
     "STATS_PIPELINE_REQUIRED",
+    "ODDS_CACHE_INVALID",
     "RATINGS_REFRESH_REQUIRED",
     "COOLDOWN_ACTIVE"
   ]) {
