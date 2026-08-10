@@ -441,8 +441,9 @@ curl -X POST "http://localhost:3000/api/runPipeline" \
    - `ODDS_API_KEY`
    - `ADMIN_API_SECRET`
    - `APP_PASSWORD`
+   - `SESSION_SIGNING_SECRET` (generate an independent value with `openssl rand -base64 48`)
    - optional: `CRON_SECRET`, `BALLPARK_FACTORS_URL`
-3. Deploy.
+3. Apply the variables to the **Production** environment (and Preview if desired), then redeploy. Vercel environment-variable changes do not update an already-created deployment.
 4. Configure GitHub Actions secrets (below) if using scheduled automation.
 5. Run bootstrap once in production:
    - `POST /api/loadHistorical`

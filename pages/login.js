@@ -89,7 +89,22 @@ const styles = {
   }
 }
 
-const configHelpMessage = "APP_PASSWORD is not configured yet. Create .env.local, copy the values from .env.example, then add APP_PASSWORD=your-test-password and restart npm run dev."
+const configHelpMessage = process.env.NODE_ENV === "production"
+  ? "Authentication is not configured for this deployment. In Vercel, add APP_PASSWORD and an independent SESSION_SIGNING_SECRET under Project Settings → Environment Variables, then redeploy."
+  : "Authentication is not configured yet. Create .env.local, copy the values from .env.example, set APP_PASSWORD and an independent SESSION_SIGNING_SECRET, then restart npm run dev."
+
+function buildConfigHelpMessage(missing) {
+  const missingNames = Array.isArray(missing)
+    ? missing
+    : typeof missing === "string"
+      ? missing.split(",")
+      : []
+  const recognizedNames = missingNames.filter((name) => name === "APP_PASSWORD" || name === "SESSION_SIGNING_SECRET")
+
+  if (recognizedNames.length === 0) return configHelpMessage
+
+  return `${configHelpMessage} Missing from this deployment: ${recognizedNames.join(", ")}.`
+}
 
 export default function LoginPage() {
   const router = useRouter()
@@ -107,7 +122,7 @@ export default function LoginPage() {
 
   const statusMessage = useMemo(() => {
     if (router.query.error === "config") {
-      return configHelpMessage
+      return buildConfigHelpMessage(router.query.missing)
     }
 
     if (router.query.error === "expired") {
@@ -115,7 +130,7 @@ export default function LoginPage() {
     }
 
     return ""
-  }, [router.query.error])
+  }, [router.query.error, router.query.missing])
 
   async function handleSubmit(event) {
     event.preventDefault()
@@ -134,7 +149,7 @@ export default function LoginPage() {
       const payload = await response.json().catch(() => ({}))
 
       if (!response.ok) {
-        setError(payload.error === "APP_PASSWORD is not configured" ? configHelpMessage : (payload.error || "Unable to log in"))
+        setError(payload.error === "Authentication is not configured" ? buildConfigHelpMessage(payload.missing) : (payload.error || "Unable to log in"))
         return
       }
 

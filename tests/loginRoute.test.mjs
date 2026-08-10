@@ -76,5 +76,29 @@ test("login route reports missing APP_PASSWORD configuration", async () => {
   await loginHandler(req, res)
 
   assert.equal(res.statusCode, 500)
-  assert.deepEqual(res.body, { error: "Authentication is not configured" })
+  assert.deepEqual(res.body, {
+    error: "Authentication is not configured",
+    missing: ["APP_PASSWORD"]
+  })
+})
+
+test("login route reports missing session signing configuration", async () => {
+  process.env.APP_PASSWORD = "dugout"
+  delete process.env.SESSION_SIGNING_SECRET
+
+  const req = {
+    method: "POST",
+    body: {
+      password: "dugout"
+    }
+  }
+  const res = createMockResponse()
+
+  await loginHandler(req, res)
+
+  assert.equal(res.statusCode, 500)
+  assert.deepEqual(res.body, {
+    error: "Authentication is not configured",
+    missing: ["SESSION_SIGNING_SECRET"]
+  })
 })

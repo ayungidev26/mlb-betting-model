@@ -2,6 +2,7 @@ import { NextResponse } from "next/server"
 
 import { isValidSession, readSessionCookie } from "./lib/appAuth.js"
 import { buildLoginRedirectPath } from "./lib/appAuthGuard.js"
+import { getMissingAuthEnvironmentVariables } from "./lib/authConfig.js"
 
 export async function middleware(req) {
   const { pathname, search } = req.nextUrl
@@ -17,11 +18,14 @@ export async function middleware(req) {
     return NextResponse.next()
   }
 
-  const configuredPassword = process.env.APP_PASSWORD
   const signingSecret = process.env.SESSION_SIGNING_SECRET
+  const missingConfiguration = getMissingAuthEnvironmentVariables()
 
-  if (!configuredPassword || !signingSecret) {
-    return NextResponse.redirect(new URL("/login?error=config", req.url))
+  if (missingConfiguration.length > 0) {
+    const loginUrl = new URL("/login", req.url)
+    loginUrl.searchParams.set("error", "config")
+    loginUrl.searchParams.set("missing", missingConfiguration.join(","))
+    return NextResponse.redirect(loginUrl)
   }
 
   const sessionToken = readSessionCookie(req.headers.get("cookie") || "")
