@@ -195,7 +195,9 @@ export default async function handler(req, res) {
       })
 
       if (!result.ok) {
-        return res.status(500).json({
+        // Preserve the child route's status and safe error payload. Flattening every
+        // failure to an opaque 500 made scheduled-run failures impossible to triage.
+        return res.status(result.statusCode).json({
           ok: false,
           completedSteps: steps.filter(item => item.status === "success").length,
           failedStep: step.name,
