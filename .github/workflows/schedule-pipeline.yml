@@ -7,7 +7,7 @@ on:
     - cron: "30 10 * * *" # 05:30 ET (EST)
     - cron: "30 12 * * *" # 08:30 ET (EDT)
     - cron: "30 13 * * *" # 08:30 ET (EST)
-    # Market refresh windows (unchanged)
+    # Market refresh windows
     - cron: "19 14 * * *" # 10:19 ET (EDT)
     - cron: "19 15 * * *" # 10:19 ET (EST)
     - cron: "19 18 * * *" # 14:19 ET (EDT)
@@ -231,9 +231,9 @@ jobs:
               end: 15 * 60 + 49
             },
             {
-              label: "5:19 PM → 6:49 PM ET",
+              label: "5:19 PM → 7:49 PM ET",
               start: 17 * 60 + 19,
-              end: 18 * 60 + 49
+              end: 19 * 60 + 49
             }
           ]
 
@@ -382,7 +382,7 @@ jobs:
 
             cat "$response_file"
 
-            if grep -q '"code":"INCOMPLETE_PREDICTION_BATCH"' "$response_file"; then
+            if grep -Eq '"code"[[:space:]]*:[[:space:]]*"INCOMPLETE_PREDICTION_BATCH"' "$response_file"; then
               if [[ "$prediction_recovery_attempted" == "false" && $attempt -lt $max_attempts ]]; then
                 echo "Prediction coverage was incomplete. Refreshing all stats caches and retrying the complete market pipeline once."
                 refresh_stats_dependency
@@ -396,13 +396,13 @@ jobs:
               exit 1
             fi
 
-            if grep -Eq '"code":"(STATS_PIPELINE_REQUIRED|STATS_CACHE_INVALID|GAMES_CACHE_INVALID)"' "$response_file"; then
+            if grep -Eq '"code"[[:space:]]*:[[:space:]]*"(STATS_PIPELINE_REQUIRED|STATS_CACHE_INVALID|GAMES_CACHE_INVALID)"' "$response_file"; then
               echo "Model prerequisites are missing, stale, or invalid even after the forced stats refresh. Review the failed-step response and stats pipeline logs."
               rm -f "$response_file"
               exit 1
             fi
 
-            if grep -q '"code":"RATINGS_REFRESH_REQUIRED"' "$response_file"; then
+            if grep -Eq '"code"[[:space:]]*:[[:space:]]*"RATINGS_REFRESH_REQUIRED"' "$response_file"; then
               if [[ "$ratings_refresh_attempted" == "true" ]]; then
                 echo "Team ratings remain stale after the forced ratings refresh. Review the ratings refresh response and server logs."
                 exit 1
@@ -450,7 +450,7 @@ jobs:
               exit 1
             fi
 
-            if grep -q '"code":"COOLDOWN_ACTIVE"' "$response_file"; then
+            if grep -Eq '"code"[[:space:]]*:[[:space:]]*"COOLDOWN_ACTIVE"' "$response_file"; then
               retry_after_seconds="$(( attempt * 30 ))"
 
               if (( attempt < max_attempts )); then
@@ -459,6 +459,28 @@ jobs:
                 ((attempt += 1))
                 continue
               fi
+            fi
+
+            if [[ "$status_code" =~ ^5[0-9][0-9]$ ]] && \
+              grep -Eq '"code"[[:space:]]*:[[:space:]]*"INTERNAL_SERVER_ERROR"' "$response_file"; then
+              if (( attempt < max_attempts )); then
+                retry_after_seconds="$(( attempt * 30 ))"
+                failed_step="$(node -e '
+                  const fs = require("node:fs");
+                  try {
+                    const payload = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
+                    process.stdout.write(typeof payload.failedStep === "string" ? payload.failedStep : "unknown");
+                  } catch {
+                    process.stdout.write("unknown");
+                  }
+                ' "$response_file")"
+                echo "Market pipeline step ${failed_step} returned a transient HTTP ${status_code} error. Waiting ${retry_after_seconds}s before retry $((attempt + 1))/${max_attempts}."
+                sleep "$retry_after_seconds"
+                ((attempt += 1))
+                continue
+              fi
+
+              echo "Market pipeline still returned an internal server error after ${max_attempts} attempts. Review the failed-step response and server logs."
             fi
 
             echo "Pipeline request failed on attempt ${attempt}/${max_attempts}."
