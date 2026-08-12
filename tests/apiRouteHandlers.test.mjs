@@ -2002,6 +2002,63 @@ test("fetchPitcherStats tolerates transient team and pitcher metadata upstream f
   ))
 })
 
+test("fetchPitcherStats tolerates a complete team pitching context outage", { concurrency: false }, async () => {
+  process.env.ADMIN_API_SECRET = "test-admin-secret"
+  const handler = await importRoute("../pages/api/fetchPitcherStats.js")
+  const redisMock = createMockRedis()
+
+  await withPatchedRedis(redisMock, async () => withMockedFetch(
+    async (url) => {
+      const target = String(url)
+
+      if (target.includes("/api/v1/teams?sportId=1")) {
+        throw new Error("Temporary MLB API teams outage")
+      }
+
+      if (target.includes("/api/v1/stats?stats=season&group=pitching")) {
+        return createJsonResponse({
+          body: {
+            stats: [{
+              splits: [{
+                player: { id: 1, fullName: "Fallback Pitcher" },
+                stat: {
+                  era: "3.40",
+                  inningsPitched: "95.1",
+                  homeRuns: "10",
+                  baseOnBalls: "28",
+                  strikeOuts: "110",
+                  flyOuts: "70"
+                }
+              }]
+            }]
+          }
+        })
+      }
+
+      if (target.includes("/api/v1/people?personIds=1")) {
+        return createJsonResponse({
+          body: { people: [{ id: 1, fullName: "Fallback Pitcher", active: true }] }
+        })
+      }
+
+      if (target.includes("baseballsavant.mlb.com/leaderboard/custom")) {
+        throw new Error("Temporary Savant outage")
+      }
+
+      return createJsonResponse({ body: {} })
+    },
+    async () => {
+      const res = createMockResponse()
+      await handler(createRequest(), res)
+
+      assert.equal(res.statusCode, 200)
+      assert.equal(res.body.pitchersFetched, 1)
+      assert.equal(res.body.pitchersSaved, 1)
+      assert.equal(redisMock.snapshot("mlb:stats:pitchers").byId["1"].pitcherName, "Fallback Pitcher")
+    }
+  ))
+})
+
 test("fetchBullpenStats tolerates transient team pitching upstream failures", { concurrency: false }, async () => {
   process.env.ADMIN_API_SECRET = "test-admin-secret"
   const handler = await importRoute("../pages/api/fetchBullpenStats.js")
