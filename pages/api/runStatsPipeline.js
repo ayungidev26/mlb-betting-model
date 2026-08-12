@@ -5,7 +5,8 @@ import fetchTeamOffenseStatsHandler from "./fetchTeamOffenseStats.js"
 import fetchGamesHandler from "./fetchGames.js"
 import { redis } from "../../lib/upstash.js"
 import { requireOperationalRouteAccess } from "../../lib/apiSecurity.js"
-import { logServerError, sendRouteError } from "../../lib/apiErrors.js"
+import { sendRouteError } from "../../lib/apiErrors.js"
+import { runRoutePipeline } from "../../lib/routePipeline.js"
 import {
   enforceIpRateLimit,
   enforceJobLock,
@@ -26,57 +27,6 @@ const RUN_STATS_PIPELINE_LOCK = {
 }
 const STATS_PIPELINE_MARKER_PREFIX = "mlb:cron:statsPipeline"
 const STATS_PIPELINE_MARKER_TTL_SECONDS = 7 * 24 * 60 * 60
-
-function createMockResponse() {
-  return {
-    statusCode: 200,
-    body: null,
-    headers: {},
-    status(code) {
-      this.statusCode = code
-      return this
-    },
-    json(payload) {
-      this.body = payload
-      return this
-    },
-    setHeader(name, value) {
-      this.headers[name] = value
-    }
-  }
-}
-
-async function invokeStep(handler, options = {}) {
-  const req = {
-    method: options.method || "POST",
-    query: options.query || {},
-    headers: options.headers || {}
-  }
-  const res = createMockResponse()
-
-  try {
-    await handler(req, res)
-
-    return {
-      ok: res.statusCode < 400,
-      statusCode: res.statusCode,
-      body: res.body
-    }
-  } catch (error) {
-    logServerError("runStatsPipeline.invokeStep", error, {
-      step: handler.name || "anonymous"
-    })
-
-    return {
-      ok: false,
-      statusCode: 500,
-      body: {
-        error: "Internal server error",
-        code: "INTERNAL_SERVER_ERROR"
-      }
-    }
-  }
-}
 
 function shouldForceRun(query = {}) {
   return query.force === "true"
@@ -158,55 +108,43 @@ export default async function handler(req, res) {
       }
     ]
 
-    const steps = []
+    const result = await runRoutePipeline(pipeline, req, {
+      logContext: "runStatsPipeline"
+    })
 
-    for (const step of pipeline) {
-      const result = await invokeStep(step.handler, {
-        method: req.method,
-        headers: req.headers
-      })
-
-      steps.push({
-        step: step.name,
-        status: result.ok ? "success" : "failed",
-        statusCode: result.statusCode,
-        result: result.body
-      })
-
-      if (!result.ok) {
-        if (!force) {
-          await redis.del(markerKey)
-        }
-
-        return res.status(500).json({
-          ok: false,
-          completedSteps: steps.filter(item => item.status === "success").length,
-          failedStep: step.name,
-          markerKey,
-          dateKey,
-          steps,
-          keys: {
-            games: "mlb:games:today",
-            gamesMeta: "mlb:games:today:meta",
-            ballparkFactors: "mlb:ballparkFactors:current",
-            pitcherStats: "mlb:stats:pitchers",
-            pitcherStatsMeta: "mlb:stats:pitchers:meta",
-            bullpenStats: "mlb:stats:bullpen",
-            bullpenStatsMeta: "mlb:stats:bullpen:meta",
-            offenseStats: "mlb:stats:offense",
-            offenseStatsMeta: "mlb:stats:offense:meta"
-          }
-        })
+    if (!result.ok) {
+      if (!force) {
+        await redis.del(markerKey)
       }
+
+      return res.status(result.failureStatusCode).json({
+        ok: false,
+        completedSteps: result.completedSteps,
+        failedStep: result.failedStep,
+        markerKey,
+        dateKey,
+        steps: result.steps,
+        keys: {
+          games: "mlb:games:today",
+          gamesMeta: "mlb:games:today:meta",
+          ballparkFactors: "mlb:ballparkFactors:current",
+          pitcherStats: "mlb:stats:pitchers",
+          pitcherStatsMeta: "mlb:stats:pitchers:meta",
+          bullpenStats: "mlb:stats:bullpen",
+          bullpenStatsMeta: "mlb:stats:bullpen:meta",
+          offenseStats: "mlb:stats:offense",
+          offenseStatsMeta: "mlb:stats:offense:meta"
+        }
+      })
     }
 
     return res.status(200).json({
       ok: true,
-      completedSteps: steps.length,
+      completedSteps: result.completedSteps,
       markerKey,
       dateKey,
       force,
-      steps,
+      steps: result.steps,
       keys: {
         games: "mlb:games:today",
         gamesMeta: "mlb:games:today:meta",
