@@ -4,6 +4,21 @@ import { readFile } from "node:fs/promises"
 
 const workflowUrl = new URL("../.github/workflows/schedule-pipeline.yml", import.meta.url)
 
+test("market workflow requires the stats dependency payload to report success", async () => {
+  const workflow = await readFile(workflowUrl, "utf8")
+
+  assert.match(
+    workflow,
+    /if \(payload\.ok !== true\) process\.exit\(1\);/,
+    "a 2xx stats response must not be accepted when the pipeline reports a failed step"
+  )
+  assert.match(
+    workflow,
+    /Stats pipeline returned HTTP \$\{stats_status\}, but its response did not report a successful run/,
+    "payload failures should be identified clearly in the workflow log"
+  )
+})
+
 test("market workflow retries transient internal server errors", async () => {
   const workflow = await readFile(workflowUrl, "utf8")
 
