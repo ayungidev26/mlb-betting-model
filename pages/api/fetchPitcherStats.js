@@ -312,18 +312,29 @@ export default async function handler(req, res) {
     }
 
     const season = new Date().getUTCFullYear()
-    const teamPitchingStats = await fetchTeamPitchingStats()
+
+    // Only the season splits are required to publish the pitcher cache. Team
+    // context and Savant enrichments have safe fallbacks, so fetch all three
+    // independent sources concurrently and do not let an enrichment outage
+    // take down the daily stats pipeline.
+    const [rawPitcherSplits, teamPitchingStats, savantPitcherStats] = await Promise.all([
+      fetchAllPitchingStatSplits(season),
+      fetchTeamPitchingStats().catch(error => {
+        console.warn(
+          "fetchPitcherStats: unable to load team pitching context",
+          error?.message || error
+        )
+        return []
+      }),
+      fetchSavantPitcherStatMap(season).catch(error => {
+        console.warn(
+          "fetchPitcherStats: unable to load Baseball Savant metrics",
+          error?.message || error
+        )
+        return null
+      })
+    ])
     const leagueContext = buildLeaguePitchingContext(teamPitchingStats)
-
-    let savantPitcherStats = null
-
-    try {
-      savantPitcherStats = await fetchSavantPitcherStatMap(season)
-    } catch (error) {
-      console.warn("fetchPitcherStats: unable to load Baseball Savant metrics", error?.message || error)
-    }
-
-    const rawPitcherSplits = await fetchAllPitchingStatSplits(season)
     const {
       dedupedSplits,
       missingStatsCount,
