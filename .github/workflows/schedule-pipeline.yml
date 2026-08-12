@@ -147,7 +147,16 @@ jobs:
             cat "$response_file"
 
             if [[ "$status_code" =~ ^2 ]]; then
-              exit 0
+              if node -e '
+                const fs = require("node:fs");
+                const payload = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
+                const pipeline = payload.pipeline || payload;
+                if (payload.ok !== true || pipeline.ok === false) process.exit(1);
+              ' "$response_file"; then
+                exit 0
+              fi
+
+              echo "Stats endpoint returned HTTP ${status_code}, but the pipeline payload reported failure."
             fi
 
             if [[ "$status_code" == "409" ]] && grep -q '"code":"JOB_ALREADY_RUNNING"' "$response_file"; then

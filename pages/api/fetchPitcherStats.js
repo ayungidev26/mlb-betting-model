@@ -35,6 +35,7 @@ const PEOPLE_BATCH_SIZE = 100
 const MLB_REQUEST_CONCURRENCY = 5
 const LOW_FETCHED_PITCHERS_THRESHOLD = 200
 const SAVED_DELTA_WARNING_THRESHOLD = 0.15
+const MAX_FALLBACK_CACHE_AGE_MS = 48 * 60 * 60 * 1000
 
 async function mapWithConcurrency(items, concurrency, worker) {
   const results = new Array(items.length)
@@ -293,6 +294,77 @@ function logPitcherPipelineWarnings({ pitchersFetched, pitchersSaved }) {
   }
 }
 
+function getCacheTimestamp(metadata = {}) {
+  const timestamp = Date.parse(metadata.lastUpdatedAt || metadata.generatedAt || "")
+  return Number.isFinite(timestamp) ? timestamp : null
+}
+
+async function useLastKnownGoodPitcherStats(redisClient, { games, refreshError }) {
+  const [cachedStats, cachedMetadata] = await Promise.all([
+    redisClient.get("mlb:stats:pitchers"),
+    redisClient.get("mlb:stats:pitchers:meta")
+  ])
+  const cachedAt = getCacheTimestamp(cachedMetadata)
+  const cacheAgeMs = cachedAt === null ? null : Date.now() - cachedAt
+
+  if (
+    !cachedStats?.byId ||
+    cacheAgeMs === null ||
+    cacheAgeMs < 0 ||
+    cacheAgeMs > MAX_FALLBACK_CACHE_AGE_MS
+  ) {
+    throw refreshError
+  }
+
+  const quality = validateStatsCandidate({
+    kind: "pitchers",
+    candidate: cachedStats,
+    games,
+    minimumPitchers: LOW_FETCHED_PITCHERS_THRESHOLD
+  })
+
+  if (quality.status !== "healthy") {
+    throw refreshError
+  }
+
+  const fallbackMetadata = {
+    ...cachedMetadata,
+    ...quality,
+    dateKey: getEasternDateKey(),
+    generatedAt: new Date().toISOString(),
+    lastUpdatedAt: new Date().toISOString(),
+    dataLastUpdatedAt: cachedMetadata.lastUpdatedAt || cachedMetadata.generatedAt,
+    fallbackUsed: true,
+    fallbackReason: refreshError?.code || refreshError?.name || "UPSTREAM_ERROR",
+    cacheAgeMs,
+    source: `${cachedMetadata.source || "statsapi.mlb.com"} (last-known-good fallback)`
+  }
+
+  if (typeof redisClient.pipeline === "function") {
+    await redisClient.pipeline()
+      .set("mlb:stats:pitchers", cachedStats)
+      .set("mlb:stats:pitchers:meta", fallbackMetadata)
+      .exec()
+  } else {
+    await redisClient.set("mlb:stats:pitchers", cachedStats)
+    await redisClient.set("mlb:stats:pitchers:meta", fallbackMetadata)
+  }
+
+  console.warn("fetchPitcherStats: serving recent last-known-good cache", {
+    fallbackReason: fallbackMetadata.fallbackReason,
+    cacheAgeMs,
+    records: quality.records
+  })
+
+  return {
+    pitchersFetched: 0,
+    pitchersSaved: quality.records,
+    fallbackUsed: true,
+    sample: Object.values(cachedStats.byId).slice(0, 3),
+    metadata: fallbackMetadata
+  }
+}
+
 export default async function handler(req, res) {
   if (!requireOperationalRouteAccess(req, res)) {
     return
@@ -312,28 +384,42 @@ export default async function handler(req, res) {
     }
 
     const season = new Date().getUTCFullYear()
+    const games = await redis.get("mlb:games:today")
+    const currentGames = Array.isArray(games) ? games : []
 
     // Only the season splits are required to publish the pitcher cache. Team
     // context and Savant enrichments have safe fallbacks, so fetch all three
     // independent sources concurrently and do not let an enrichment outage
     // take down the daily stats pipeline.
-    const [rawPitcherSplits, teamPitchingStats, savantPitcherStats] = await Promise.all([
-      fetchAllPitchingStatSplits(season),
-      fetchTeamPitchingStats().catch(error => {
-        console.warn(
-          "fetchPitcherStats: unable to load team pitching context",
-          error?.message || error
-        )
-        return []
-      }),
-      fetchSavantPitcherStatMap(season).catch(error => {
-        console.warn(
-          "fetchPitcherStats: unable to load Baseball Savant metrics",
-          error?.message || error
-        )
-        return null
+    let rawPitcherSplits
+    let teamPitchingStats
+    let savantPitcherStats
+
+    try {
+      [rawPitcherSplits, teamPitchingStats, savantPitcherStats] = await Promise.all([
+        fetchAllPitchingStatSplits(season),
+        fetchTeamPitchingStats().catch(error => {
+          console.warn(
+            "fetchPitcherStats: unable to load team pitching context",
+            error?.message || error
+          )
+          return []
+        }),
+        fetchSavantPitcherStatMap(season).catch(error => {
+          console.warn(
+            "fetchPitcherStats: unable to load Baseball Savant metrics",
+            error?.message || error
+          )
+          return null
+        })
+      ])
+    } catch (error) {
+      const fallback = await useLastKnownGoodPitcherStats(redis, {
+        games: currentGames,
+        refreshError: error
       })
-    ])
+      return res.status(200).json(fallback)
+    }
     const leagueContext = buildLeaguePitchingContext(teamPitchingStats)
     const {
       dedupedSplits,
@@ -362,9 +448,8 @@ export default async function handler(req, res) {
     const sample = Object.values(pitcherStats?.byId || {}).slice(0, 3)
     const pitchersFetched = rawPitcherSplits.length
     const pitchersSaved = savedPitchers
-    const games = await redis.get("mlb:games:today")
     const statsMeta = {
-      ...validateStatsCandidate({ kind: "pitchers", candidate: pitcherStats, games: Array.isArray(games) ? games : [], minimumPitchers: Array.isArray(games) && games.length ? LOW_FETCHED_PITCHERS_THRESHOLD : 0 }),
+      ...validateStatsCandidate({ kind: "pitchers", candidate: pitcherStats, games: currentGames, minimumPitchers: currentGames.length ? LOW_FETCHED_PITCHERS_THRESHOLD : 0 }),
       lastUpdatedAt: new Date().toISOString(),
       dateKey: getEasternDateKey(),
       source: "statsapi.mlb.com + baseballsavant.mlb.com",

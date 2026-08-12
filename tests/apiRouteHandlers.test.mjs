@@ -2059,6 +2059,47 @@ test("fetchPitcherStats tolerates a complete team pitching context outage", { co
   ))
 })
 
+test("fetchPitcherStats uses a recent verified cache when the required MLB feed is unavailable", { concurrency: false }, async () => {
+  process.env.ADMIN_API_SECRET = "test-admin-secret"
+  const handler = await importRoute("../pages/api/fetchPitcherStats.js")
+  const cachedPitchers = Object.fromEntries(
+    Array.from({ length: 200 }, (_, index) => {
+      const pitcherId = String(index + 1)
+      return [pitcherId, { pitcherId: index + 1, pitcherName: `Pitcher ${pitcherId}` }]
+    })
+  )
+  const previousUpdate = new Date(Date.now() - (24 * 60 * 60 * 1000)).toISOString()
+  const redisMock = createMockRedis([
+    ["mlb:games:today", [{ awayPitcherId: 1, homePitcherId: 2 }]],
+    ["mlb:stats:pitchers", { version: "v3", byId: cachedPitchers, aliasMap: {} }],
+    ["mlb:stats:pitchers:meta", {
+      status: "healthy",
+      lastUpdatedAt: previousUpdate,
+      generatedAt: previousUpdate,
+      source: "statsapi.mlb.com"
+    }]
+  ])
+
+  await withPatchedRedis(redisMock, async () => withMockedFetch(
+    async () => {
+      const error = new Error("MLB Stats API temporarily unavailable")
+      error.code = "UPSTREAM_RETRYABLE"
+      throw error
+    },
+    async () => {
+      const res = createMockResponse()
+      await handler(createRequest(), res)
+
+      assert.equal(res.statusCode, 200)
+      assert.equal(res.body.fallbackUsed, true)
+      assert.equal(res.body.pitchersSaved, 200)
+      assert.equal(res.body.metadata.status, "healthy")
+      assert.equal(res.body.metadata.dataLastUpdatedAt, previousUpdate)
+      assert.equal(redisMock.snapshot("mlb:stats:pitchers:meta").fallbackUsed, true)
+    }
+  ))
+})
+
 test("fetchBullpenStats tolerates transient team pitching upstream failures", { concurrency: false }, async () => {
   process.env.ADMIN_API_SECRET = "test-admin-secret"
   const handler = await importRoute("../pages/api/fetchBullpenStats.js")
