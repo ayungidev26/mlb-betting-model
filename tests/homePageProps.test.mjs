@@ -188,6 +188,23 @@ test('buildHomePageProps carries fallback odds for pass games when no edge exist
   assert.equal(result.props.games[0].bestSportsbookName, 'DraftKings')
 })
 
+test('completed games remain visible after actionable games and do not count as current bets', () => {
+  const viewModel = buildHomePageViewModel({
+    predictions: [
+      { gameId: 'final', matchKey: 'final', homeTeam: 'Team B', awayTeam: 'Team A', lifecycle: 'completed' },
+      { gameId: 'upcoming', matchKey: 'upcoming', homeTeam: 'Team D', awayTeam: 'Team C', lifecycle: 'upcoming' }
+    ],
+    edges: [
+      { matchKey: 'final', team: 'Team A', edge: 0.08, odds: -110 },
+      { matchKey: 'upcoming', team: 'Team C', edge: 0.04, odds: -105 }
+    ]
+  })
+
+  assert.deepEqual(viewModel.games.map((game) => game.gameId), ['upcoming', 'final'])
+  assert.equal(viewModel.games[1].marketStatus, 'historical')
+  assert.equal(viewModel.summary.recommendedBets, 1)
+})
+
 test('buildHomePageProps reports cache loading failures as a generic page error', async () => {
   const result = await buildHomePageProps(async () => {
     throw new Error('redis unavailable')
