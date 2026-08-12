@@ -1735,6 +1735,15 @@ test("fetchPitcherStats stores advanced pitcher metrics and computed K-BB%, FIP,
 
   const handler = await importRoute("../pages/api/fetchPitcherStats.js")
   const redisMock = createMockRedis()
+  let activeTeamRequests = 0
+  let peakTeamRequests = 0
+
+  async function recordConcurrentTeamRequest() {
+    activeTeamRequests += 1
+    peakTeamRequests = Math.max(peakTeamRequests, activeTeamRequests)
+    await new Promise(resolve => setTimeout(resolve, 5))
+    activeTeamRequests -= 1
+  }
 
   await withPatchedRedis(redisMock, async () => withMockedFetch(
     async (url) => {
@@ -1752,6 +1761,7 @@ test("fetchPitcherStats stores advanced pitcher metrics and computed K-BB%, FIP,
       }
 
       if (target.includes("/api/v1/teams/147/stats?stats=season&group=pitching")) {
+        await recordConcurrentTeamRequest()
         return createJsonResponse({
           body: {
             stats: [{
@@ -1773,6 +1783,7 @@ test("fetchPitcherStats stores advanced pitcher metrics and computed K-BB%, FIP,
       }
 
       if (target.includes("/api/v1/teams/111/stats?stats=season&group=pitching")) {
+        await recordConcurrentTeamRequest()
         return createJsonResponse({
           body: {
             stats: [{
@@ -1886,6 +1897,7 @@ test("fetchPitcherStats stores advanced pitcher metrics and computed K-BB%, FIP,
       assert.equal(typeof payload.byId["2"].xfip, "number")
       assert.equal(res.body.pitchersFetched, 2)
       assert.equal(res.body.pitchersSaved, 2)
+      assert.equal(peakTeamRequests, 2)
     }
   ))
 })

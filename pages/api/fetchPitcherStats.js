@@ -32,35 +32,57 @@ const FETCH_PITCHER_STATS_LOCK = {
 
 const PITCHER_PAGE_LIMIT = 1000
 const PEOPLE_BATCH_SIZE = 100
+const MLB_REQUEST_CONCURRENCY = 5
 const LOW_FETCHED_PITCHERS_THRESHOLD = 200
 const SAVED_DELTA_WARNING_THRESHOLD = 0.15
+
+async function mapWithConcurrency(items, concurrency, worker) {
+  const results = new Array(items.length)
+  let nextIndex = 0
+
+  async function runWorker() {
+    while (nextIndex < items.length) {
+      const index = nextIndex
+      nextIndex += 1
+      results[index] = await worker(items[index], index)
+    }
+  }
+
+  const workerCount = Math.min(Math.max(1, concurrency), items.length)
+  await Promise.all(Array.from({ length: workerCount }, () => runWorker()))
+  return results
+}
 
 async function fetchTeamPitchingStats() {
   const teamsUrl = "https://statsapi.mlb.com/api/v1/teams?sportId=1"
   const teamsData = await fetchJsonWithRetry(teamsUrl)
-  const teamStats = []
+  const statsByTeam = await mapWithConcurrency(
+    teamsData.teams || [],
+    MLB_REQUEST_CONCURRENCY,
+    async team => {
+      try {
+        const statsUrl =
+          `https://statsapi.mlb.com/api/v1/teams/${team.id}/stats?stats=season&group=pitching`
 
-  for (const team of teamsData.teams || []) {
-    try {
-      const statsUrl =
-        `https://statsapi.mlb.com/api/v1/teams/${team.id}/stats?stats=season&group=pitching`
+        const statsData = await fetchJsonWithRetry(statsUrl)
+        const stat = statsData.stats?.[0]?.splits?.[0]?.stat
 
-      const statsData = await fetchJsonWithRetry(statsUrl)
-      const stat = statsData.stats?.[0]?.splits?.[0]?.stat
-
-      if (stat) {
-        teamStats.push(stat)
+        if (stat) {
+          return stat
+        }
+      } catch (error) {
+        console.warn(
+          "fetchPitcherStats: unable to fetch team pitching stats",
+          team?.id,
+          error?.message || error
+        )
       }
-    } catch (error) {
-      console.warn(
-        "fetchPitcherStats: unable to fetch team pitching stats",
-        team?.id,
-        error?.message || error
-      )
-    }
-  }
 
-  return teamStats
+      return null
+    }
+  )
+
+  return statsByTeam.filter(Boolean)
 }
 
 async function fetchAllPitchingStatSplits(season) {
@@ -91,38 +113,44 @@ async function fetchAllPitchingStatSplits(season) {
 }
 
 async function fetchPitcherMetadataById(pitcherIds = []) {
-  const metadataById = {}
+  const batches = []
 
   for (let index = 0; index < pitcherIds.length; index += PEOPLE_BATCH_SIZE) {
-    const batch = pitcherIds.slice(index, index + PEOPLE_BATCH_SIZE)
-
-    if (batch.length === 0) {
-      continue
-    }
-
-    try {
-      const peopleUrl = `https://statsapi.mlb.com/api/v1/people?personIds=${batch.join(",")}`
-      const peopleData = await fetchJsonWithRetry(peopleUrl)
-
-      for (const person of peopleData.people || []) {
-        metadataById[String(person.id)] = {
-          throwingHand: person?.pitchHand?.code || null,
-          active: typeof person?.active === "boolean" ? person.active : null,
-          fullName: person?.fullName || null,
-          teamName: person?.currentTeam?.name || null,
-          teamAbbr: person?.currentTeam?.abbreviation || null
-        }
-      }
-    } catch (error) {
-      console.warn(
-        "fetchPitcherStats: unable to fetch pitcher metadata batch",
-        batch.length,
-        error?.message || error
-      )
-    }
+    batches.push(pitcherIds.slice(index, index + PEOPLE_BATCH_SIZE))
   }
 
-  return metadataById
+  const batchResults = await mapWithConcurrency(
+    batches,
+    MLB_REQUEST_CONCURRENCY,
+    async batch => {
+      const batchMetadata = {}
+
+      try {
+        const peopleUrl = `https://statsapi.mlb.com/api/v1/people?personIds=${batch.join(",")}`
+        const peopleData = await fetchJsonWithRetry(peopleUrl)
+
+        for (const person of peopleData.people || []) {
+          batchMetadata[String(person.id)] = {
+            throwingHand: person?.pitchHand?.code || null,
+            active: typeof person?.active === "boolean" ? person.active : null,
+            fullName: person?.fullName || null,
+            teamName: person?.currentTeam?.name || null,
+            teamAbbr: person?.currentTeam?.abbreviation || null
+          }
+        }
+      } catch (error) {
+        console.warn(
+          "fetchPitcherStats: unable to fetch pitcher metadata batch",
+          batch.length,
+          error?.message || error
+        )
+      }
+
+      return batchMetadata
+    }
+  )
+
+  return Object.assign({}, ...batchResults)
 }
 
 function dedupePitcherSplits(splits = []) {
@@ -329,7 +357,7 @@ export default async function handler(req, res) {
       lastUpdatedAt: new Date().toISOString(),
       dateKey: getEasternDateKey(),
       source: "statsapi.mlb.com + baseballsavant.mlb.com",
-      version: "v2",
+      version: pitcherStats.version,
       season,
       records: Object.keys(pitcherStats?.byId || {}).length,
       fetchedPitchers: pitchersFetched,
