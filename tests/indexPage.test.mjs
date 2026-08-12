@@ -1,5 +1,6 @@
 import test from "node:test"
 import assert from "node:assert/strict"
+import { readFile } from "node:fs/promises"
 
 import { loadCachedPredictionsFromApi } from "../lib/homePageProps.js"
 
@@ -43,4 +44,13 @@ test("homepage data loader reads cached predictions from the public predictions 
   assert.deepEqual(requestedUrls, ["https://localhost:3000/api/predictions"])
   assert.equal(requestedUrls.some((url) => url.includes("/api/runModel")), false)
   assert.equal(predictions.length, 1)
+})
+
+test("homepage labels completed-game markets as historical", async () => {
+  const source = await readFile(new URL("../pages/index.js", import.meta.url), "utf8")
+
+  assert.match(source, /isCompleted \? `Final · \$\{formatGameTimeEastern\(game\.date\)\}`/)
+  assert.match(source, /isCompleted \? "Pregame pick" : "Recommendation"/)
+  assert.match(source, /isCompleted \? "Last captured odds" : "Best odds"/)
+  assert.match(source, /Historical pregame snapshot/)
 })

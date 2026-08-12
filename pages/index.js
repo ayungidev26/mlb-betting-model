@@ -583,6 +583,7 @@ function GameDetailCard({ game, edgeTier, recommendedSide, betType, index = 0 })
   const awayOffenseDetails = game.offenseModel?.away || null
   const homeOffenseDetails = game.offenseModel?.home || null
   const oddsComparison = getOddsComparison(game)
+  const isCompleted = game.lifecycle === "completed"
 
   return (
     <article
@@ -591,7 +592,7 @@ function GameDetailCard({ game, edgeTier, recommendedSide, betType, index = 0 })
     >
       <div className="gameCard__header">
         <div>
-          <p className="gameCard__meta">{formatGameTime(game.date)}</p>
+          <p className="gameCard__meta">{isCompleted ? `Final · ${formatGameTime(game.date)}` : formatGameTime(game.date)}</p>
           <h2 className="gameCard__title">
             <span>{game.awayTeam}</span>
             <span className="vs">@</span>
@@ -601,6 +602,7 @@ function GameDetailCard({ game, edgeTier, recommendedSide, betType, index = 0 })
         </div>
         <div className="tagRow tagRow--tight">
           <span className="tag tag--muted">{formatBetTypeLabel(betType)}</span>
+          {isCompleted && <span className="tag tag--muted">Final</span>}
           <span className={`tag tag--${edgeTier.tone}`}>{edgeTier.label}</span>
         </div>
       </div>
@@ -685,26 +687,26 @@ function GameDetailCard({ game, edgeTier, recommendedSide, betType, index = 0 })
         <SectionBlock
           kicker="Edge"
           title="Bet summary"
-          subtitle="Recommendation"
+          subtitle={isCompleted ? "Historical pregame snapshot" : "Recommendation"}
         >
           <div className="stack">
             <div className="detailCard detailCard--highlight">
-              <p className="detailCard__eyebrow">Recommended side</p>
+              <p className="detailCard__eyebrow">{isCompleted ? "Pregame pick" : "Recommended side"}</p>
               <h4 className="detailCard__hero">{recommendedSide}</h4>
               <p className="detailCard__copy">
                 {oddsComparison.bestSportsbook
-                  ? `Best book: ${oddsComparison.bestSportsbook}`
+                  ? `${isCompleted ? "Last captured book" : "Best book"}: ${oddsComparison.bestSportsbook}`
                   : "Sportsbook line pending"}
               </p>
             </div>
 
             <div className="metricGrid">
               <DashboardStat label="Model edge" value={formatEdge(game.edge)} emphasis tone={edgeTier.tone} />
-              <DashboardStat label="Best odds" value={oddsComparison.bestOdds} tone={edgeTier.tone} />
+              <DashboardStat label={isCompleted ? "Last captured odds" : "Best odds"} value={oddsComparison.bestOdds} tone={edgeTier.tone} />
               <DashboardStat label="DraftKings" value={oddsComparison.draftKingsOdds} tone="muted" />
               <DashboardStat label="FanDuel" value={oddsComparison.fanDuelOdds} tone="muted" />
               <DashboardStat label="Fair odds" value={oddsComparison.modelOdds} tone="muted" />
-              <DashboardStat label="Recommendation" value={game.recommendation || recommendedSide} tone={edgeTier.tone} />
+              <DashboardStat label={isCompleted ? "Pregame pick" : "Recommendation"} value={game.recommendation || recommendedSide} tone={edgeTier.tone} />
             </div>
           </div>
         </SectionBlock>
@@ -848,9 +850,10 @@ export default function Home({ games = [], summary, freshness = null, error = ""
 
   const activeGames = Array.isArray(viewModel.games) ? viewModel.games : []
   const activeSummary = viewModel.summary || initialViewModel.summary
-  const recommendationCount = activeGames.filter((game) => typeof game?.edge === "number").length
-  const passCount = activeGames.filter((game) => game?.recommendation === "Pass").length
-  const noEdgeCount = activeGames.filter((game) => getEdgeTier(game?.edge).label === "No edge").length
+  const actionableGames = activeGames.filter((game) => game?.lifecycle !== "completed")
+  const recommendationCount = actionableGames.filter((game) => typeof game?.edge === "number").length
+  const passCount = actionableGames.filter((game) => game?.recommendation === "Pass").length
+  const noEdgeCount = actionableGames.filter((game) => getEdgeTier(game?.edge).label === "No edge").length
   const gamesLoadedCount = activeGames.length
   const displayedGames = activeGames
   const topPlays = displayedGames
@@ -1052,6 +1055,8 @@ export default function Home({ games = [], summary, freshness = null, error = ""
                 ? `SP ${game.homePitcher} - ${game.homeTeam}`
                 : `${game.homeTeam} SP`
               const fairOddsSummary = getOddsComparison(game).modelOdds
+              const isCompleted = game.lifecycle === "completed"
+              const statusLabel = isCompleted ? "Final" : game.lifecycle === "live" ? "Live" : null
 
               return (
                 <article
@@ -1071,9 +1076,14 @@ export default function Home({ games = [], summary, freshness = null, error = ""
                   <div className="summaryCard__header">
                     <div className="summaryCard__headerBadges">
                       <span className="tag tag--muted">#{index + 1}</span>
+                      {statusLabel && (
+                        <span className={`tag tag--${isCompleted ? "muted" : "danger"}`}>{statusLabel}</span>
+                      )}
                       <span className={`tag tag--${edgeTier.tone}`}>{edgeTier.label}</span>
                     </div>
-                    <p className="summaryCard__time">{formatGameTimeEastern(game.date)}</p>
+                    <p className="summaryCard__time">
+                      {isCompleted ? `Final · ${formatGameTimeEastern(game.date)}` : formatGameTimeEastern(game.date)}
+                    </p>
                   </div>
 
                   <section className="summaryCard__section summaryCard__section--matchup" aria-label="Matchup">
@@ -1111,8 +1121,8 @@ export default function Home({ games = [], summary, freshness = null, error = ""
                       items={[
                         { label: "Edge", value: formatEdge(game.edge) },
                         { label: "Bet type", value: formatBetTypeLabel(betType) },
-                        { label: "Recommendation", value: recommendedSide },
-                        { label: "Best odds", value: formatBestOddsSummary(game) },
+                        { label: isCompleted ? "Pregame pick" : "Recommendation", value: recommendedSide },
+                        { label: isCompleted ? "Last captured odds" : "Best odds", value: formatBestOddsSummary(game) },
                         { label: "Model fair odds", value: fairOddsSummary }
                       ]}
                     />

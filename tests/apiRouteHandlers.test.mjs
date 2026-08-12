@@ -1668,7 +1668,7 @@ test("operational routes return 503 when the admin secret is not configured", { 
   }
 })
 
-test("fetchGames stores venue-level ballpark factors on each game", { concurrency: false }, async () => {
+test("fetchGames stores venue factors and retains a completed game for display", { concurrency: false }, async () => {
   process.env.ADMIN_API_SECRET = "test-admin-secret"
   process.env.ODDS_API_KEY = "test-odds-key"
 
@@ -1706,7 +1706,8 @@ test("fetchGames stores venue-level ballpark factors on each game", { concurrenc
                     name: "Yankee Stadium"
                   },
                   status: {
-                    detailedState: "Scheduled"
+                    codedGameState: "F",
+                    detailedState: "Final"
                   }
                 }
               ]
@@ -1723,6 +1724,7 @@ test("fetchGames stores venue-level ballpark factors on each game", { concurrenc
   assert.equal(res.statusCode, 200)
   assert.equal(res.body.gamesToday, 1)
   assert.equal(redisMock.snapshot("mlb:games:today")[0].venueId, 3313)
+  assert.equal(redisMock.snapshot("mlb:games:today")[0].lifecycle, "completed")
   assert.equal(redisMock.snapshot("mlb:games:today")[0].ballpark.classification, "neutral")
   assert.equal(redisMock.snapshot("mlb:games:today")[0].ballpark.homeRunFactor, 1.12)
   assert.equal(redisMock.snapshot("mlb:ballparkFactors:current").ballparks.length > 0, true)

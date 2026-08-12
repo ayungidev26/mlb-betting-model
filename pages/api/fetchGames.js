@@ -7,7 +7,11 @@ import { sendRouteError } from "../../lib/apiErrors.js"
 import { fetchJsonWithRetry } from "../../lib/upstreamFetch.js"
 import { getBallparkFactorIndex, resolveBallparkFactors } from "../../lib/ballparkFactors.js"
 import { getEasternDateKey } from "../../lib/cronSchedule.js"
-import { classifyMlbGameType, isEligibleMlbGame } from "../../lib/mlbGameEligibility.js"
+import {
+  classifyMlbGameLifecycle,
+  classifyMlbGameType,
+  isDisplayableMlbGame
+} from "../../lib/mlbGameEligibility.js"
 import { buildMlbScheduleUrl } from "../../lib/mlbSchedule.js"
 
 export default async function handler(req, res) {
@@ -48,17 +52,17 @@ export default async function handler(req, res) {
     }
 
     const skippedByReason = {}
-    const eligibleGames = data.dates
+    const displayableGames = data.dates
       .flatMap((dateEntry) => dateEntry.games)
       .filter((game) => {
-        const eligibility = isEligibleMlbGame(game)
+        const eligibility = isDisplayableMlbGame(game)
         if (!eligibility.eligible) {
           skippedByReason[eligibility.reason] = (skippedByReason[eligibility.reason] || 0) + 1
         }
         return eligibility.eligible
       })
 
-    const games = await Promise.all(eligibleGames.map(async (game) => {
+    const games = await Promise.all(displayableGames.map(async (game) => {
       const seasonType = classifyMlbGameType(game.gameType)
 
       const homeTeam = game.teams.home.team.name
@@ -92,6 +96,7 @@ export default async function handler(req, res) {
         ballpark,
         status: game.status.detailedState,
         statusCode: game.status.codedGameState || null,
+        lifecycle: classifyMlbGameLifecycle(game),
         seasonType
       }
 

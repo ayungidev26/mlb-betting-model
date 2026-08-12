@@ -1,6 +1,11 @@
 import test from "node:test"
 import assert from "node:assert/strict"
-import { classifyMlbGameType, isEligibleMlbGame } from "../lib/mlbGameEligibility.js"
+import {
+  classifyMlbGameLifecycle,
+  classifyMlbGameType,
+  isDisplayableMlbGame,
+  isEligibleMlbGame
+} from "../lib/mlbGameEligibility.js"
 
 function game(overrides = {}) {
   return {
@@ -26,4 +31,16 @@ test("accepts scheduled MLB regular games and excludes non-betting slates", () =
   assert.equal(isEligibleMlbGame(game({ gameType: "S" })).reason, "game_type_S")
   assert.equal(isEligibleMlbGame(game({ teams: { home: { team: { id: 147, name: "New York Yankees" } }, away: { team: { id: 999, name: "College Team" } } } })).reason, "non_mlb_opponent")
   assert.equal(isEligibleMlbGame(game({ status: { codedGameState: "P", detailedState: "Postponed" } })).eligible, false)
+})
+
+test("retains completed MLB games for display without treating them as bettable", () => {
+  const completedGame = game({ status: { codedGameState: "F", detailedState: "Final" } })
+
+  assert.equal(classifyMlbGameLifecycle(completedGame), "completed")
+  assert.equal(isDisplayableMlbGame(completedGame).eligible, true)
+  assert.equal(isEligibleMlbGame(completedGame).eligible, false)
+  assert.equal(
+    isDisplayableMlbGame(game({ status: { codedGameState: "P", detailedState: "Postponed" } })).eligible,
+    false
+  )
 })

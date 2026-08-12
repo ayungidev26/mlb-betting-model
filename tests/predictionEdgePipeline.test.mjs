@@ -167,6 +167,84 @@ test('prediction pipeline only fetches pitcher stats once for multiple games in 
   assert.equal(redis.getCount('mlb:stats:pitchers'), 1)
 })
 
+test('prediction refresh preserves completed predictions and only models active games', async () => {
+  const completedMatchKey = 'mlb:completed'
+  const activeMatchKey = 'mlb:active'
+  const cachedCompletedPrediction = {
+    gameId: 'completed',
+    matchKey: completedMatchKey,
+    homeTeam: 'Boston Red Sox',
+    awayTeam: 'New York Yankees',
+    homeWinProbability: 0.46,
+    awayWinProbability: 0.54
+  }
+  const redis = createMockRedis({
+    'mlb:games:today': [
+      {
+        gameId: 'completed', matchKey: completedMatchKey, date: '2026-08-12T17:00:00Z',
+        homeTeam: 'Boston Red Sox', awayTeam: 'New York Yankees', seasonType: 'regular',
+        status: 'Final', statusCode: 'F', lifecycle: 'completed'
+      },
+      {
+        gameId: 'active', matchKey: activeMatchKey, date: '2026-08-12T23:00:00Z',
+        homeTeam: 'Chicago Cubs', awayTeam: 'Cincinnati Reds', seasonType: 'regular',
+        status: 'Scheduled', statusCode: 'S', lifecycle: 'upcoming'
+      }
+    ],
+    'mlb:predictions:today': [cachedCompletedPrediction],
+    'mlb:ratings:teams': {},
+    'mlb:stats:bullpen': {},
+    'mlb:stats:pitchers': {},
+    'mlb:stats:offense': {}
+  })
+  const modeledGameIds = []
+
+  const result = await generatePredictions(redis, async (game) => {
+    modeledGameIds.push(game.gameId)
+    return {
+      gameId: game.gameId,
+      matchKey: game.matchKey,
+      homeTeam: game.homeTeam,
+      awayTeam: game.awayTeam,
+      homeWinProbability: 0.55,
+      awayWinProbability: 0.45
+    }
+  })
+
+  assert.deepEqual(modeledGameIds, ['active'])
+  assert.equal(result.predictions.length, 2)
+  assert.deepEqual(
+    result.predictions.find((prediction) => prediction.matchKey === completedMatchKey),
+    { ...cachedCompletedPrediction, status: 'Final', statusCode: 'F', lifecycle: 'completed' }
+  )
+})
+
+test('edge refresh preserves a completed game historical edge', async () => {
+  const completedMatchKey = 'mlb:completed'
+  const historicalEdge = {
+    gameId: 'completed', matchKey: completedMatchKey, team: 'New York Yankees',
+    edge: 0.045, odds: -115, recommendation: 'Bet'
+  }
+  const redis = createMockRedis({
+    'mlb:predictions:today': [{
+      gameId: 'completed', matchKey: completedMatchKey, homeTeam: 'Boston Red Sox',
+      awayTeam: 'New York Yankees', homeWinProbability: 0.46, awayWinProbability: 0.54,
+      lifecycle: 'completed'
+    }],
+    'mlb:odds:today': [],
+    'mlb:edges:today': [historicalEdge]
+  })
+
+  const result = await generateEdges(redis)
+
+  assert.deepEqual(result.edges, [{
+    ...historicalEdge,
+    lifecycle: 'completed',
+    marketStatus: 'historical'
+  }])
+  assert.equal(result.metadata.preservedCompletedEdges, 1)
+})
+
 test('prediction pipeline still fails fast when a missing matchKey cannot be reconstructed', async () => {
   const redis = createMockRedis({
     'mlb:games:today': [
