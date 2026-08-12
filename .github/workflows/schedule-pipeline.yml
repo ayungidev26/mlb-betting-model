@@ -322,8 +322,16 @@ jobs:
               cat "$stats_response_file"
 
               if [[ "$stats_status" =~ ^2 ]]; then
-                rm -f "$stats_response_file"
-                return 0
+                if node -e '
+                  const fs = require("node:fs");
+                  const payload = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
+                  if (payload.ok !== true) process.exit(1);
+                ' "$stats_response_file"; then
+                  rm -f "$stats_response_file"
+                  return 0
+                fi
+
+                echo "Stats pipeline returned HTTP ${stats_status}, but its response did not report a successful run."
               fi
 
               if [[ "$stats_status" == "409" ]] && grep -q '"code":"JOB_ALREADY_RUNNING"' "$stats_response_file"; then
