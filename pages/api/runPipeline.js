@@ -5,7 +5,8 @@ import findEdgesHandler from "./findEdges.js"
 import { redis } from "../../lib/upstash.js"
 import { getEasternDateKey } from "../../lib/cronSchedule.js"
 import { requireOperationalRouteAccess } from "../../lib/apiSecurity.js"
-import { logServerError, sendRouteError } from "../../lib/apiErrors.js"
+import { sendRouteError } from "../../lib/apiErrors.js"
+import { runRoutePipeline } from "../../lib/routePipeline.js"
 import {
   enforceIpRateLimit,
   enforceJobLock,
@@ -22,57 +23,6 @@ const RUN_PIPELINE_LOCK = {
   key: "mlb:lock:runPipeline",
   ttlSeconds: 300,
   routeName: "runPipeline"
-}
-
-function createMockResponse() {
-  return {
-    statusCode: 200,
-    body: null,
-    headers: {},
-    status(code) {
-      this.statusCode = code
-      return this
-    },
-    json(payload) {
-      this.body = payload
-      return this
-    },
-    setHeader(name, value) {
-      this.headers[name] = value
-    }
-  }
-}
-
-async function invokeStep(handler, options = {}) {
-  const req = {
-    method: options.method || "POST",
-    query: options.query || {},
-    headers: options.headers || {}
-  }
-  const res = createMockResponse()
-
-  try {
-    await handler(req, res)
-
-    return {
-      ok: res.statusCode < 400,
-      statusCode: res.statusCode,
-      body: res.body
-    }
-  } catch (error) {
-    logServerError("runPipeline.invokeStep", error, {
-      step: handler.name || "anonymous"
-    })
-
-    return {
-      ok: false,
-      statusCode: 500,
-      body: {
-        error: "Internal server error",
-        code: "INTERNAL_SERVER_ERROR"
-      }
-    }
-  }
 }
 
 async function readCachedGamesStatus(redisClient) {
@@ -178,54 +128,41 @@ export default async function handler(req, res) {
       }
     ]
 
-    const steps = []
+    const result = await runRoutePipeline(pipeline, req, {
+      logContext: "runPipeline"
+    })
 
-    for (const step of pipeline) {
-      const result = await invokeStep(step.handler, {
-        method: req.method,
-        query: step.query,
-        headers: req.headers
+    if (!result.ok) {
+      const childError = result.failure && typeof result.failure === "object"
+        ? result.failure
+        : {}
+      // Preserve the child route's status and safe error payload. Flattening every
+      // failure to an opaque 500 made scheduled-run failures impossible to triage.
+      return res.status(result.failureStatusCode).json({
+        ok: false,
+        error: childError.error || `Pipeline step ${result.failedStep} failed`,
+        code: childError.code || "PIPELINE_STEP_FAILED",
+        ...(childError.details ? { details: childError.details } : {}),
+        completedSteps: result.completedSteps,
+        failedStep: result.failedStep,
+        steps: result.steps,
+        keys: {
+          games: "mlb:games:today",
+          ballparkFactors: "mlb:ballparkFactors:current",
+          odds: "mlb:odds:today",
+          cachedPitcherStats: "mlb:stats:pitchers",
+          cachedBullpenStats: "mlb:stats:bullpen",
+          cachedOffenseStats: "mlb:stats:offense",
+          predictions: "mlb:predictions:today",
+          edges: "mlb:edges:today"
+        }
       })
-
-      steps.push({
-        step: step.name,
-        status: result.ok ? "success" : "failed",
-        statusCode: result.statusCode,
-        result: result.body
-      })
-
-      if (!result.ok) {
-        const childError = result.body && typeof result.body === "object"
-          ? result.body
-          : {}
-        // Preserve the child route's status and safe error payload. Flattening every
-        // failure to an opaque 500 made scheduled-run failures impossible to triage.
-        return res.status(result.statusCode).json({
-          ok: false,
-          error: childError.error || `Pipeline step ${step.name} failed`,
-          code: childError.code || "PIPELINE_STEP_FAILED",
-          ...(childError.details ? { details: childError.details } : {}),
-          completedSteps: steps.filter(item => item.status === "success").length,
-          failedStep: step.name,
-          steps,
-          keys: {
-            games: "mlb:games:today",
-            ballparkFactors: "mlb:ballparkFactors:current",
-            odds: "mlb:odds:today",
-            cachedPitcherStats: "mlb:stats:pitchers",
-            cachedBullpenStats: "mlb:stats:bullpen",
-            cachedOffenseStats: "mlb:stats:offense",
-            predictions: "mlb:predictions:today",
-            edges: "mlb:edges:today"
-          }
-        })
-      }
     }
 
     return res.status(200).json({
       ok: true,
-      completedSteps: steps.length,
-      steps,
+      completedSteps: result.completedSteps,
+      steps: result.steps,
       keys: {
         games: "mlb:games:today",
         gamesMeta: "mlb:games:today:meta",

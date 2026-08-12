@@ -6,28 +6,10 @@ import {
   requireCronRouteAccess
 } from "../../../lib/apiSecurity.js"
 import { isDailyPipelineWindow } from "../../../lib/cronSchedule.js"
+import { invokeRouteHandler } from "../../../lib/routePipeline.js"
 
 const DAILY_PIPELINE_MARKER_PREFIX = "mlb:cron:dailyPipeline"
 const DAILY_PIPELINE_MARKER_TTL_SECONDS = 7 * 24 * 60 * 60
-
-function createMockResponse() {
-  return {
-    statusCode: 200,
-    body: null,
-    headers: {},
-    status(code) {
-      this.statusCode = code
-      return this
-    },
-    json(payload) {
-      this.body = payload
-      return this
-    },
-    setHeader(name, value) {
-      this.headers[name] = value
-    }
-  }
-}
 
 function shouldForceRun(query = {}) {
   return query.force === "true"
@@ -38,25 +20,17 @@ function buildMarkerKey(dateKey) {
 }
 
 async function invokeInternalHandler(handler, { force, operationalSecret, triggerSource }) {
-  const internalResponse = createMockResponse()
-
-  await handler(
-    {
-      method: "POST",
-      query: force ? { force: "true" } : {},
-      headers: {
-        authorization: `Bearer ${operationalSecret}`,
-        "x-forwarded-for": "127.0.0.1",
-        "x-scheduler-source": triggerSource
-      },
-      socket: {
-        remoteAddress: "127.0.0.1"
-      }
+  return invokeRouteHandler(handler, {
+    method: "POST",
+    query: force ? { force: "true" } : {},
+    headers: {
+      authorization: `Bearer ${operationalSecret}`,
+      "x-forwarded-for": "127.0.0.1",
+      "x-scheduler-source": triggerSource
     },
-    internalResponse
-  )
-
-  return internalResponse
+    socket: { remoteAddress: "127.0.0.1" },
+    logContext: "runDailyPipeline"
+  })
 }
 
 export default async function handler(req, res) {

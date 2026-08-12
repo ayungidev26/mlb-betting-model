@@ -4,25 +4,7 @@ import {
   requireCronRouteAccess
 } from "../../../lib/apiSecurity.js"
 import { isDailyStatsPipelineWindow } from "../../../lib/cronSchedule.js"
-
-function createMockResponse() {
-  return {
-    statusCode: 200,
-    body: null,
-    headers: {},
-    status(code) {
-      this.statusCode = code
-      return this
-    },
-    json(payload) {
-      this.body = payload
-      return this
-    },
-    setHeader(name, value) {
-      this.headers[name] = value
-    }
-  }
-}
+import { invokeRouteHandler } from "../../../lib/routePipeline.js"
 
 function shouldForceRun(query = {}) {
   return query.force === "true"
@@ -63,24 +45,19 @@ export default async function handler(req, res) {
     })
   }
 
-  const internalResponse = createMockResponse()
-
   try {
-    await runStatsPipelineHandler(
-      {
-        method: "POST",
-        query: force ? { force: "true" } : {},
-        headers: {
-          authorization: `Bearer ${operationalSecret}`,
-          "x-forwarded-for": "127.0.0.1",
-          "x-scheduler-source": force ? "manual" : "vercel-cron"
-        },
-        socket: {
-          remoteAddress: "127.0.0.1"
-        }
+    const internalResponse = await invokeRouteHandler(runStatsPipelineHandler, {
+      method: "POST",
+      query: force ? { force: "true" } : {},
+      headers: {
+        authorization: `Bearer ${operationalSecret}`,
+        "x-forwarded-for": "127.0.0.1",
+        "x-scheduler-source": force ? "manual" : "vercel-cron"
       },
-      internalResponse
-    )
+      socket: { remoteAddress: "127.0.0.1" },
+      logContext: "runDailyStatsPipeline",
+      stepName: "runStatsPipeline"
+    })
 
     return res.status(internalResponse.statusCode).json({
       ok: internalResponse.statusCode < 400,
