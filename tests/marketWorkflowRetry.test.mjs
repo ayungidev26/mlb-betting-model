@@ -75,13 +75,13 @@ test("market workflow error-code checks accept formatted JSON", async () => {
   }
 })
 
-test("market workflow keeps the final execution gate open through 6:49 PM ET", async () => {
+test("market workflow keeps the final execution gate open through 8:49 PM ET", async () => {
   const workflow = await readFile(workflowUrl, "utf8")
 
-  assert.match(workflow, /label: "5:19 PM → 6:49 PM ET"/)
+  assert.match(workflow, /label: "5:19 PM → 8:49 PM ET"/)
   assert.match(
     workflow,
-    /start: 17 \* 60 \+ 19,\n\s+end: 18 \* 60 \+ 49/,
-    "the final market window should include 5:19 PM through 6:49 PM Eastern"
+    /start: 17 \* 60 \+ 19,\n\s+end: 20 \* 60 \+ 49/,
+    "the final market window should include 5:19 PM through 8:49 PM Eastern"
   )
 })

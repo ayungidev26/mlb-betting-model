@@ -224,9 +224,9 @@ jobs:
               end: 15 * 60 + 49
             },
             {
-              label: "5:19 PM → 6:49 PM ET",
+              label: "5:19 PM → 8:49 PM ET",
               start: 17 * 60 + 19,
-              end: 18 * 60 + 49
+              end: 20 * 60 + 49
             }
           ]
 
