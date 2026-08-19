@@ -464,9 +464,9 @@ Workflow file: `.github/workflows/schedule-pipeline.yml`.
 
 - Cron schedule covers ET morning range.
 - Job gates execution to **5:30 AM – 8:30 AM America/New_York**.
-- Trigger path priority:
-  1. `POST /api/cron/runDailyStatsPipeline` when `CRON_SECRET` is configured.
-  2. fallback `POST /api/runStatsPipeline` using admin auth.
+- Calls `POST /api/runStatsPipeline` using admin auth. The workflow supplies the
+  credential in the bearer header, admin header, and JSON body so the scheduled
+  job does not depend on Vercel cron-header injection.
 
 #### Market workflow behavior
 
@@ -476,7 +476,7 @@ Workflow file: `.github/workflows/schedule-pipeline.yml`.
   - 2:19 PM – 3:49 PM ET
   - 5:19 PM – 6:49 PM ET
 - Trigger order:
-  1. Run stats dependency first (`/api/cron/runDailyStatsPipeline?force=true` when `CRON_SECRET` exists, else `/api/runStatsPipeline`).
+  1. Run stats dependency first through `/api/runStatsPipeline?force=true` using admin auth.
   2. Run market pipeline (`POST /api/runPipeline`) only after stats succeeds.
   3. If market returns `409`, workflow logs explicit dependency guidance and fails clearly.
 
@@ -486,8 +486,8 @@ Workflow file: `.github/workflows/schedule-pipeline.yml`.
 
 - `PIPELINE_BASE_URL` repository variable or secret (for example `https://your-app.vercel.app`)
 - `ADMIN_API_SECRET` repository secret
-- `CRON_SECRET` repository secret (preferred for cron endpoints; the weekly
-  ratings workflow can fall back to `ADMIN_API_SECRET`)
+- `CRON_SECRET` repository secret (used by the weekly ratings workflow, which
+  can fall back to `ADMIN_API_SECRET`)
 - `PIPELINE_AUTH_TOKEN` (optional override; defaults to `ADMIN_API_SECRET` in workflow logic)
 
 ### Optional direct cron usage
