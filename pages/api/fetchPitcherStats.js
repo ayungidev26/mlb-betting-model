@@ -315,7 +315,34 @@ function getCacheTimestamp(metadata = {}) {
   return Number.isFinite(timestamp) ? timestamp : null
 }
 
-async function useLastKnownGoodPitcherStats(redisClient, { games, refreshError }) {
+function mergePitcherStats(cachedStats, refreshedStats) {
+  if (!refreshedStats?.byId) {
+    return cachedStats
+  }
+
+  const byId = {
+    ...(cachedStats?.byId || {}),
+    ...refreshedStats.byId
+  }
+  const aliasMap = { ...(cachedStats?.aliasMap || {}) }
+
+  for (const [name, pitcherIds] of Object.entries(refreshedStats.aliasMap || {})) {
+    aliasMap[name] = [...new Set([...(aliasMap[name] || []), ...pitcherIds])]
+  }
+
+  return {
+    ...cachedStats,
+    ...refreshedStats,
+    byId,
+    aliasMap
+  }
+}
+
+async function useLastKnownGoodPitcherStats(redisClient, {
+  games,
+  refreshError,
+  refreshedStats = null
+}) {
   const [cachedStats, cachedMetadata] = await Promise.all([
     redisClient.get("mlb:stats:pitchers"),
     redisClient.get("mlb:stats:pitchers:meta")
@@ -332,9 +359,13 @@ async function useLastKnownGoodPitcherStats(redisClient, { games, refreshError }
     throw refreshError
   }
 
+  // A partial refresh can contain a newly announced starter even when it is too
+  // small to replace the full cache. Overlay it on the last-known-good season
+  // snapshot so the quality gate evaluates the best data available from both.
+  const fallbackStats = mergePitcherStats(cachedStats, refreshedStats)
   const quality = validateStatsCandidate({
     kind: "pitchers",
-    candidate: cachedStats,
+    candidate: fallbackStats,
     games,
     minimumPitchers: LOW_FETCHED_PITCHERS_THRESHOLD
   })
@@ -358,11 +389,11 @@ async function useLastKnownGoodPitcherStats(redisClient, { games, refreshError }
 
   if (typeof redisClient.pipeline === "function") {
     await redisClient.pipeline()
-      .set("mlb:stats:pitchers", cachedStats)
+      .set("mlb:stats:pitchers", fallbackStats)
       .set("mlb:stats:pitchers:meta", fallbackMetadata)
       .exec()
   } else {
-    await redisClient.set("mlb:stats:pitchers", cachedStats)
+    await redisClient.set("mlb:stats:pitchers", fallbackStats)
     await redisClient.set("mlb:stats:pitchers:meta", fallbackMetadata)
   }
 
@@ -376,7 +407,7 @@ async function useLastKnownGoodPitcherStats(redisClient, { games, refreshError }
     pitchersFetched: 0,
     pitchersSaved: quality.records,
     fallbackUsed: true,
-    sample: Object.values(cachedStats.byId).slice(0, 3),
+    sample: Object.values(fallbackStats.byId).slice(0, 3),
     metadata: fallbackMetadata
   }
 }
@@ -488,7 +519,8 @@ export default async function handler(req, res) {
     if (!publication.published) {
       const fallback = await useLastKnownGoodPitcherStats(redis, {
         games: currentGames,
-        refreshError: createPitcherQualityError(statsMeta)
+        refreshError: createPitcherQualityError(statsMeta),
+        refreshedStats: pitcherStats
       })
       return res.status(200).json(fallback)
     }
