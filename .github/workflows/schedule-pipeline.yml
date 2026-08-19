@@ -162,6 +162,13 @@ jobs:
               fi
             fi
 
+            if (( attempt < max_attempts )) && { [[ "$status_code" =~ ^5[0-9][0-9]$ ]] || [[ "$status_code" =~ ^2 ]]; }; then
+              retry_after_seconds="$(( attempt * 30 ))"
+              echo "Stats pipeline returned a transient failure. Waiting ${retry_after_seconds}s before retry $((attempt + 1))/${max_attempts}."
+              sleep "$retry_after_seconds"
+              continue
+            fi
+
             echo "Stats pipeline failed with HTTP ${status_code} on attempt ${attempt}/${max_attempts}."
             exit 1
           done

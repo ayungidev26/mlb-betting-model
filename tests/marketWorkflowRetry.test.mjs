@@ -57,6 +57,18 @@ test("market workflow retries transient internal server errors", async () => {
   assert.match(workflow, /continue\n\s+fi\n\n\s+echo "Market pipeline still returned an internal server error/)
 })
 
+test("stats workflow retries server and pipeline payload failures", async () => {
+  const workflow = await readFile(workflowUrl, "utf8")
+
+  assert.match(
+    workflow,
+    /if \(\( attempt < max_attempts \)\) && \{ \[\[ "\$status_code" =~ \^5\[0-9\]\[0-9\]\$ \]\] \|\| \[\[ "\$status_code" =~ \^2 \]\]; \}; then/,
+    "the stats trigger should retry 5xx responses and 2xx pipeline payload failures"
+  )
+  assert.match(workflow, /Stats pipeline returned a transient failure\. Waiting \$\{retry_after_seconds\}s before retry/)
+  assert.match(workflow, /retry_after_seconds="\$\(\( attempt \* 30 \)\)"/)
+})
+
 test("market workflow error-code checks accept formatted JSON", async () => {
   const workflow = await readFile(workflowUrl, "utf8")
 
