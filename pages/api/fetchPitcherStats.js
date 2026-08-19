@@ -35,7 +35,10 @@ const PEOPLE_BATCH_SIZE = 100
 const MLB_REQUEST_CONCURRENCY = 5
 const LOW_FETCHED_PITCHERS_THRESHOLD = 200
 const SAVED_DELTA_WARNING_THRESHOLD = 0.15
-const MAX_FALLBACK_CACHE_AGE_MS = 48 * 60 * 60 * 1000
+// A transient provider incident should not take the entire model offline. Pitcher
+// season totals remain useful for several days, and the quality gate below still
+// requires the cache to cover every announced starter on the current slate.
+const MAX_FALLBACK_CACHE_AGE_MS = 7 * 24 * 60 * 60 * 1000
 
 function createPitcherQualityError(metadata) {
   const error = new Error(
@@ -303,7 +306,12 @@ function logPitcherPipelineWarnings({ pitchersFetched, pitchersSaved }) {
 }
 
 function getCacheTimestamp(metadata = {}) {
-  const timestamp = Date.parse(metadata.lastUpdatedAt || metadata.generatedAt || "")
+  // `lastUpdatedAt` is advanced when a fallback is served. Prefer the timestamp
+  // of the underlying data so repeated fallbacks cannot make stale data appear
+  // freshly fetched forever.
+  const timestamp = Date.parse(
+    metadata.dataLastUpdatedAt || metadata.lastUpdatedAt || metadata.generatedAt || ""
+  )
   return Number.isFinite(timestamp) ? timestamp : null
 }
 
@@ -341,7 +349,7 @@ async function useLastKnownGoodPitcherStats(redisClient, { games, refreshError }
     dateKey: getEasternDateKey(),
     generatedAt: new Date().toISOString(),
     lastUpdatedAt: new Date().toISOString(),
-    dataLastUpdatedAt: cachedMetadata.lastUpdatedAt || cachedMetadata.generatedAt,
+    dataLastUpdatedAt: cachedMetadata.dataLastUpdatedAt || cachedMetadata.lastUpdatedAt || cachedMetadata.generatedAt,
     fallbackUsed: true,
     fallbackReason: refreshError?.code || refreshError?.name || "UPSTREAM_ERROR",
     cacheAgeMs,

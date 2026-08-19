@@ -42,6 +42,20 @@ test("sendRouteError normalizes missing upstream data failures", () => {
   })
 })
 
+test("sendRouteError preserves actionable upstream failure codes", () => {
+  const res = createMockResponse()
+  const error = new Error("Pitcher refresh failed quality gates: scheduled starters missing")
+  error.code = "UPSTREAM_DATA_INCOMPLETE"
+
+  sendRouteError(res, "fetchPitcherStats", error)
+
+  assert.equal(res.statusCode, 503)
+  assert.deepEqual(res.body, {
+    error: "Upstream data is temporarily unavailable",
+    code: "UPSTREAM_DATA_INCOMPLETE"
+  })
+})
+
 test("sendRouteError makes stale ratings failures actionable without exposing internals", () => {
   const res = createMockResponse()
 
