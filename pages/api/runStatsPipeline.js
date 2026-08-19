@@ -121,6 +121,8 @@ export default async function handler(req, res) {
         ok: false,
         completedSteps: result.completedSteps,
         failedStep: result.failedStep,
+        failure: result.failure,
+        failureStatusCode: result.failureStatusCode,
         markerKey,
         dateKey,
         steps: result.steps,
