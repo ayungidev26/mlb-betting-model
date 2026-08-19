@@ -136,8 +136,10 @@ the 35-minute workflow timeout to prevent a retry from overlapping a worker that
 is still terminating.
 
 To trigger the job safely, use **Actions → Weekly Ratings Refresh → Run
-workflow**. GitHub uses the repository's `PIPELINE_BASE_URL` and `CRON_SECRET`
-secrets and adds `force=true` only for this authenticated manual dispatch. Avoid
+workflow**. Configure `PIPELINE_BASE_URL` as a GitHub Actions repository variable
+(or a legacy repository secret). The workflow prefers the repository's
+`CRON_SECRET`; if it is unavailable, it uses `ADMIN_API_SECRET` and requests an
+authenticated forced refresh. Manual dispatches also add `force=true`. Avoid
 calling `/api/loadHistorical` separately immediately beforehand because its
 six-hour cooldown intentionally prevents redundant provider downloads.
 
@@ -480,11 +482,12 @@ Workflow file: `.github/workflows/schedule-pipeline.yml`.
 
 > Note: `/api/cron/runDailyPipeline` has its own strict 10:00 ET minute-match gate unless `?force=true`.
 
-### Required GitHub Actions secrets
+### Required GitHub Actions configuration
 
-- `PIPELINE_BASE_URL` (for example `https://your-app.vercel.app`)
-- `ADMIN_API_SECRET`
-- `CRON_SECRET` (needed to use cron endpoints)
+- `PIPELINE_BASE_URL` repository variable or secret (for example `https://your-app.vercel.app`)
+- `ADMIN_API_SECRET` repository secret
+- `CRON_SECRET` repository secret (preferred for cron endpoints; the weekly
+  ratings workflow can fall back to `ADMIN_API_SECRET`)
 - `PIPELINE_AUTH_TOKEN` (optional override; defaults to `ADMIN_API_SECRET` in workflow logic)
 
 ### Optional direct cron usage
