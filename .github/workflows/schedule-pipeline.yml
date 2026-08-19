@@ -92,7 +92,6 @@ jobs:
         if: steps.gate.outputs.should_run == 'true'
         env:
           PIPELINE_BASE_URL: ${{ secrets.PIPELINE_BASE_URL }}
-          CRON_SECRET: ${{ secrets.CRON_SECRET }}
           ADMIN_API_SECRET: ${{ secrets.ADMIN_API_SECRET }}
           PIPELINE_AUTH_TOKEN: ${{ secrets.PIPELINE_AUTH_TOKEN }}
         run: |
@@ -103,44 +102,29 @@ jobs:
             exit 1
           fi
 
-          CLEAN_CRON_SECRET="$(printf %s "$CRON_SECRET" | tr -d "\r\n")"
           CLEAN_ADMIN_API_SECRET="$(printf %s "$ADMIN_API_SECRET" | tr -d "\r\n")"
           CLEAN_PIPELINE_AUTH_TOKEN="$(printf %s "${PIPELINE_AUTH_TOKEN:-$ADMIN_API_SECRET}" | tr -d "\r\n")"
+
+          if [[ -z "$CLEAN_ADMIN_API_SECRET" || -z "$CLEAN_PIPELINE_AUTH_TOKEN" ]]; then
+            echo "Missing auth secrets for stats trigger. Set ADMIN_API_SECRET (and optional PIPELINE_AUTH_TOKEN)."
+            exit 1
+          fi
 
           response_file="$(mktemp)"
           trap 'rm -f "$response_file"' EXIT
           max_attempts=3
-
-          if [[ -n "$CLEAN_CRON_SECRET" ]]; then
-            ENDPOINT_URL="${PIPELINE_BASE_URL%/}/api/cron/runDailyStatsPipeline"
-            request_stats_pipeline() {
-              curl --show-error --silent \
-                --request POST \
-                --header "Authorization: Bearer ${CLEAN_CRON_SECRET}" \
-                --header "Content-Type: application/json" \
-                --output "$response_file" \
-                --write-out "%{http_code}" \
-                "$ENDPOINT_URL"
-            }
-          else
-            if [[ -z "$CLEAN_ADMIN_API_SECRET" || -z "$CLEAN_PIPELINE_AUTH_TOKEN" ]]; then
-              echo "Missing auth secrets for stats trigger. Set CRON_SECRET or ADMIN_API_SECRET (and optional PIPELINE_AUTH_TOKEN)."
-              exit 1
-            fi
-
-            ENDPOINT_URL="${PIPELINE_BASE_URL%/}/api/runStatsPipeline"
-            request_stats_pipeline() {
-              curl --show-error --silent \
-                --request POST \
-                --header "Authorization: Bearer ${CLEAN_PIPELINE_AUTH_TOKEN}" \
-                --header "x-admin-secret: ${CLEAN_ADMIN_API_SECRET}" \
-                --header "Content-Type: application/json" \
-                --data "{\"authToken\":\"${CLEAN_PIPELINE_AUTH_TOKEN}\",\"adminSecret\":\"${CLEAN_ADMIN_API_SECRET}\"}" \
-                --output "$response_file" \
-                --write-out "%{http_code}" \
-                "$ENDPOINT_URL"
-            }
-          fi
+          ENDPOINT_URL="${PIPELINE_BASE_URL%/}/api/runStatsPipeline"
+          request_stats_pipeline() {
+            curl --show-error --silent \
+              --request POST \
+              --header "Authorization: Bearer ${CLEAN_PIPELINE_AUTH_TOKEN}" \
+              --header "x-admin-secret: ${CLEAN_ADMIN_API_SECRET}" \
+              --header "Content-Type: application/json" \
+              --data "{\"authToken\":\"${CLEAN_PIPELINE_AUTH_TOKEN}\",\"adminSecret\":\"${CLEAN_ADMIN_API_SECRET}\"}" \
+              --output "$response_file" \
+              --write-out "%{http_code}" \
+              "$ENDPOINT_URL"
+          }
 
           for (( attempt=1; attempt<=max_attempts; attempt+=1 )); do
             status_code="$(request_stats_pipeline)"
@@ -307,26 +291,15 @@ jobs:
             stats_response_file="$(mktemp)"
 
             while (( attempt <= max_attempts )); do
-              if [[ -n "$CLEAN_CRON_SECRET" ]]; then
-                STATS_ENDPOINT_URL="${PIPELINE_BASE_URL%/}/api/cron/runDailyStatsPipeline?force=true"
-                stats_status="$(curl --show-error --silent \
-                  --request POST \
-                  --header "Authorization: Bearer ${CLEAN_CRON_SECRET}" \
-                  --header "Content-Type: application/json" \
-                  --output "$stats_response_file" \
-                  --write-out "%{http_code}" \
-                  "$STATS_ENDPOINT_URL")"
-              else
-                stats_status="$(curl --show-error --silent \
-                  --request POST \
-                  --header "Authorization: Bearer ${CLEAN_PIPELINE_AUTH_TOKEN}" \
-                  --header "x-admin-secret: ${CLEAN_ADMIN_API_SECRET}" \
-                  --header "Content-Type: application/json" \
-                  --data "{\"authToken\":\"${CLEAN_PIPELINE_AUTH_TOKEN}\",\"adminSecret\":\"${CLEAN_ADMIN_API_SECRET}\"}" \
-                  --output "$stats_response_file" \
-                  --write-out "%{http_code}" \
-                  "$STATS_ENDPOINT_URL")"
-              fi
+              stats_status="$(curl --show-error --silent \
+                --request POST \
+                --header "Authorization: Bearer ${CLEAN_PIPELINE_AUTH_TOKEN}" \
+                --header "x-admin-secret: ${CLEAN_ADMIN_API_SECRET}" \
+                --header "Content-Type: application/json" \
+                --data "{\"authToken\":\"${CLEAN_PIPELINE_AUTH_TOKEN}\",\"adminSecret\":\"${CLEAN_ADMIN_API_SECRET}\"}" \
+                --output "$stats_response_file" \
+                --write-out "%{http_code}" \
+                "$STATS_ENDPOINT_URL")"
 
               cat "$stats_response_file"
 

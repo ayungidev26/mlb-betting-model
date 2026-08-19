@@ -4,6 +4,27 @@ import { readFile } from "node:fs/promises"
 
 const workflowUrl = new URL("../.github/workflows/schedule-pipeline.yml", import.meta.url)
 
+test("scheduled stats requests use the operational route with redundant admin auth", async () => {
+  const workflow = await readFile(workflowUrl, "utf8")
+
+  assert.doesNotMatch(
+    workflow,
+    /STATS_ENDPOINT_URL="\$\{PIPELINE_BASE_URL%\/\}\/api\/cron\/runDailyStatsPipeline/,
+    "GitHub Actions stats requests must not depend on Vercel cron authentication"
+  )
+  assert.match(
+    workflow,
+    /ENDPOINT_URL="\$\{PIPELINE_BASE_URL%\/\}\/api\/runStatsPipeline"/,
+    "the morning stats job should use the operational stats route"
+  )
+  assert.match(workflow, /--header "x-admin-secret: \$\{CLEAN_ADMIN_API_SECRET\}"/)
+  assert.match(
+    workflow,
+    /--data "\{\\"authToken\\":\\"\$\{CLEAN_PIPELINE_AUTH_TOKEN\}\\",\\"adminSecret\\":\\"\$\{CLEAN_ADMIN_API_SECRET\}\\"\}"/,
+    "the admin credential should also be sent in the body for proxy compatibility"
+  )
+})
+
 test("market workflow requires the stats dependency payload to report success", async () => {
   const workflow = await readFile(workflowUrl, "utf8")
 
