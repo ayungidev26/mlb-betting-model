@@ -474,7 +474,7 @@ Workflow file: `.github/workflows/schedule-pipeline.yml`.
 - Job gates execution to:
   - 10:19 AM – 11:49 AM ET
   - 2:19 PM – 3:49 PM ET
-  - 5:19 PM – 8:49 PM ET
+  - 5:19 PM – 6:49 PM ET
 - Trigger order:
   1. Run stats dependency first through `/api/runStatsPipeline?force=true` using admin auth.
   2. Run market pipeline (`POST /api/runPipeline`) only after stats succeeds.
