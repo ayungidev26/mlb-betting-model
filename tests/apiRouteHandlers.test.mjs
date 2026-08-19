@@ -2217,6 +2217,67 @@ test("fetchPitcherStats uses a recent verified cache when the MLB feed returns i
   ))
 })
 
+test("fetchPitcherStats merges a partial refresh into the verified cache to cover a new starter", { concurrency: false }, async () => {
+  process.env.ADMIN_API_SECRET = "test-admin-secret"
+  const handler = await importRoute("../pages/api/fetchPitcherStats.js")
+  const cachedPitchers = Object.fromEntries(
+    Array.from({ length: 200 }, (_, index) => {
+      const pitcherId = String(index + 1)
+      return [pitcherId, { pitcherId: index + 1, pitcherName: `Pitcher ${pitcherId}` }]
+    })
+  )
+  const previousUpdate = new Date(Date.now() - (24 * 60 * 60 * 1000)).toISOString()
+  const redisMock = createMockRedis([
+    ["mlb:games:today", [{ awayPitcherId: 999, homePitcherId: 2 }]],
+    ["mlb:stats:pitchers", { version: "v3", byId: cachedPitchers, aliasMap: {} }],
+    ["mlb:stats:pitchers:meta", {
+      status: "healthy",
+      lastUpdatedAt: previousUpdate,
+      generatedAt: previousUpdate,
+      source: "statsapi.mlb.com"
+    }]
+  ])
+
+  await withPatchedRedis(redisMock, async () => withMockedFetch(
+    async (url) => {
+      const target = String(url)
+
+      if (target.includes("/api/v1/stats?stats=season&group=pitching")) {
+        return createJsonResponse({
+          body: {
+            stats: [{
+              splits: [{
+                player: { id: 999, fullName: "New Starter" },
+                stat: { inningsPitched: "12.0", earnedRuns: 4, strikeOuts: 15 }
+              }]
+            }]
+          }
+        })
+      }
+
+      if (target.includes("/api/v1/teams?sportId=1")) {
+        return createJsonResponse({ body: { teams: [] } })
+      }
+
+      if (target.includes("baseballsavant.mlb.com/leaderboard/custom")) {
+        return createTextResponse({ body: "player_id,pitcher" })
+      }
+
+      return createJsonResponse({ body: {} })
+    },
+    async () => {
+      const res = createMockResponse()
+      await handler(createRequest(), res)
+
+      assert.equal(res.statusCode, 200)
+      assert.equal(res.body.fallbackUsed, true)
+      assert.equal(res.body.pitchersSaved, 201)
+      assert.equal(res.body.metadata.status, "healthy")
+      assert.equal(redisMock.snapshot("mlb:stats:pitchers").byId["999"].pitcherName, "New Starter")
+    }
+  ))
+})
+
 test("fetchBullpenStats tolerates transient team pitching upstream failures", { concurrency: false }, async () => {
   process.env.ADMIN_API_SECRET = "test-admin-secret"
   const handler = await importRoute("../pages/api/fetchBullpenStats.js")
