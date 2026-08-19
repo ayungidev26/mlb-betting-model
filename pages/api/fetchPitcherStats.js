@@ -37,6 +37,14 @@ const LOW_FETCHED_PITCHERS_THRESHOLD = 200
 const SAVED_DELTA_WARNING_THRESHOLD = 0.15
 const MAX_FALLBACK_CACHE_AGE_MS = 48 * 60 * 60 * 1000
 
+function createPitcherQualityError(metadata) {
+  const error = new Error(
+    `Pitcher refresh failed quality gates: ${metadata?.reasons?.join(", ") || "unknown reason"}`
+  )
+  error.code = "UPSTREAM_DATA_INCOMPLETE"
+  return error
+}
+
 async function mapWithConcurrency(items, concurrency, worker) {
   const results = new Array(items.length)
   let nextIndex = 0
@@ -469,7 +477,13 @@ export default async function handler(req, res) {
 
     const publication = await publishStatsCandidate(redis, { kind: "pitchers", candidate: pitcherStats, metadata: statsMeta })
     logPitcherPipelineWarnings({ pitchersFetched, pitchersSaved })
-    if (!publication.published) return res.status(503).json({ error: "Pitcher refresh failed quality gates; last-known-good cache preserved.", metadata: statsMeta })
+    if (!publication.published) {
+      const fallback = await useLastKnownGoodPitcherStats(redis, {
+        games: currentGames,
+        refreshError: createPitcherQualityError(statsMeta)
+      })
+      return res.status(200).json(fallback)
+    }
 
     console.info("fetchPitcherStats summary", {
       pitchersFetched,

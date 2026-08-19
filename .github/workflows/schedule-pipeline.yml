@@ -364,6 +364,14 @@ jobs:
               fi
 
               echo "Forced stats dependency refresh failed with HTTP ${stats_status} on attempt ${attempt}/${max_attempts}."
+              if (( attempt < max_attempts )); then
+                retry_after_seconds=$((attempt * 15))
+                echo "Waiting ${retry_after_seconds}s before retry $((attempt + 1))/${max_attempts}."
+                sleep "$retry_after_seconds"
+                ((attempt += 1))
+                continue
+              fi
+
               rm -f "$stats_response_file"
               return 1
             done
