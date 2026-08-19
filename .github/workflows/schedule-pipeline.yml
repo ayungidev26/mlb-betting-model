@@ -112,7 +112,7 @@ jobs:
 
           response_file="$(mktemp)"
           trap 'rm -f "$response_file"' EXIT
-          max_attempts=3
+          max_attempts=5
           ENDPOINT_URL="${PIPELINE_BASE_URL%/}/api/runStatsPipeline"
           request_stats_pipeline() {
             curl --show-error --silent \
@@ -231,9 +231,9 @@ jobs:
               end: 15 * 60 + 49
             },
             {
-              label: "5:19 PM → 8:49 PM ET",
+              label: "5:19 PM → 6:49 PM ET",
               start: 17 * 60 + 19,
-              end: 20 * 60 + 49
+              end: 18 * 60 + 49
             }
           ]
 
@@ -294,7 +294,7 @@ jobs:
             local stats_status
             local retry_after_seconds
             local attempt=1
-            local max_attempts=3
+            local max_attempts=5
             stats_response_file="$(mktemp)"
 
             while (( attempt <= max_attempts )); do
