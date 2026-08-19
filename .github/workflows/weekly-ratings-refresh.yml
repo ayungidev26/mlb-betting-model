@@ -17,21 +17,64 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 35
     steps:
-      - name: Trigger authenticated weekly ratings refresh
+      - name: Select the active Eastern-time trigger
+        id: gate
         env:
-          PIPELINE_BASE_URL: ${{ secrets.PIPELINE_BASE_URL }}
+          EVENT_NAME: ${{ github.event_name }}
+          SCHEDULE: ${{ github.event.schedule }}
+        run: |
+          node <<'NODE'
+          const fs = require("node:fs")
+
+          if (process.env.EVENT_NAME === "workflow_dispatch") {
+            fs.appendFileSync(process.env.GITHUB_OUTPUT, "should_run=true\n")
+            process.exit(0)
+          }
+
+          const offsetPart = new Intl.DateTimeFormat("en-US", {
+            timeZone: "America/New_York",
+            timeZoneName: "shortOffset"
+          }).formatToParts(new Date()).find((part) => part.type === "timeZoneName")
+          const offsetHours = Number(offsetPart?.value.replace("GMT", ""))
+          const expectedSchedule = offsetHours === -4
+            ? "7 5 * 3-10 1"
+            : "7 6 * 3-10 1"
+          const shouldRun = process.env.SCHEDULE === expectedSchedule
+
+          console.log(`Eastern UTC offset: ${offsetHours}; active schedule: ${expectedSchedule}`)
+          console.log(shouldRun ? "Running active weekly trigger." : "Skipping paired DST trigger.")
+          fs.appendFileSync(process.env.GITHUB_OUTPUT, `should_run=${shouldRun}\n`)
+          NODE
+
+      - name: Trigger authenticated weekly ratings refresh
+        if: steps.gate.outputs.should_run == 'true'
+        env:
+          # The deployment origin is not sensitive, so allow it to be stored as
+          # either a repository variable or the legacy repository secret.
+          PIPELINE_BASE_URL: ${{ vars.PIPELINE_BASE_URL || secrets.PIPELINE_BASE_URL }}
           CRON_SECRET: ${{ secrets.CRON_SECRET }}
+          ADMIN_API_SECRET: ${{ secrets.ADMIN_API_SECRET }}
           MANUAL_RUN: ${{ github.event_name == 'workflow_dispatch' }}
         run: |
-          if [[ -z "$PIPELINE_BASE_URL" || -z "$CRON_SECRET" ]]; then
-            echo "Missing required GitHub Actions secrets: PIPELINE_BASE_URL and/or CRON_SECRET"
+          if [[ -z "$PIPELINE_BASE_URL" ]]; then
+            echo "Missing PIPELINE_BASE_URL. Configure it as a GitHub Actions repository variable or secret."
             exit 1
           fi
 
           CLEAN_CRON_SECRET="$(printf %s "$CRON_SECRET" | tr -d "\r\n")"
+          CLEAN_ADMIN_API_SECRET="$(printf %s "$ADMIN_API_SECRET" | tr -d "\r\n")"
+          AUTH_SECRET="${CLEAN_CRON_SECRET:-$CLEAN_ADMIN_API_SECRET}"
+
+          if [[ -z "$AUTH_SECRET" ]]; then
+            echo "Missing authentication. Configure CRON_SECRET (preferred) or ADMIN_API_SECRET as a GitHub Actions repository secret."
+            exit 1
+          fi
+
           ENDPOINT_URL="${PIPELINE_BASE_URL%/}/api/cron/runWeeklyRatingsRefresh"
 
-          if [[ "$MANUAL_RUN" == "true" ]]; then
+          # The route accepts the operational admin credential only for forced
+          # refreshes. CRON_SECRET remains the preferred scheduled credential.
+          if [[ "$MANUAL_RUN" == "true" || -z "$CLEAN_CRON_SECRET" ]]; then
             ENDPOINT_URL="${ENDPOINT_URL}?force=true"
           fi
 
@@ -39,7 +82,7 @@ jobs:
           trap 'rm -f "$response_file"' EXIT
           status_code="$(curl --show-error --silent \
             --request POST \
-            --header "Authorization: Bearer ${CLEAN_CRON_SECRET}" \
+            --header "Authorization: Bearer ${AUTH_SECRET}" \
             --header "Content-Type: application/json" \
             --output "$response_file" \
             --write-out "%{http_code}" \

@@ -260,6 +260,29 @@ async function withMockedFetch(fetchImpl, callback) {
   }
 }
 
+async function withMockedDate(isoString, callback) {
+  const RealDate = global.Date
+  const fixedTime = RealDate.parse(isoString)
+
+  class MockDate extends RealDate {
+    constructor(...args) {
+      super(...(args.length === 0 ? [fixedTime] : args))
+    }
+
+    static now() {
+      return fixedTime
+    }
+  }
+
+  global.Date = MockDate
+
+  try {
+    return await callback()
+  } finally {
+    global.Date = RealDate
+  }
+}
+
 function withSilencedConsole(callback) {
   const originalError = console.error
   console.error = () => {}
@@ -874,7 +897,7 @@ test("fetchTeamOffenseStats stores season, split, recent, and expected offense m
   const handler = await importRoute("../pages/api/fetchTeamOffenseStats.js")
   const redisMock = createMockRedis()
 
-  await withPatchedRedis(redisMock, async () => withMockedFetch(
+  await withMockedDate("2026-08-10T12:00:00Z", async () => withPatchedRedis(redisMock, async () => withMockedFetch(
     async (url) => {
       const target = String(url)
 
@@ -985,7 +1008,7 @@ test("fetchTeamOffenseStats stores season, split, recent, and expected offense m
       assert.equal(payload['New York Yankees'].splits.last7Days.gamesPlayed, 2)
       assert.equal(payload['Boston Red Sox'].splits.last14Days.gamesPlayed, 3)
     }
-  ))
+  )))
 })
 
 test("fetchTeamOffenseStats tolerates transient team offense upstream failures", { concurrency: false }, async () => {
