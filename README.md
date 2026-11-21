@@ -32,7 +32,7 @@ This repository contains:
 
 ## Project Overview
 
-This system generates same-day MLB moneyline recommendations by comparing model win probabilities to market implied probabilities.
+This system generates same-day MLB moneyline recommendations by comparing model win probabilities to market-implied probabilities.
 
 There are two main operational workflows:
 
