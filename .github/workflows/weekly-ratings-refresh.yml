@@ -7,6 +7,15 @@ on:
     - cron: "7 5 * 3-10 1"
     - cron: "7 6 * 3-10 1"
   workflow_dispatch:
+    inputs:
+      operation:
+        description: "Refresh Elo or run a postseason closeout"
+        type: choice
+        default: refresh
+        options:
+          - refresh
+          - preview
+          - apply
 
 concurrency:
   group: weekly-ratings-refresh-production
@@ -55,6 +64,7 @@ jobs:
           CRON_SECRET: ${{ secrets.CRON_SECRET }}
           ADMIN_API_SECRET: ${{ secrets.ADMIN_API_SECRET }}
           MANUAL_RUN: ${{ github.event_name == 'workflow_dispatch' }}
+          OPERATION: ${{ inputs.operation }}
         run: |
           if [[ -z "$PIPELINE_BASE_URL" ]]; then
             echo "Missing PIPELINE_BASE_URL. Configure it as a GitHub Actions repository variable or secret."
@@ -76,6 +86,10 @@ jobs:
           # refreshes. CRON_SECRET remains the preferred scheduled credential.
           if [[ "$MANUAL_RUN" == "true" || -z "$CLEAN_CRON_SECRET" ]]; then
             ENDPOINT_URL="${ENDPOINT_URL}?force=true"
+          fi
+
+          if [[ "$OPERATION" == "preview" || "$OPERATION" == "apply" ]]; then
+            ENDPOINT_URL="${ENDPOINT_URL}&closeout=${OPERATION}"
           fi
 
           response_file="$(mktemp)"
@@ -101,6 +115,14 @@ jobs:
             const fs = require("node:fs");
             const payload = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
             if (payload.skipped) process.exit(0);
+            if (payload.closeout === "preview") {
+              if (!payload.ok || !payload.historical.dryRun) process.exit(1);
+              for (const entry of payload.historical.comparisons) {
+                fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY,
+                  `### ${entry.season} closeout preview\n\n- Stored games: ${entry.storedGames}\n- Source games: ${entry.sourceGames} through ${entry.latestOfficialDate}\n- New games: ${entry.added.length}\n- Stored games missing from source: ${entry.missingFromSource.length}\n`);
+              }
+              process.exit(0);
+            }
             if (!payload.ok || !payload.metadataVerified) process.exit(1);
             const summary = [
               "## Weekly ratings refresh",
@@ -113,6 +135,13 @@ jobs:
               `- Ratings generated: ${payload.ratingsGeneratedAt}`,
               `- Duration: ${payload.durationMs} ms`
             ].join("\n");
+            if (payload.seasonSummary) {
+              const evaluation = payload.seasonSummary.evaluation;
+              summary.push(
+                `- Season closeout: ${payload.seasonSummary.finalGames} finals through ${payload.seasonSummary.dataThrough}`,
+                `- Matched archived predictions: ${evaluation.gamesMatchedToFinal} of ${evaluation.gamesPredicted}`
+              );
+            }
             fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, `${summary}\n`);
             console.log(`Refresh complete: season=${payload.seasonRefreshed}, games=${payload.historicalGamesLoaded}, ratings=${payload.ratingsCount}, generatedAt=${payload.ratingsGeneratedAt}, durationMs=${payload.durationMs}`);
           ' "$response_file"; then

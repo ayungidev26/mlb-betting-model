@@ -663,7 +663,7 @@ test("weekly ratings refresh loads only the current season before rebuilding con
     async (url) => {
       fetchedSeasons.push(Number(new URL(String(url)).searchParams.get("season")))
       return createJsonResponse({ body: { dates: [{ games: [{
-        gameDate: "2026-08-09T17:00:00Z", gameType: "R",
+        gamePk: 100, gameDate: "2026-08-09T17:00:00Z", gameType: "R",
         status: { detailedState: "Final" },
         teams: {
           home: { team: { name: "Chicago Cubs" }, score: 4 },
@@ -750,7 +750,7 @@ test("weekly ratings refresh stops before ratings when historical loading fails"
   )))
 })
 
-test("weekly ratings refresh does not mark ratings fresh when the build fails", { concurrency: false }, async () => {
+test("weekly ratings refresh keeps existing ratings when the source season is empty", { concurrency: false }, async () => {
   process.env.CRON_SECRET = "cron-secret"
   process.env.ADMIN_API_SECRET = "admin-secret"
   const handler = await importRoute("../pages/api/cron/runWeeklyRatingsRefresh.js")
@@ -776,8 +776,8 @@ test("weekly ratings refresh does not mark ratings fresh when the build fails", 
 
       assert.equal(res.body.ok, false)
       assert.equal(res.body.status, "failed")
-      assert.equal(res.body.stoppedAfter, "buildRatings")
-      assert.equal(res.body.ratingsBuild.code, "HISTORICAL_DATA_UNAVAILABLE")
+      assert.equal(res.body.stoppedAfter, "loadHistorical")
+      assert.equal(res.body.historical.code, "NO_HISTORICAL_FINALS")
       assert.deepEqual(redisMock.snapshot("mlb:ratings:teams:meta"), previousMetadata)
       assert.deepEqual(redisMock.snapshot("mlb:ratings:historicalRange"), previousRange)
     }

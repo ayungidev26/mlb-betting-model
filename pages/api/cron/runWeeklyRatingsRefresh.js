@@ -1,5 +1,6 @@
 import loadHistoricalHandler from "../loadHistorical.js"
 import buildRatingsHandler from "../buildRatings.js"
+import evaluatePredictionsHandler from "../evaluatePredictions.js"
 import { redis } from "../../../lib/upstash.js"
 import {
   getOperationalRouteSecret,
@@ -28,11 +29,12 @@ function createMockResponse() {
   }
 }
 
-async function invokeOperationalHandler(handler, query, operationalSecret) {
+async function invokeOperationalHandler(handler, query, operationalSecret, body) {
   const response = createMockResponse()
   await handler({
     method: "POST",
     query,
+    body,
     headers: {
       authorization: `Bearer ${operationalSecret}`,
       "x-forwarded-for": "127.0.0.1",
@@ -62,7 +64,16 @@ export default async function handler(req, res) {
     : requireCronRouteAccess(req, res)
   if (!authorized) return
 
+  const closeout = force ? req?.query?.closeout : undefined
+  if (closeout !== undefined && !["preview", "apply"].includes(closeout)) {
+    return res.status(400).json({ ok: false, error: "closeout must be preview or apply" })
+  }
+
   const schedulerWindow = isWeeklyRatingsRefreshWindow()
+  const month = Number(schedulerWindow.dateKey.slice(5, 7))
+  if (closeout && month >= 3 && month <= 10) {
+    return res.status(409).json({ ok: false, error: "Season closeout is available November through February" })
+  }
 
   if (!force && !schedulerWindow.matchesTargetTime) {
     return res.status(202).json({
@@ -98,22 +109,39 @@ export default async function handler(req, res) {
       return res.status(503).json({ ok: false, error: "Operational route secret is not configured" })
     }
 
-    const currentSeason = new Date().getUTCFullYear()
-    const historicalMeta = await redis.get("mlb:games:historical:meta")
-    const ratingsRange = await redis.get("mlb:ratings:historicalRange")
-    const startSeason = configuredStartSeason(ratingsRange, historicalMeta, currentSeason)
+    const currentSeason = Number(schedulerWindow.dateKey.slice(0, 4)) - (closeout && month <= 2 ? 1 : 0)
+    const [historicalMeta, ratingsRange, previousRatingsMeta] = await Promise.all([
+      redis.get("mlb:games:historical:meta"),
+      redis.get("mlb:ratings:historicalRange"),
+      redis.get("mlb:ratings:teams:meta")
+    ])
+    const startSeason = configuredStartSeason(ratingsRange ?? previousRatingsMeta, historicalMeta, currentSeason)
     console.info("[runWeeklyRatingsRefresh] refreshing current-season historical games", {
       currentSeason,
       configuredRange: { startSeason, endSeason: currentSeason },
       trigger: force ? "manual" : "cron"
     })
 
-    const historical = await invokeOperationalHandler(loadHistoricalHandler, {
-      startSeason: String(currentSeason),
-      endSeason: String(currentSeason)
-    }, operationalSecret)
+    const seasonRange = { startSeason: String(currentSeason), endSeason: String(currentSeason) }
+    if (closeout === "preview") {
+      const preview = await invokeOperationalHandler(loadHistoricalHandler, {
+        ...seasonRange, dryRun: "true"
+      }, operationalSecret)
+      return res.status(preview.statusCode).json({
+        ok: preview.statusCode < 400,
+        closeout,
+        season: currentSeason,
+        historical: preview.body
+      })
+    }
 
-    if (historical.statusCode >= 400) {
+    const historical = await invokeOperationalHandler(loadHistoricalHandler, seasonRange, operationalSecret)
+    const previousCloseout = !closeout && month === 3 && historical.body?.code === "NO_HISTORICAL_FINALS"
+      ? await redis.get(`mlb:seasonSummary:${currentSeason - 1}`)
+      : null
+    const ratingsEndSeason = previousCloseout?.season === currentSeason - 1 ? currentSeason - 1 : currentSeason
+
+    if (historical.statusCode >= 400 && ratingsEndSeason === currentSeason) {
       console.error("[runWeeklyRatingsRefresh] historical load failed; ratings build not started", {
         currentSeason,
         statusCode: historical.statusCode,
@@ -133,7 +161,7 @@ export default async function handler(req, res) {
 
     const ratings = await invokeOperationalHandler(buildRatingsHandler, {
       startSeason: String(startSeason),
-      endSeason: String(currentSeason)
+      endSeason: String(ratingsEndSeason)
     }, operationalSecret)
 
     if (ratings.statusCode >= 400) {
@@ -162,7 +190,7 @@ export default async function handler(req, res) {
     const metadataVerified = Boolean(
       storedMetadata &&
       storedMetadata.generatedAt === ratings.body?.metadata?.generatedAt &&
-      Number(storedMetadata.season) === currentSeason &&
+      Number(storedMetadata.season) === ratingsEndSeason &&
       Number(storedMetadata.startSeason) === startSeason &&
       Number(storedMetadata.gamesProcessed) === Number(ratings.body?.gamesProcessed) &&
       storedRatingsCount > 0 &&
@@ -191,9 +219,37 @@ export default async function handler(req, res) {
     // advance it after both writes above have been read back and verified.
     await redis.set("mlb:ratings:historicalRange", {
       startSeason,
-      endSeason: currentSeason,
+      endSeason: ratingsEndSeason,
       updatedAt: new Date().toISOString()
     })
+
+    let seasonSummary = null
+    if (closeout) {
+      const storedFinals = await redis.get(`mlb:games:historical:${currentSeason}`)
+      if (!Array.isArray(storedFinals) || storedFinals.length !== historical.body.gamesCollected ||
+          storedMetadata.dataThrough !== historical.body.comparisons[0].latestOfficialDate) {
+        return res.status(502).json({ ok: false, stoppedAfter: "historicalVerification", season: currentSeason })
+      }
+      const evaluation = await invokeOperationalHandler(evaluatePredictionsHandler, {}, operationalSecret, {
+        dateFrom: `${currentSeason}-03-01`,
+        dateTo: `${currentSeason}-11-30`,
+        persist: false
+      })
+      if (evaluation.statusCode >= 400 || !evaluation.body?.ok) {
+        return res.status(502).json({ ok: false, stoppedAfter: "evaluation", season: currentSeason })
+      }
+
+      seasonSummary = {
+        season: currentSeason,
+        ratings: storedRatings,
+        ratingsGeneratedAt: storedMetadata.generatedAt,
+        dataThrough: storedMetadata.dataThrough,
+        finalGames: historical.body.gamesCollected,
+        evaluation: evaluation.body.aggregate,
+        unmatched: evaluation.body.unmatchedStats.byReason
+      }
+      await redis.set(`mlb:seasonSummary:${currentSeason}`, seasonSummary)
+    }
 
     const durationMs = Date.now() - startedAtMs
 
@@ -202,6 +258,7 @@ export default async function handler(req, res) {
       gamesLoaded: historical.body?.gamesCollected,
       ratingsGeneratedAt: storedMetadata.generatedAt,
       latestSeasonIncluded: storedMetadata.season,
+      ...(ratingsEndSeason !== currentSeason ? { preseason: true } : {}),
       ratingsCount: storedRatingsCount,
       durationMs
     })
@@ -218,8 +275,10 @@ export default async function handler(req, res) {
       ratingsBuild: ratings.body,
       ratingsGeneratedAt: storedMetadata.generatedAt,
       latestSeasonIncluded: storedMetadata.season,
+      ...(ratingsEndSeason !== currentSeason ? { preseason: true } : {}),
       ratingsCount: storedRatingsCount,
-      metadataVerified: true
+      metadataVerified: true,
+      ...(seasonSummary ? { seasonSummary } : {})
     })
   } catch (error) {
     console.error("[runWeeklyRatingsRefresh] unexpected failure", { message: error.message })

@@ -109,6 +109,13 @@ export default async function handler(req, res) {
       fetchedAt: gamesStatus.gamesMeta?.fetchedAt || null
     })
 
+    if (gamesStatus.gamesCount === 0 && gamesStatus.cachedDateKey === gamesStatus.todayDateKey) {
+      return res.status(200).json({
+        ok: true, skipped: true, code: "EMPTY_SLATE",
+        reason: "No eligible MLB games today", todayDateKey: gamesStatus.todayDateKey
+      })
+    }
+
     const pipeline = [
       // Validate free/cached model prerequisites before spending Odds API quota.
       {

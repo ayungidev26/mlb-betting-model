@@ -2,7 +2,7 @@
 import { redis } from "../../lib/upstash.js"
 import { requireOperationalRouteAccess } from "../../lib/apiSecurity.js"
 import { sendRouteError } from "../../lib/apiErrors.js"
-import { buildMatchKey } from "../../lib/matchKey.js"
+import { historicalDate, prepareHistoricalEvaluation } from "../../lib/historicalGames.js"
 import { evaluatePredictions, expandDateRangeInclusive } from "../../lib/evaluation.js"
 
 function parsePersist(rawPersist) {
@@ -95,24 +95,6 @@ function getSeasonFromDate(dateKey) {
   return Number.parseInt(String(dateKey).slice(0, 4), 10)
 }
 
-function normalizeFinalResultRecord(record) {
-  const explicitMatchKey = record?.matchKey
-
-  if (explicitMatchKey) {
-    return {
-      ...record,
-      matchKey: explicitMatchKey
-    }
-  }
-
-  const computedMatchKey = buildMatchKey(record?.date, record?.awayTeam, record?.homeTeam)
-
-  return {
-    ...record,
-    matchKey: computedMatchKey
-  }
-}
-
 /**
  * Operational endpoint that evaluates stored daily predictions against historical finals.
  *
@@ -176,18 +158,24 @@ export default async function handler(req, res) {
     }
 
     const perDay = []
+    const archivedPredictions = new Map()
+    const readBatchSize = 20
+    for (let offset = 0; offset < parsedDateRange.dates.length; offset += readBatchSize) {
+      const batch = parsedDateRange.dates.slice(offset, offset + readBatchSize)
+      const predictions = await Promise.all(batch.map(date => redis.get(`mlb:predictions:${date}`)))
+      batch.forEach((date, index) => archivedPredictions.set(date, predictions[index]))
+    }
 
     for (const dateKey of parsedDateRange.dates) {
       const season = getSeasonFromDate(dateKey)
       const seasonResults = historicalBySeason.get(season) || []
       const dateResults = seasonResults
-        .filter((game) => typeof game?.date === "string" && game.date.slice(0, 10) === dateKey)
-        .map(normalizeFinalResultRecord)
+        .filter((game) => historicalDate(game) === dateKey)
 
-      const predictions = await redis.get(`mlb:predictions:${dateKey}`)
-      const normalizedPredictions = Array.isArray(predictions) ? predictions.map((prediction) => ({ ...prediction })) : []
+      const predictions = archivedPredictions.get(dateKey)
+      const inputs = prepareHistoricalEvaluation(Array.isArray(predictions) ? predictions : [], dateResults)
 
-      const evaluation = evaluatePredictions(normalizedPredictions, dateResults)
+      const evaluation = evaluatePredictions(inputs.predictions, inputs.finals)
       const unmatchedStats = summarizeUnmatched(evaluation.unmatchedRecords)
 
       aggregate.gamesPredicted += evaluation.metrics.gamesPredicted

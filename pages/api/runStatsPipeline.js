@@ -92,7 +92,8 @@ export default async function handler(req, res) {
     const pipeline = [
       {
         name: "fetchGames",
-        handler: fetchGamesHandler
+        handler: fetchGamesHandler,
+        stopWhen: result => result?.gamesToday === 0
       },
       {
         name: "fetchPitcherStats",
@@ -111,6 +112,13 @@ export default async function handler(req, res) {
     const result = await runRoutePipeline(pipeline, req, {
       logContext: "runStatsPipeline"
     })
+
+    if (result.stoppedAfter === "fetchGames") {
+      return res.status(200).json({
+        ok: true, skipped: true, reason: "No eligible MLB games today",
+        code: "EMPTY_SLATE", dateKey, completedSteps: result.completedSteps, steps: result.steps
+      })
+    }
 
     if (!result.ok) {
       if (!force) {

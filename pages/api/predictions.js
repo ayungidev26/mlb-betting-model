@@ -1,3 +1,4 @@
+import { getEasternDateKey } from "../../lib/cronSchedule.js"
 import { redis } from "../../lib/upstash.js"
 import { getCachedPredictions } from "../../lib/cachedPredictions.js"
 
@@ -10,6 +11,13 @@ export default async function handler(req, res) {
   }
 
   try {
+    const slate = await redis.get("mlb:games:today:meta").catch(() => null)
+    if (slate?.dateKey === getEasternDateKey() && slate.gamesToday === 0) {
+      return res.status(200).json({
+        predictions: [], metadata: null,
+        summary: { predictionsCreated: 0, message: "No eligible MLB games today." }
+      })
+    }
     const predictions = await getCachedPredictions(redis)
     let metadata = null
     try { metadata = await redis.get("mlb:predictions:today:meta") } catch { /* legacy/mock cache */ }
