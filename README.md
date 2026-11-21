@@ -735,3 +735,29 @@ ruby -e "require 'yaml'; YAML.load_file('.github/workflows/schedule-pipeline.yml
 ## Disclaimer
 
 This project is for educational and analytical use. Sports betting carries financial risk—use responsibly and comply with local laws.
+
+## Offseason operations
+
+Run **Weekly Ratings Refresh** from GitHub Actions and choose `preview` first. The
+summary reports stored and upstream final-game counts, the last official date,
+and how many games are missing from each side. Use `apply` to refresh the
+completed season after reviewing the preview. Apply checks for unexpected
+removals again, rebuilds Elo using the configured historical range, evaluates
+archived predictions without replacing daily evaluation records, and publishes
+`mlb:seasonSummary:<season>` for the dashboard. In January and February the
+closeout targets the previous calendar year. A regular `refresh` updates Elo
+without rewriting a verified season recap.
+
+On a confirmed empty slate, the daily scheduler skips pitcher, bullpen, offense,
+model, and odds work. From November through February the dashboard uses the
+verified season recap. **Season Readiness** checks production configuration,
+Redis access, and the MLB schedule weekly over the offseason. March checks also
+verify the completed-season snapshot and Baseball Savant, and refresh stale Elo
+when needed. Run the workflow manually with `check_odds` enabled to make one
+Odds API request and verify provider access.
+
+The market pipeline keeps timestamped pregame snapshots under
+`mlb:pregame:v2|mlb|<gamePk>:<capturedAt>`, including the deployment commit when
+available, win probabilities, captured sportsbook odds, and edge. The archive
+starts with the first successful post-deployment market refresh. Missing older
+snapshots require historical inputs and should be labeled as backtests.

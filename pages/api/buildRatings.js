@@ -1,5 +1,6 @@
 // Data contract reference: see docs/data-contracts.md for canonical Game, OddsRecord, Prediction, Edge, and matchKey shapes.
 import { redis } from "../../lib/upstash.js"
+import { historicalDate } from "../../lib/historicalGames.js"
 import { calculateElo } from "../../model/eloRatings.js"
 import { requireOperationalRouteAccess } from "../../lib/apiSecurity.js"
 import { sendRouteError } from "../../lib/apiErrors.js"
@@ -127,7 +128,7 @@ export default async function handler(req, res) {
     const ratings = calculateElo(allGames)
 
     const dataThrough = allGames.reduce((latest, game) => {
-      const dateKey = typeof game?.date === "string" ? game.date.slice(0, 10) : ""
+      const dateKey = historicalDate(game) || ""
       return dateKey > latest ? dateKey : latest
     }, "")
     const ratingsMeta = {

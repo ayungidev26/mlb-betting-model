@@ -1116,6 +1116,7 @@ test("loadHistorical ingests a custom season range including 2026 and writes met
             dates: [{
               games: [
                 {
+                  gamePk: 101,
                   gameDate: "2025-07-01T23:00:00Z",
                   gameType: "R",
                   status: { detailedState: "Final" },
@@ -1125,6 +1126,7 @@ test("loadHistorical ingests a custom season range including 2026 and writes met
                   }
                 },
                 {
+                  gamePk: 102,
                   gameDate: "2025-03-05T18:00:00Z",
                   gameType: "S",
                   status: { detailedState: "Final" },
@@ -1134,6 +1136,7 @@ test("loadHistorical ingests a custom season range including 2026 and writes met
                   }
                 },
                 {
+                  gamePk: 103,
                   gameDate: "2025-07-02T23:00:00Z",
                   gameType: "R",
                   status: { detailedState: "Final" },
@@ -1154,6 +1157,7 @@ test("loadHistorical ingests a custom season range including 2026 and writes met
             dates: [{
               games: [
                 {
+                  gamePk: 104,
                   gameDate: "2026-04-01T17:10:00Z",
                   gameType: "R",
                   status: { detailedState: "Final" },
@@ -1163,6 +1167,7 @@ test("loadHistorical ingests a custom season range including 2026 and writes met
                   }
                 },
                 {
+                  gamePk: 105,
                   gameDate: "2026-04-02T17:10:00Z",
                   gameType: "R",
                   status: { detailedState: "In Progress" },
@@ -1172,6 +1177,7 @@ test("loadHistorical ingests a custom season range including 2026 and writes met
                   }
                 },
                 {
+                  gamePk: 106,
                   gameDate: "2026-04-03T17:10:00Z",
                   gameType: "R",
                   status: { detailedState: "Final" },

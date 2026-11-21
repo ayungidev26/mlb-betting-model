@@ -2,6 +2,8 @@
 import { redis } from "../../lib/upstash.js"
 import { requireOperationalRouteAccess } from "../../lib/apiSecurity.js"
 import { sendRouteError } from "../../lib/apiErrors.js"
+import { collectHistoricalFinals, compareHistoricalFinals } from "../../lib/historicalGames.js"
+import { validateExternalMlbSchedulePayload } from "../../lib/payloadValidation.js"
 import { fetchJsonWithRetry } from "../../lib/upstreamFetch.js"
 import {
   enforceCooldown,
@@ -73,7 +75,9 @@ export default async function handler(req, res) {
       return
     }
 
-    if (!await enforceCooldown(res, redis, LOAD_HISTORICAL_COOLDOWN)) {
+    const dryRun = req?.query?.dryRun === "true"
+
+    if (!dryRun && !await enforceCooldown(res, redis, LOAD_HISTORICAL_COOLDOWN)) {
       return
     }
 
@@ -136,90 +140,40 @@ export default async function handler(req, res) {
 
     const seasons = buildSeasonRange(startSeason, endSeason)
 
-    const MLB_TEAMS = [
-      "Arizona Diamondbacks",
-      "Atlanta Braves",
-      "Baltimore Orioles",
-      "Boston Red Sox",
-      "Chicago Cubs",
-      "Chicago White Sox",
-      "Cincinnati Reds",
-      "Cleveland Guardians",
-      "Colorado Rockies",
-      "Detroit Tigers",
-      "Houston Astros",
-      "Kansas City Royals",
-      "Los Angeles Angels",
-      "Los Angeles Dodgers",
-      "Miami Marlins",
-      "Milwaukee Brewers",
-      "Minnesota Twins",
-      "New York Mets",
-      "New York Yankees",
-      "Athletics",
-      "Oakland Athletics",
-      "Philadelphia Phillies",
-      "Pittsburgh Pirates",
-      "San Diego Padres",
-      "San Francisco Giants",
-      "Seattle Mariners",
-      "St. Louis Cardinals",
-      "Tampa Bay Rays",
-      "Texas Rangers",
-      "Toronto Blue Jays",
-      "Washington Nationals"
-    ]
-
     let totalGames = 0
     const seasonGamesByKey = new Map()
+    const comparisons = []
 
     for (const season of seasons) {
-      const url =
-        `https://statsapi.mlb.com/api/v1/schedule?sportId=1&season=${season}`
-
+      const url = `https://statsapi.mlb.com/api/v1/schedule?sportId=1&season=${season}`
       const data = await fetchJsonWithRetry(url)
-      const seasonGames = []
-
-      if (!data.dates) {
-        seasonGamesByKey.set(`mlb:games:historical:${season}`, seasonGames)
-        continue
+      validateExternalMlbSchedulePayload(data)
+      const seasonGames = collectHistoricalFinals(data, season)
+      const key = `mlb:games:historical:${season}`
+      const previous = await redis.get(key)
+      const comparison = compareHistoricalFinals(previous, seasonGames, season, data)
+      comparisons.push(comparison)
+      if (!dryRun && comparison.missingFromSource.length > 0) {
+        return res.status(409).json({
+          error: "Historical refresh would remove stored games",
+          code: "HISTORICAL_COVERAGE_REGRESSION",
+          comparison
+        })
       }
-
-      for (const date of data.dates) {
-        for (const game of date.games) {
-          // Only final games
-          if (game.status.detailedState !== "Final") continue
-
-          // Ignore spring training
-          if (game.gameType === "S") continue
-
-          const homeTeam = game.teams.home.team.name
-          const awayTeam = game.teams.away.team.name
-
-          // Ignore non-MLB teams
-          if (!MLB_TEAMS.includes(homeTeam)) continue
-          if (!MLB_TEAMS.includes(awayTeam)) continue
-
-          let seasonType = "regular"
-
-          if (["P","F","D","L","W"].includes(game.gameType)) {
-            seasonType = "playoffs"
-          }
-
-          seasonGames.push({
-            season: season,
-            date: game.gameDate,
-            homeTeam: homeTeam,
-            awayTeam: awayTeam,
-            homeScore: game.teams.home.score,
-            awayScore: game.teams.away.score,
-            seasonType: seasonType
-          })
-        }
-      }
-
-      seasonGamesByKey.set(`mlb:games:historical:${season}`, seasonGames)
+      seasonGamesByKey.set(key, seasonGames)
       totalGames += seasonGames.length
+    }
+
+    if (dryRun) {
+      return res.status(200).json({ dryRun, gamesCollected: totalGames, comparisons, keysWritten: [] })
+    }
+
+    if (totalGames === 0 && seasons.length === 1) {
+      return res.status(409).json({
+        error: "MLB returned no eligible completed games for this season",
+        code: "NO_HISTORICAL_FINALS",
+        comparisons
+      })
     }
 
     for (const [key, seasonGames] of seasonGamesByKey.entries()) {
@@ -242,6 +196,7 @@ export default async function handler(req, res) {
     res.status(200).json({
       seasonsLoaded: seasons.length,
       gamesCollected: totalGames,
+      comparisons,
       seasonRange: {
         startSeason,
         endSeason

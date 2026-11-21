@@ -20,8 +20,6 @@ export default async function handler(req, res) {
   }
 
   try {
-    const ballparkFactorIndex = await getBallparkFactorIndex()
-
     const dateKey = getEasternDateKey()
 
     const url = buildMlbScheduleUrl(dateKey)
@@ -29,27 +27,6 @@ export default async function handler(req, res) {
     const data = await fetchJsonWithRetry(url)
 
     validateExternalMlbSchedulePayload(data)
-
-    if (data.dates.length === 0) {
-
-      await redis.set("mlb:games:today", [])
-      await redis.set("mlb:games:today:meta", {
-        fetchedAt: new Date().toISOString(),
-        dateKey,
-        gamesToday: 0
-      })
-
-      console.info("[fetchGames] cached today's games", {
-        dateKey,
-        gamesToday: 0
-      })
-
-      return res.status(200).json({
-        gamesToday: 0,
-        games: []
-      })
-
-    }
 
     const skippedByReason = {}
     const displayableGames = data.dates
@@ -62,6 +39,15 @@ export default async function handler(req, res) {
         return eligibility.eligible
       })
 
+    if (displayableGames.length === 0) {
+      await redis.set("mlb:games:today", [])
+      await redis.set("mlb:games:today:meta", {
+        fetchedAt: new Date().toISOString(), dateKey, gamesToday: 0, skippedByReason
+      })
+      return res.status(200).json({ gamesToday: 0, games: [], skippedByReason })
+    }
+
+    const ballparkFactorIndex = await getBallparkFactorIndex()
     const games = await Promise.all(displayableGames.map(async (game) => {
       const seasonType = classifyMlbGameType(game.gameType)
 

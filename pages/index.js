@@ -9,16 +9,21 @@ import {
 import {
   getGameBetType
 } from "../lib/gameFilters"
+import { loadEmptySlate } from "../lib/offseason"
 import { getSessionExpirationTimestamp, readSessionCookie } from "../lib/appAuth"
 
 export async function getServerSideProps(context) {
-  const response = await buildHomePageProps(() => loadHomePageData(context.req))
+  const emptySlate = await import("../lib/upstash")
+    .then(({ redis }) => loadEmptySlate(redis))
+    .catch(() => null)
+  const response = await buildHomePageProps(() => emptySlate ? { predictions: [] } : loadHomePageData(context.req))
   const sessionToken = readSessionCookie(context.req?.headers?.cookie || "")
 
   return {
     ...response,
     props: {
       ...response.props,
+      emptySlate,
       sessionExpiresAt: getSessionExpirationTimestamp(sessionToken)
     }
   }
@@ -766,6 +771,33 @@ function EmptyState({ message, isRefreshing }) {
   )
 }
 
+function EmptySlate({ season, closeout }) {
+  const standings = Object.entries(closeout?.ratings || {}).sort((a, b) => b[1] - a[1])
+  const evaluation = closeout?.evaluation
+  return (
+    <section className="emptyState" aria-labelledby="empty-slate-title">
+      <h2 className="emptyState__title" id="empty-slate-title">
+        {season ? `${season} season recap` : "No eligible MLB games today"}
+      </h2>
+      {closeout ? (
+        <>
+          <p>{closeout.finalGames} finals through {closeout.dataThrough}</p>
+          {evaluation && (
+            <p>
+              {evaluation.gamesMatchedToFinal} of {evaluation.gamesPredicted} archived predictions matched to a final.
+              {evaluation.gamesMatchedToFinal > 0 && ` Accuracy: ${formatPercent(evaluation.accuracy)}.`}
+            </p>
+          )}
+          <h3>Final team Elo</h3>
+          <ol style={{ textAlign: "left", display: "inline-block" }}>
+            {standings.map(([team, rating]) => <li key={team}>{team} · {Math.round(rating)}</li>)}
+          </ol>
+        </>
+      ) : season && <p>The verified season recap is pending.</p>}
+    </section>
+  )
+}
+
 async function fetchHomePageData() {
   const [predictionsResponse, edgesResponse] = await Promise.all([
     fetch("/api/predictions"),
@@ -787,7 +819,7 @@ async function fetchHomePageData() {
   })
 }
 
-export default function Home({ games = [], summary, freshness = null, error = "", sessionExpiresAt = null }) {
+export default function Home({ games = [], summary, freshness = null, error = "", sessionExpiresAt = null, emptySlate = null }) {
   const router = useRouter()
   const initialViewModel = useMemo(() => ({
     games: Array.isArray(games) ? games : [],
@@ -800,7 +832,7 @@ export default function Home({ games = [], summary, freshness = null, error = ""
 
   const [viewModel, setViewModel] = useState(initialViewModel)
   const [fetchState, setFetchState] = useState({
-    isLoading: initialViewModel.games.length === 0 && !error,
+    isLoading: initialViewModel.games.length === 0 && !error && !emptySlate,
     isRefreshing: false,
     error: error || ""
   })
@@ -811,11 +843,12 @@ export default function Home({ games = [], summary, freshness = null, error = ""
 
     setViewModel(initialViewModel)
     setFetchState({
-      isLoading: initialViewModel.games.length === 0 && !error,
+      isLoading: initialViewModel.games.length === 0 && !error && !emptySlate,
       isRefreshing: initialViewModel.games.length > 0,
       error: error || ""
     })
 
+    if (emptySlate) return
     fetchHomePageData()
       .then((nextViewModel) => {
         if (!isActive) {
@@ -846,7 +879,7 @@ export default function Home({ games = [], summary, freshness = null, error = ""
     return () => {
       isActive = false
     }
-  }, [initialViewModel, error])
+  }, [initialViewModel, error, emptySlate])
 
   const activeGames = Array.isArray(viewModel.games) ? viewModel.games : []
   const activeSummary = viewModel.summary || initialViewModel.summary
@@ -1135,7 +1168,9 @@ export default function Home({ games = [], summary, freshness = null, error = ""
       )}
 
       {!showInitialLoading && !fetchState.error && showEmptyState && (
-        <EmptyState message={activeSummary?.message} isRefreshing={fetchState.isRefreshing} />
+        emptySlate
+          ? <EmptySlate {...emptySlate} />
+          : <EmptyState message={activeSummary?.message} isRefreshing={fetchState.isRefreshing} />
       )}
 
       {!showInitialLoading && !fetchState.error && hasDisplayedGames && isGameModalOpen && selectedGameData && (
