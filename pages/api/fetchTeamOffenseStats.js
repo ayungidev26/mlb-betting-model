@@ -41,7 +41,10 @@ export default async function handler(req, res) {
       return
     }
 
-    const offenseStats = await fetchTeamOffenseStatsByTeam()
+    const now = new Date()
+    const dateKey = getEasternDateKey(now)
+    const season = Number(dateKey.slice(0, 4))
+    const offenseStats = await fetchTeamOffenseStatsByTeam(now, season)
     const games = await redis.get("mlb:games:today")
     const statsMeta = {
       ...validateStatsCandidate({ kind: "offense", candidate: offenseStats, games: Array.isArray(games) ? games : [] }),

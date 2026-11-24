@@ -1,3 +1,4 @@
+import { getStatsSeason, publishSeasonStats } from "../../lib/seasonStats.js"
 // Data contract reference: see docs/data-contracts.md for canonical Game, OddsRecord, Prediction, Edge, and matchKey shapes.
 import { redis } from "../../lib/upstash.js"
 import { getEasternDateKey } from "../../lib/cronSchedule.js"
@@ -65,7 +66,7 @@ async function mapWithConcurrency(items, concurrency, worker) {
   return results
 }
 
-async function fetchTeamPitchingStats() {
+async function fetchTeamPitchingStats(season) {
   const teamsUrl = "https://statsapi.mlb.com/api/v1/teams?sportId=1"
   const teamsData = await fetchJsonWithRetry(teamsUrl)
   const statsByTeam = await mapWithConcurrency(
@@ -74,7 +75,7 @@ async function fetchTeamPitchingStats() {
     async team => {
       try {
         const statsUrl =
-          `https://statsapi.mlb.com/api/v1/teams/${team.id}/stats?stats=season&group=pitching`
+          `https://statsapi.mlb.com/api/v1/teams/${team.id}/stats?stats=season&group=pitching&season=${season}`
 
         const statsData = await fetchJsonWithRetry(statsUrl)
         const stat = statsData.stats?.[0]?.splits?.[0]?.stat
@@ -340,6 +341,7 @@ function mergePitcherStats(cachedStats, refreshedStats) {
 
 async function useLastKnownGoodPitcherStats(redisClient, {
   games,
+  season,
   refreshError,
   refreshedStats = null
 }) {
@@ -352,6 +354,7 @@ async function useLastKnownGoodPitcherStats(redisClient, {
 
   if (
     !cachedStats?.byId ||
+    getStatsSeason(cachedMetadata) !== season ||
     cacheAgeMs === null ||
     cacheAgeMs < 0 ||
     cacheAgeMs > MAX_FALLBACK_CACHE_AGE_MS
@@ -377,6 +380,7 @@ async function useLastKnownGoodPitcherStats(redisClient, {
   const fallbackMetadata = {
     ...cachedMetadata,
     ...quality,
+    season,
     dateKey: getEasternDateKey(),
     generatedAt: new Date().toISOString(),
     lastUpdatedAt: new Date().toISOString(),
@@ -387,15 +391,7 @@ async function useLastKnownGoodPitcherStats(redisClient, {
     source: `${cachedMetadata.source || "statsapi.mlb.com"} (last-known-good fallback)`
   }
 
-  if (typeof redisClient.pipeline === "function") {
-    await redisClient.pipeline()
-      .set("mlb:stats:pitchers", fallbackStats)
-      .set("mlb:stats:pitchers:meta", fallbackMetadata)
-      .exec()
-  } else {
-    await redisClient.set("mlb:stats:pitchers", fallbackStats)
-    await redisClient.set("mlb:stats:pitchers:meta", fallbackMetadata)
-  }
+  await publishSeasonStats(redisClient, { kind: "pitchers", candidate: fallbackStats, metadata: fallbackMetadata })
 
   console.warn("fetchPitcherStats: serving recent last-known-good cache", {
     fallbackReason: fallbackMetadata.fallbackReason,
@@ -430,7 +426,8 @@ export default async function handler(req, res) {
       return
     }
 
-    const season = new Date().getUTCFullYear()
+    const dateKey = getEasternDateKey()
+    const season = Number(dateKey.slice(0, 4))
     const games = await redis.get("mlb:games:today")
     const currentGames = Array.isArray(games) ? games : []
 
@@ -445,7 +442,7 @@ export default async function handler(req, res) {
     try {
       [rawPitcherSplits, teamPitchingStats, savantPitcherStats] = await Promise.all([
         fetchAllPitchingStatSplits(season),
-        fetchTeamPitchingStats().catch(error => {
+        fetchTeamPitchingStats(season).catch(error => {
           console.warn(
             "fetchPitcherStats: unable to load team pitching context",
             error?.message || error
@@ -463,6 +460,7 @@ export default async function handler(req, res) {
     } catch (error) {
       const fallback = await useLastKnownGoodPitcherStats(redis, {
         games: currentGames,
+        season,
         refreshError: error
       })
       return res.status(200).json(fallback)
@@ -498,7 +496,7 @@ export default async function handler(req, res) {
     const statsMeta = {
       ...validateStatsCandidate({ kind: "pitchers", candidate: pitcherStats, games: currentGames, minimumPitchers: currentGames.length ? LOW_FETCHED_PITCHERS_THRESHOLD : 0 }),
       lastUpdatedAt: new Date().toISOString(),
-      dateKey: getEasternDateKey(),
+      dateKey,
       source: "statsapi.mlb.com + baseballsavant.mlb.com",
       version: pitcherStats.version,
       season,
@@ -519,6 +517,7 @@ export default async function handler(req, res) {
     if (!publication.published) {
       const fallback = await useLastKnownGoodPitcherStats(redis, {
         games: currentGames,
+        season,
         refreshError: createPitcherQualityError(statsMeta),
         refreshedStats: pitcherStats
       })

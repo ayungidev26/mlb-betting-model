@@ -4,14 +4,32 @@ import SeasonRecap from "../components/SeasonRecap"
 
 export async function getServerSideProps({ query, res }) {
   res.setHeader("Cache-Control", "private, no-store")
-  const season = typeof query.season === "string" && /^20[0-9]{2}$/.test(query.season) ? Number(query.season) : null
-  if (!season) return { props: { season: null, closeout: null } }
-
-  const [{ redis }, { loadSeasonCloseout }] = await Promise.all([
+  const [{ redis }, { loadSeasonCloseout }, { loadStatsSeason, parseStatsSeason }, { getEasternDateKey }] = await Promise.all([
     import("../lib/upstash"),
-    import("../lib/offseason")
+    import("../lib/offseason"),
+    import("../lib/seasonStats"),
+    import("../lib/cronSchedule")
   ])
-  return { props: { season, closeout: await loadSeasonCloseout(redis, season) } }
+  const currentSeason = Number(getEasternDateKey().slice(0, 4))
+  const requestedSeason = parseStatsSeason(query.season)
+  if (query.season != null && (!requestedSeason || requestedSeason > currentSeason)) {
+    return { redirect: { destination: "/stats", permanent: false } }
+  }
+
+  try {
+    const stats = await loadStatsSeason(redis, requestedSeason, currentSeason)
+    const closeout = await loadSeasonCloseout(redis, stats.season)
+    return { props: { stats, closeout } }
+  } catch {
+    const season = requestedSeason ?? currentSeason
+    const seasons = Array.from({ length: Math.max(1, currentSeason - 2026 + 1) }, (_, index) => currentSeason - index)
+    return {
+      props: {
+        stats: { season, seasons: [...new Set([...seasons, season])], sections: {}, error: "Stats cache is currently unavailable." },
+        closeout: null
+      }
+    }
+  }
 }
 
 const SECTION_ORDER = [
@@ -112,24 +130,6 @@ function formatDateTime(value) {
   return `${datePart} at ${timePart} ET`
 }
 
-function formatSlateLoadedAt(value) {
-  if (!value) {
-    return "Not loaded"
-  }
-
-  const parsed = new Date(value)
-
-  if (Number.isNaN(parsed.getTime())) {
-    return "Not loaded"
-  }
-
-  return `${parsed.toLocaleTimeString("en-US", {
-    hour: "numeric",
-    minute: "2-digit",
-    hour12: true,
-    timeZone: "America/New_York"
-  })} ET`
-}
 
 function flattenRecord(record, prefix = "") {
   if (!record || typeof record !== "object" || Array.isArray(record)) {
@@ -530,92 +530,28 @@ function StatsSection({ title, sectionKey, section, query }) {
   )
 }
 
-export default function StatsPage({ season, closeout }) {
+export default function StatsPage({ stats: state, closeout }) {
   const router = useRouter()
+  const { season, seasons } = state
   const [query, setQuery] = useState("")
-  const [activeTab, setActiveTab] = useState(DEFAULT_TAB)
-  const [state, setState] = useState({
-    loading: true,
-    error: "",
-    sections: {},
-    pitchersFetched: null,
-    pitchersSaved: null,
-    todaySlateFetchedAt: null
-  })
+  const activeTab = normalizeTabKey(Array.isArray(router.query.tab) ? router.query.tab[0] : router.query.tab)
 
-  useEffect(() => {
-    if (!router.isReady) {
-      return
-    }
-
-    const tabFromQuery = Array.isArray(router.query?.tab) ? router.query.tab[0] : router.query?.tab
-    setActiveTab(normalizeTabKey(tabFromQuery))
-  }, [router.isReady, router.query?.tab])
-
-  const setTab = (tabKey) => {
-    const nextTab = normalizeTabKey(tabKey)
-
-    setActiveTab(nextTab)
+  function setTab(tabKey) {
     setQuery("")
-
-    const nextQuery = {
-      ...router.query,
-      tab: nextTab
-    }
-
     router.replace(
-      {
-        pathname: router.pathname,
-        query: nextQuery
-      },
+      { pathname: "/stats", query: { ...router.query, tab: normalizeTabKey(tabKey) } },
       undefined,
       { shallow: true, scroll: false }
     )
   }
 
-  useEffect(() => {
-    let active = true
-
-    fetch("/api/stats")
-      .then(async (response) => {
-        if (!response.ok) {
-          throw new Error("Stats cache is currently unavailable.")
-        }
-
-        const payload = await response.json()
-
-        if (!active) {
-          return
-        }
-
-        setState({
-          loading: false,
-          error: "",
-          sections: payload?.sections || {},
-          pitchersFetched: Number.isFinite(Number(payload?.pitchersFetched)) ? Number(payload?.pitchersFetched) : null,
-          pitchersSaved: Number.isFinite(Number(payload?.pitchersSaved)) ? Number(payload?.pitchersSaved) : null,
-          todaySlateFetchedAt: payload?.todaySlateFetchedAt || null
-        })
-      })
-      .catch((error) => {
-        if (!active) {
-          return
-        }
-
-        setState({
-          loading: false,
-          error: error instanceof Error ? error.message : "Stats cache is currently unavailable.",
-          sections: {},
-          pitchersFetched: null,
-          pitchersSaved: null,
-          todaySlateFetchedAt: null
-        })
-      })
-
-    return () => {
-      active = false
-    }
-  }, [])
+  function selectSeason(event) {
+    setQuery("")
+    router.push({
+      pathname: "/stats",
+      query: { season: event.target.value, tab: activeTab }
+    }, undefined, { scroll: false })
+  }
 
   const hasAnySection = useMemo(
     () => SECTION_ORDER.some(({ key }) => Boolean(state.sections?.[key]?.data)),
@@ -667,18 +603,16 @@ export default function StatsPage({ season, closeout }) {
         </button>
       </nav>
 
-      {season && (
-        <div className="shellCard">
-          <SeasonRecap season={season} closeout={closeout} />
-        </div>
-      )}
-
       <section className="shellCard statsOverview">
-        <p className="eyebrow">Model input inspection</p>
-        <p className="statsOverview__copy">Read-only view of the latest cached starting pitcher, bullpen, and offense inputs used by the model.</p>
-        <p className="statsOverview__copy statsOverview__copy--meta">
-          Today&apos;s slate loaded at: {formatSlateLoadedAt(state.todaySlateFetchedAt)}
-        </p>
+        <div className="seasonHeader">
+          <h2>{season} MLB Stats</h2>
+          <label htmlFor="stats-season">Season
+            <select id="stats-season" value={season} onChange={selectSeason}>
+              {seasons.map(year => <option key={year} value={year}>{year}</option>)}
+            </select>
+          </label>
+        </div>
+        <p className="statsOverview__copy">Starting pitcher, bullpen, and team offense stats used by the model for the selected season.</p>
         <div className="statsOverview__grid">
           {SECTION_ORDER.map((section) => {
             const details = state.sections?.[section.key]
@@ -706,10 +640,15 @@ export default function StatsPage({ season, closeout }) {
         </div>
       </section>
 
-      {state.loading && <p className="notice notice--info">Loading cached stats from Redis…</p>}
-      {!state.loading && state.error && <p className="notice notice--error">{state.error}</p>}
+      {closeout && (
+        <div className="shellCard">
+          <SeasonRecap season={season} closeout={closeout} />
+        </div>
+      )}
 
-      {!state.loading && !state.error && (
+      {state.error && <p className="notice notice--error">{state.error}</p>}
+
+      {!state.error && hasAnySection && (
         <section className="shellCard boardSection">
           <div className="searchRow">
             <label htmlFor="stats-query" className="filterControl__label">Search by pitcher/team/metric</label>
@@ -725,16 +664,16 @@ export default function StatsPage({ season, closeout }) {
         </section>
       )}
 
-      {!state.loading && !state.error && !hasAnySection && (
+      {!state.error && !hasAnySection && (
         <section className="emptyState shellCard">
-          <h2 className="emptyState__title">No cached stats found yet</h2>
-          <p className="emptyState__copy">Run the stats pipeline to populate Redis keys: mlb:stats:pitchers, mlb:stats:bullpen, and mlb:stats:offense.</p>
+          <h2 className="emptyState__title">No stats available for {season}</h2>
+          <p className="emptyState__copy">Stats will appear after a refresh saves data for this season.</p>
         </section>
       )}
 
-      {!state.loading && !state.error && hasAnySection && (
+      {!state.error && hasAnySection && (
         <StatsSection
-          key={activeSection.key}
+          key={`${season}-${activeSection.key}`}
           sectionKey={activeSection.key}
           section={state.sections?.[activeSection.key]}
           title={activeSection.title}
@@ -780,7 +719,10 @@ export default function StatsPage({ season, closeout }) {
         .actionRow { display: flex; gap: 10px; flex-wrap: wrap; margin: 6px 0 8px; }
         .statsOverview { display: grid; gap: 16px; }
         .statsOverview__copy { margin: 0; color: #cbd5e1; }
-        .statsOverview__copy--meta { color: #94a3b8; font-size: 0.92rem; }
+        .seasonHeader { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; }
+        .seasonHeader h2 { margin: 0; }
+        .seasonHeader label { display: flex; align-items: center; gap: 10px; }
+        .seasonHeader select { padding: 8px 12px; color: #e2e8f0; background: #17243a; border: 1px solid #64748b; border-radius: 8px; font: inherit; }
         .statsOverview__grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; }
         .eyebrow { margin: 0 0 8px; text-transform: uppercase; font-size: 0.75rem; letter-spacing: 0.08em; color: #93c5fd; }
         .statCard {
