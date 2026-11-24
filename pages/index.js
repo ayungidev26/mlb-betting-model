@@ -2,28 +2,23 @@ import { useCallback, useEffect, useMemo, useState } from "react"
 import { useRouter } from "next/router"
 
 import {
-  buildHomePageProps,
-  buildHomePageViewModel,
-  loadHomePageData
-} from "../lib/homePageProps"
-import {
   getGameBetType
 } from "../lib/gameFilters"
-import { loadEmptySlate } from "../lib/offseason"
+import { getEasternDateKey } from "../lib/cronSchedule"
 import { getSessionExpirationTimestamp, readSessionCookie } from "../lib/appAuth"
 
 export async function getServerSideProps(context) {
-  const emptySlate = await import("../lib/upstash")
-    .then(({ redis }) => loadEmptySlate(redis))
-    .catch(() => null)
-  const response = await buildHomePageProps(() => emptySlate ? { predictions: [] } : loadHomePageData(context.req))
+  context.res.setHeader("Cache-Control", "private, no-store")
+  const [{ redis }, { loadDashboardSlate }] = await Promise.all([
+    import("../lib/upstash"),
+    import("../lib/dashboardSlate")
+  ])
+  const dashboard = await loadDashboardSlate(redis)
   const sessionToken = readSessionCookie(context.req?.headers?.cookie || "")
 
   return {
-    ...response,
     props: {
-      ...response.props,
-      emptySlate,
+      dashboard,
       sessionExpiresAt: getSessionExpirationTimestamp(sessionToken)
     }
   }
@@ -125,8 +120,9 @@ function formatGameTimeEastern(value) {
   })} ET`
 }
 
-function formatTodayHeadingDate(value = new Date()) {
-  return new Date(value).toLocaleDateString("en-US", {
+function formatTodayHeadingDate(dateKey) {
+  return new Date(dateKey).toLocaleDateString("en-US", {
+    timeZone: "UTC",
     month: "long",
     day: "numeric",
     year: "numeric"
@@ -720,39 +716,6 @@ function GameDetailCard({ game, edgeTier, recommendedSide, betType, index = 0 })
   )
 }
 
-function LoadingSkeleton({ count = 3 }) {
-  return (
-    <section className="gamesGrid" aria-label="Loading predictions">
-      {Array.from({ length: count }, (_, index) => (
-        <article className="gameCard gameCard--loading" key={`loading-${index}`} aria-hidden="true">
-          <div className="gameCard__header">
-            <div className="skeletonBlock skeletonBlock--title" />
-            <div className="skeletonPill" />
-          </div>
-
-          <div className="gameCard__body">
-            {Array.from({ length: 3 }, (_, columnIndex) => (
-              <section className="contentBlock" key={`loading-column-${columnIndex}`}>
-                <div className="skeletonBlock skeletonBlock--label" />
-                <div className="skeletonPanel">
-                  <div className="skeletonBlock skeletonBlock--lineShort" />
-                  <div className="skeletonBlock skeletonBlock--line" />
-                  <div className="skeletonBlock skeletonBlock--lineMuted" />
-                </div>
-                <div className="skeletonPanel">
-                  <div className="skeletonBlock skeletonBlock--lineShort" />
-                  <div className="skeletonBlock skeletonBlock--line" />
-                  <div className="skeletonBlock skeletonBlock--lineMuted" />
-                </div>
-              </section>
-            ))}
-          </div>
-        </article>
-      ))}
-    </section>
-  )
-}
-
 function EmptyState({ message, isRefreshing }) {
   return (
     <section className="emptyState" aria-live="polite">
@@ -771,16 +734,22 @@ function EmptyState({ message, isRefreshing }) {
   )
 }
 
-function EmptySlate({ season, closeout }) {
+function EmptySlate({ status, season, closeout }) {
   const standings = Object.entries(closeout?.ratings || {}).sort((a, b) => b[1] - a[1])
   const evaluation = closeout?.evaluation
   return (
     <section className="emptyState" aria-labelledby="empty-slate-title">
       <h2 className="emptyState__title" id="empty-slate-title">
-        {season ? `${season} season recap` : "No eligible MLB games today"}
+        {{
+          offseason: "MLB offseason",
+          empty: "No MLB games scheduled today",
+          ineligible: "No eligible MLB games today",
+          unavailable: "Today’s MLB schedule is unavailable"
+        }[status]}
       </h2>
       {closeout ? (
         <>
+          <h3>{season} season recap</h3>
           <p>{closeout.finalGames} finals through {closeout.dataThrough}</p>
           {evaluation && (
             <p>
@@ -798,91 +767,65 @@ function EmptySlate({ season, closeout }) {
   )
 }
 
-async function fetchHomePageData() {
-  const [predictionsResponse, edgesResponse] = await Promise.all([
-    fetch("/api/predictions"),
-    fetch("/api/edges")
-  ])
-
-  if (!predictionsResponse.ok || !edgesResponse.ok) {
-    throw new Error("Cached predictions are currently unavailable.")
-  }
-
-  const [predictionsPayload, edgesPayload] = await Promise.all([
-    predictionsResponse.json(),
-    edgesResponse.json()
-  ])
-
-  return buildHomePageViewModel({
-    predictions: predictionsPayload?.predictions,
-    edges: edgesPayload?.edges
-  })
-}
-
-export default function Home({ games = [], summary, freshness = null, error = "", sessionExpiresAt = null, emptySlate = null }) {
+export default function Home({ dashboard, sessionExpiresAt = null }) {
   const router = useRouter()
-  const initialViewModel = useMemo(() => ({
-    games: Array.isArray(games) ? games : [],
-    summary: summary || {
-      predictionsCreated: 0,
-      recommendedBets: 0,
-      message: "No cached predictions are available yet."
-    }
-  }), [games, summary])
-
-  const [viewModel, setViewModel] = useState(initialViewModel)
-  const [fetchState, setFetchState] = useState({
-    isLoading: initialViewModel.games.length === 0 && !error && !emptySlate,
-    isRefreshing: false,
-    error: error || ""
-  })
+  const [viewModel, setViewModel] = useState(dashboard)
+  const [isRefreshing, setIsRefreshing] = useState(false)
   const [selectedGameIdentifier, setSelectedGameIdentifier] = useState(null)
 
   useEffect(() => {
-    let isActive = true
+    let request
+    let dateKey = dashboard.dateKey
+    setViewModel(dashboard)
 
-    setViewModel(initialViewModel)
-    setFetchState({
-      isLoading: initialViewModel.games.length === 0 && !error && !emptySlate,
-      isRefreshing: initialViewModel.games.length > 0,
-      error: error || ""
-    })
+    async function refresh() {
+      request?.abort()
+      const controller = new AbortController()
+      request = controller
+      setIsRefreshing(true)
 
-    if (emptySlate) return
-    fetchHomePageData()
-      .then((nextViewModel) => {
-        if (!isActive) {
-          return
+      try {
+        const response = await fetch("/api/dashboard", { signal: controller.signal, cache: "no-store" })
+        if (!response.ok) throw new Error("Dashboard refresh failed")
+        const next = await response.json()
+        if (next.dateKey !== getEasternDateKey()) throw new Error("Dashboard date changed")
+        if (!controller.signal.aborted) {
+          dateKey = next.dateKey
+          setViewModel(next)
         }
-
-        setViewModel(nextViewModel)
-        setFetchState({
-          isLoading: false,
-          isRefreshing: false,
-          error: ""
-        })
-      })
-      .catch((fetchError) => {
-        if (!isActive) {
-          return
+      } catch {
+        if (!controller.signal.aborted) {
+          dateKey = getEasternDateKey()
+          setViewModel({ games: [], slate: { status: "unavailable" }, dateKey })
         }
+      } finally {
+        if (!controller.signal.aborted) setIsRefreshing(false)
+      }
+    }
 
-        setFetchState({
-          isLoading: false,
-          isRefreshing: false,
-          error: fetchError instanceof Error
-            ? fetchError.message
-            : "Cached predictions are currently unavailable."
-        })
-      })
+    function checkDate() {
+      const currentDate = getEasternDateKey()
+      if (currentDate === dateKey) return
+      dateKey = currentDate
+      setViewModel({ games: [], slate: { status: "unavailable" }, dateKey })
+      refresh()
+    }
+
+    window.addEventListener("focus", refresh)
+    const dateCheck = window.setInterval(checkDate, 30_000)
+    checkDate()
 
     return () => {
-      isActive = false
+      request?.abort()
+      window.removeEventListener("focus", refresh)
+      window.clearInterval(dateCheck)
     }
-  }, [initialViewModel, error, emptySlate])
+  }, [dashboard])
 
+  const { slate, freshness, error } = viewModel
+  const emptySlate = slate.status === "scheduled" ? null : slate
   const activeGames = Array.isArray(viewModel.games) ? viewModel.games : []
-  const activeSummary = viewModel.summary || initialViewModel.summary
+  const activeSummary = viewModel.summary
   const actionableGames = activeGames.filter((game) => game?.lifecycle !== "completed")
   const recommendationCount = actionableGames.filter((game) => typeof game?.edge === "number").length
   const passCount = actionableGames.filter((game) => game?.recommendation === "Pass").length
@@ -892,14 +835,12 @@ export default function Home({ games = [], summary, freshness = null, error = ""
   const topPlays = displayedGames
   const hasGames = activeGames.length > 0
   const hasDisplayedGames = displayedGames.length > 0
-  const showInitialLoading = fetchState.isLoading && !hasGames
-  const showCountPlaceholder = showInitialLoading || fetchState.isRefreshing
-  const todayGamesDisplay = showCountPlaceholder ? "—" : String(gamesLoadedCount)
-  const recommendedBetsDisplay = showCountPlaceholder ? "—" : String(recommendationCount)
-  const passDisplay = showCountPlaceholder ? "—" : String(passCount)
-  const noEdgeDisplay = showCountPlaceholder ? "—" : String(noEdgeCount)
-  const headingDateDisplay = formatTodayHeadingDate()
-  const showEmptyState = !showInitialLoading && !fetchState.error && !hasGames
+  const todayGamesDisplay = String(gamesLoadedCount)
+  const recommendedBetsDisplay = String(recommendationCount)
+  const passDisplay = String(passCount)
+  const noEdgeDisplay = String(noEdgeCount)
+  const headingDateDisplay = formatTodayHeadingDate(viewModel.dateKey)
+  const showEmptyState = !error && !hasGames
   const selectedGameData = useMemo(() => {
     if (!selectedGameIdentifier) {
       return null
@@ -927,10 +868,7 @@ export default function Home({ games = [], summary, freshness = null, error = ""
 
   const handleLogout = useCallback(async (reason = "manual") => {
     try {
-      setFetchState((currentState) => ({
-        ...currentState,
-        isRefreshing: currentState.isRefreshing || reason === "manual"
-      }))
+      if (reason === "manual") setIsRefreshing(true)
 
       await fetch("/api/logout", {
         method: "POST"
@@ -1019,7 +957,7 @@ export default function Home({ games = [], summary, freshness = null, error = ""
           className="actionButton actionButton--button actionButton--active"
           aria-current="page"
         >
-          Today&apos;s Games
+          {slate.status === "offseason" ? "Offseason" : "Today's Games"}
         </button>
         <button
           type="button"
@@ -1030,35 +968,25 @@ export default function Home({ games = [], summary, freshness = null, error = ""
         </button>
       </nav>
 
-      {(fetchState.isLoading || fetchState.isRefreshing) && (
+      {isRefreshing && (
         <div className="notice notice--info" role="status" aria-live="polite">
           <span className="loadingSpinner" aria-hidden="true" />
-          <span>
-            {fetchState.isLoading
-              ? "Loading the latest predictions and pricing edges..."
-              : "Refreshing predictions in the background so the board stays current..."}
-          </span>
+          <span>Refreshing the MLB dashboard…</span>
         </div>
       )}
 
-      {fetchState.error && (
+      {error && (
         <p className="notice notice--error">
-          Error loading cached predictions: {fetchState.error}
+          Error loading cached predictions: {error}
         </p>
       )}
-      {!fetchState.error && freshness && freshness.status !== "healthy" && (
+      {!error && freshness && freshness.status !== "healthy" && (
         <p className="notice notice--error" role="alert">
           Data status: {freshness.status}. {freshness.message}
         </p>
       )}
 
-      {!fetchState.error && activeSummary?.message && !showInitialLoading && !hasGames && !showEmptyState && (
-        <p className="notice">{activeSummary.message}</p>
-      )}
-
-      {showInitialLoading && <LoadingSkeleton count={3} />}
-
-      {!showInitialLoading && !fetchState.error && topPlays.length > 0 && (
+      {!emptySlate && !error && topPlays.length > 0 && (
         <section id="todays-games" className="shellCard boardSection" aria-label="Top Plays">
           <div className="sectionIntro">
             <div>
@@ -1167,13 +1095,13 @@ export default function Home({ games = [], summary, freshness = null, error = ""
         </section>
       )}
 
-      {!showInitialLoading && !fetchState.error && showEmptyState && (
+      {!error && showEmptyState && (
         emptySlate
           ? <EmptySlate {...emptySlate} />
-          : <EmptyState message={activeSummary?.message} isRefreshing={fetchState.isRefreshing} />
+          : <EmptyState message={activeSummary?.message} isRefreshing={isRefreshing} />
       )}
 
-      {!showInitialLoading && !fetchState.error && hasDisplayedGames && isGameModalOpen && selectedGameData && (
+      {!error && hasDisplayedGames && isGameModalOpen && selectedGameData && (
         <div
           className="gameDetailsModal"
           role="dialog"
@@ -1245,8 +1173,7 @@ export default function Home({ games = [], summary, freshness = null, error = ""
         .detailCard,
         .statCard,
         .filterControl__select,
-        .tag,
-        .skeletonPanel {
+        .tag {
           box-sizing: border-box;
         }
 
@@ -1853,8 +1780,7 @@ export default function Home({ games = [], summary, freshness = null, error = ""
           gap: 12px;
         }
 
-        .detailCard,
-        .skeletonPanel {
+        .detailCard {
           padding: 16px;
           border-radius: 18px;
           background: rgba(30, 41, 59, 0.72);
@@ -2167,45 +2093,6 @@ export default function Home({ games = [], summary, freshness = null, error = ""
           justify-content: center;
         }
 
-        .skeletonBlock,
-        .skeletonPill {
-          border-radius: 999px;
-          background: linear-gradient(90deg, rgba(148, 163, 184, 0.14), rgba(191, 219, 254, 0.24), rgba(148, 163, 184, 0.14));
-          background-size: 200% 100%;
-          animation: shimmerPulse 1.5s ease-in-out infinite;
-        }
-
-        .skeletonBlock--title {
-          width: min(280px, 100%);
-          height: 56px;
-          border-radius: 18px;
-        }
-
-        .skeletonBlock--label {
-          width: 120px;
-          height: 14px;
-        }
-
-        .skeletonBlock--lineShort {
-          width: 45%;
-          height: 16px;
-        }
-
-        .skeletonBlock--line,
-        .skeletonBlock--lineMuted {
-          width: 100%;
-          height: 14px;
-        }
-
-        .skeletonBlock--lineMuted {
-          width: 82%;
-        }
-
-        .skeletonPill {
-          width: 110px;
-          height: 34px;
-        }
-
         @keyframes spin {
           to {
             transform: rotate(360deg);
@@ -2215,16 +2102,6 @@ export default function Home({ games = [], summary, freshness = null, error = ""
         @keyframes shimmer {
           100% {
             transform: translateX(100%);
-          }
-        }
-
-        @keyframes shimmerPulse {
-          0% {
-            background-position: 100% 0;
-          }
-
-          100% {
-            background-position: -100% 0;
           }
         }
 
