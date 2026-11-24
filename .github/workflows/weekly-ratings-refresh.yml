@@ -94,9 +94,12 @@ jobs:
 
           response_file="$(mktemp)"
           trap 'rm -f "$response_file"' EXIT
+          # The cron route also accepts this credential through x-admin-secret,
+          # which the daily pipeline already sends alongside Authorization.
           status_code="$(curl --show-error --silent \
             --request POST \
             --header "Authorization: Bearer ${AUTH_SECRET}" \
+            --header "x-admin-secret: ${AUTH_SECRET}" \
             --header "Content-Type: application/json" \
             --output "$response_file" \
             --write-out "%{http_code}" \
