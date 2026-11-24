@@ -2,7 +2,7 @@ import test from "node:test"
 import assert from "node:assert/strict"
 import { collectHistoricalFinals, compareHistoricalFinals, historicalDate, prepareHistoricalEvaluation } from "../lib/historicalGames.js"
 import { evaluatePredictions } from "../lib/evaluation.js"
-import { loadEmptySlate } from "../lib/offseason.js"
+import { loadDashboardSlate } from "../lib/dashboardSlate.js"
 
 const officialDate = "2026-10-28"
 const day = { date: officialDate }
@@ -59,10 +59,18 @@ test("matches October night games by MLB ID and leaves legacy doubleheaders unma
 test("offseason dashboard requires a confirmed current slate and uses the latest completed season", async () => {
   const closeout = { season: 2026, finalGames: 2467 }
   const keys = new Map([
+    ["mlb:games:today", []],
     ["mlb:games:today:meta", { dateKey: "2027-01-01", gamesToday: 0 }],
     ["mlb:seasonSummary:2026", closeout]
   ])
-  const redis = { get: key => keys.get(key) }
-  assert.equal(await loadEmptySlate(redis, "2027-01-02"), null)
-  assert.deepEqual(await loadEmptySlate(redis, "2027-01-01"), { season: 2026, closeout })
+  const redis = { get: async (key) => keys.get(key) }
+  const calendar = async () => ({
+    ok: true,
+    headers: { get: () => "application/json" },
+    json: async () => ({ seasons: [{ seasonId: "2027", seasonStartDate: "2027-02-19" }] })
+  })
+  assert.deepEqual((await loadDashboardSlate(redis, "2027-01-02", calendar)).slate, { status: "unavailable" })
+  assert.deepEqual((await loadDashboardSlate(redis, "2027-01-01", calendar)).slate, {
+    status: "offseason", season: 2026, closeout
+  })
 })
