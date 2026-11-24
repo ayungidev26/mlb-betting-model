@@ -92,8 +92,15 @@ jobs:
             ENDPOINT_URL="${ENDPOINT_URL}&closeout=${OPERATION}"
           fi
 
+          if [[ "${PIPELINE_BASE_URL%/}" == "https://mlb-betting-model.vercel.app" ]]; then
+            echo "Pipeline URL matches the expected Vercel production origin."
+          else
+            echo "Pipeline URL differs from the expected Vercel production origin."
+          fi
+
           response_file="$(mktemp)"
-          trap 'rm -f "$response_file"' EXIT
+          response_headers="$(mktemp)"
+          trap 'rm -f "$response_file" "$response_headers"' EXIT
           # The cron route also accepts this credential through x-admin-secret,
           # which the daily pipeline already sends alongside Authorization.
           status_code="$(curl --show-error --silent \
@@ -101,6 +108,7 @@ jobs:
             --header "Authorization: Bearer ${AUTH_SECRET}" \
             --header "x-admin-secret: ${AUTH_SECRET}" \
             --header "Content-Type: application/json" \
+            --dump-header "$response_headers" \
             --output "$response_file" \
             --write-out "%{http_code}" \
             "$ENDPOINT_URL")"
@@ -108,6 +116,12 @@ jobs:
           cat "$response_file"
 
           if [[ ! "$status_code" =~ ^2 ]]; then
+            vercel_id="$(awk 'tolower($1) == "x-vercel-id:" && $2 ~ /^[[:alnum:]_:.\-]+\r?$/ { sub(/\r$/, "", $2); id = $2 } END { print id }' "$response_headers")"
+            if [[ -n "$vercel_id" ]]; then
+              echo "Vercel response ID: $vercel_id"
+            else
+              echo "Response did not include a Vercel response ID."
+            fi
             printf '## Weekly ratings refresh\n\n- Status: failed (HTTP %s)\n- Ratings build did not receive a verified success response.\n' \
               "$status_code" >> "$GITHUB_STEP_SUMMARY"
             echo "Weekly ratings refresh failed with HTTP ${status_code}."
