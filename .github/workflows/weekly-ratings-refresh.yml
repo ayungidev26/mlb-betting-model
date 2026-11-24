@@ -113,6 +113,32 @@ jobs:
             --write-out "%{http_code}" \
             "$ENDPOINT_URL")"
 
+
+          # A missing-credential response is returned before the job acquires its lock.
+          # Retry that response once using the route's existing JSON token support.
+          if [[ "$status_code" == "401" ]] && node -e '
+            const fs = require("node:fs");
+            try {
+              const { error } = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
+              process.exit(error === "Missing Authorization header" ||
+                error === "Missing Authorization header. Configure CRON_SECRET in Vercel so scheduled cron invocations include Bearer auth." ? 0 : 1);
+            } catch {
+              process.exit(1);
+            }
+          ' "$response_file"; then
+            echo "The endpoint reported missing auth headers. Retrying once with JSON authentication."
+            set -o pipefail
+            status_code="$(AUTH_SECRET="$AUTH_SECRET" node -e 'process.stdout.write(JSON.stringify({ authToken: process.env.AUTH_SECRET }))' |
+              curl --show-error --silent \
+                --request POST \
+                --header "Content-Type: application/json" \
+                --data-binary @- \
+                --dump-header "$response_headers" \
+                --output "$response_file" \
+                --write-out "%{http_code}" \
+                "$ENDPOINT_URL")"
+          fi
+
           cat "$response_file"
 
           if [[ ! "$status_code" =~ ^2 ]]; then
