@@ -177,7 +177,7 @@ jobs:
               `- Historical range: ${payload.ratingsBuild.metadata.startSeason}-${payload.latestSeasonIncluded}`,
               `- Ratings generated: ${payload.ratingsGeneratedAt}`,
               `- Duration: ${payload.durationMs} ms`
-            ].join("\n");
+            ];
             if (payload.seasonSummary) {
               const evaluation = payload.seasonSummary.evaluation;
               summary.push(
@@ -185,7 +185,7 @@ jobs:
                 `- Matched archived predictions: ${evaluation.gamesMatchedToFinal} of ${evaluation.gamesPredicted}`
               );
             }
-            fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, `${summary}\n`);
+            fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, `${summary.join("\n")}\n`);
             console.log(`Refresh complete: season=${payload.seasonRefreshed}, games=${payload.historicalGamesLoaded}, ratings=${payload.ratingsCount}, generatedAt=${payload.ratingsGeneratedAt}, durationMs=${payload.durationMs}`);
           ' "$response_file"; then
             printf '## Weekly ratings refresh\n\n- Status: failed (metadata verification was not confirmed)\n' \
