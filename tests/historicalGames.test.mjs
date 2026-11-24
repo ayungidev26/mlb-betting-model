@@ -67,10 +67,10 @@ test("offseason dashboard requires a confirmed current slate and uses the latest
   const calendar = async () => ({
     ok: true,
     headers: { get: () => "application/json" },
-    json: async () => ({ seasons: [{ seasonId: "2027", seasonStartDate: "2027-02-19" }] })
+    json: async () => ({ seasons: [{ seasonId: "2027", seasonStartDate: "2027-02-19", regularSeasonStartDate: "2027-03-24" }] })
   })
   assert.deepEqual((await loadDashboardSlate(redis, "2027-01-02", calendar)).slate, { status: "unavailable" })
   assert.deepEqual((await loadDashboardSlate(redis, "2027-01-01", calendar)).slate, {
-    status: "offseason", season: 2026, closeout
+    status: "offseason", season: 2026, closeout, nextRegularSeasonDate: "2027-03-24"
   })
 })

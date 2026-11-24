@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react"
 import { useRouter } from "next/router"
+import SeasonRecap, { formatSeasonDate } from "../components/SeasonRecap"
 
 import {
   getGameBetType
@@ -734,35 +735,43 @@ function EmptyState({ message, isRefreshing }) {
   )
 }
 
-function EmptySlate({ status, season, closeout }) {
-  const standings = Object.entries(closeout?.ratings || {}).sort((a, b) => b[1] - a[1])
-  const evaluation = closeout?.evaluation
+function EmptySlate({ status, season, closeout, nextRegularSeasonDate }) {
+  if (status === "offseason") {
+    return (
+      <section className="shellCard offseason" aria-labelledby="offseason-title">
+        <header>
+          <h2 id="offseason-title">MLB offseason</h2>
+          <p>Daily picks return when the regular season starts.</p>
+          {nextRegularSeasonDate && (
+            <p>
+              MLB lists <strong><time dateTime={nextRegularSeasonDate}>{formatSeasonDate(nextRegularSeasonDate)}</time></strong> as the regular-season start.
+            </p>
+          )}
+          <a href={nextRegularSeasonDate ? `https://www.mlb.com/schedule/${nextRegularSeasonDate}` : "https://www.mlb.com/schedule"}>
+            View the MLB schedule
+          </a>
+        </header>
+        <SeasonRecap season={season} closeout={closeout} compact />
+        <style jsx>{`
+          .offseason { display: grid; gap: 26px; padding: clamp(18px, 4vw, 30px); }
+          header { display: grid; justify-items: start; gap: 8px; }
+          h2 { margin: 0; font-size: clamp(1.65rem, 4vw, 2.3rem); }
+          p { margin: 0; color: #cbd5e1; line-height: 1.5; }
+          a { color: #bfdbfe; text-underline-offset: 3px; }
+        `}</style>
+      </section>
+    )
+  }
+
   return (
     <section className="emptyState" aria-labelledby="empty-slate-title">
       <h2 className="emptyState__title" id="empty-slate-title">
         {{
-          offseason: "MLB offseason",
           empty: "No MLB games scheduled today",
           ineligible: "No eligible MLB games today",
           unavailable: "Today’s MLB schedule is unavailable"
         }[status]}
       </h2>
-      {closeout ? (
-        <>
-          <h3>{season} season recap</h3>
-          <p>{closeout.finalGames} finals through {closeout.dataThrough}</p>
-          {evaluation && (
-            <p>
-              {evaluation.gamesMatchedToFinal} of {evaluation.gamesPredicted} archived predictions matched to a final.
-              {evaluation.gamesMatchedToFinal > 0 && ` Accuracy: ${formatPercent(evaluation.accuracy)}.`}
-            </p>
-          )}
-          <h3>Final team Elo</h3>
-          <ol style={{ textAlign: "left", display: "inline-block" }}>
-            {standings.map(([team, rating]) => <li key={team}>{team} · {Math.round(rating)}</li>)}
-          </ol>
-        </>
-      ) : season && <p>The verified season recap is pending.</p>}
     </section>
   )
 }

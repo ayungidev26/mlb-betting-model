@@ -61,3 +61,22 @@ test("a verified empty slate follows MLB's season boundaries, including October 
     assert.deepEqual(dashboard.games, [])
   }
 })
+
+test("the offseason return date comes from the upcoming regular-season calendar when published", async () => {
+  const keys = { "mlb:games:today": [], "mlb:games:today:meta": { dateKey, gamesToday: 0 } }
+  for (const [publishedDate, expectedDate] of [
+    ["2027-03-24", "2027-03-24"], ["2027-02-30", null], ["2026-11-02", null], [undefined, null]
+  ]) {
+    const fetchCalendar = async (url) => {
+      if (url.includes("/2026?")) return calendar()
+      assert.match(url, /\/2027\?sportId=1$/)
+      return {
+        ok: true,
+        headers: { get: () => "application/json" },
+        json: async () => ({ seasons: [{ seasonId: "2027", regularSeasonStartDate: publishedDate }] })
+      }
+    }
+    const { slate } = await loadDashboardSlate({ get: async (key) => keys[key] }, dateKey, fetchCalendar)
+    assert.deepEqual(slate, { status: "offseason", season: 2026, closeout: null, nextRegularSeasonDate: expectedDate })
+  }
+})

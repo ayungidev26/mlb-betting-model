@@ -1,5 +1,18 @@
 import { useRouter } from "next/router"
 import { useEffect, useMemo, useState } from "react"
+import SeasonRecap from "../components/SeasonRecap"
+
+export async function getServerSideProps({ query, res }) {
+  res.setHeader("Cache-Control", "private, no-store")
+  const season = typeof query.season === "string" && /^20[0-9]{2}$/.test(query.season) ? Number(query.season) : null
+  if (!season) return { props: { season: null, closeout: null } }
+
+  const [{ redis }, { loadSeasonCloseout }] = await Promise.all([
+    import("../lib/upstash"),
+    import("../lib/offseason")
+  ])
+  return { props: { season, closeout: await loadSeasonCloseout(redis, season) } }
+}
 
 const SECTION_ORDER = [
   { key: "pitchers", title: "Pitchers", recordLabel: "Pitchers" },
@@ -517,7 +530,7 @@ function StatsSection({ title, sectionKey, section, query }) {
   )
 }
 
-export default function StatsPage() {
+export default function StatsPage({ season, closeout }) {
   const router = useRouter()
   const [query, setQuery] = useState("")
   const [activeTab, setActiveTab] = useState(DEFAULT_TAB)
@@ -653,6 +666,12 @@ export default function StatsPage() {
           Stats
         </button>
       </nav>
+
+      {season && (
+        <div className="shellCard">
+          <SeasonRecap season={season} closeout={closeout} />
+        </div>
+      )}
 
       <section className="shellCard statsOverview">
         <p className="eyebrow">Model input inspection</p>
