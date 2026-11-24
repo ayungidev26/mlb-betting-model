@@ -80,3 +80,22 @@ test("the offseason return date comes from the upcoming regular-season calendar 
     assert.deepEqual(slate, { status: "offseason", season: 2026, closeout: null, nextRegularSeasonDate: expectedDate })
   }
 })
+
+test("a live MLB schedule can confirm an offseason when the daily cache is stale", async () => {
+  const keys = {
+    "mlb:games:today": [game],
+    "mlb:games:today:meta": { dateKey: "2026-10-28", gamesToday: 1 }
+  }
+  for (const [schedule, expected] of [
+    [{ totalGames: 0, dates: [] }, "offseason"],
+    [{ totalGames: 1, dates: [{ date: dateKey, games: [game] }] }, "unavailable"],
+    [{ dates: [] }, "unavailable"]
+  ]) {
+    const fetchMlb = async (url) => url.includes("/schedule?") ? new Response(JSON.stringify(schedule), {
+      headers: { "content-type": "application/json" }
+    }) : calendar()
+    const dashboard = await loadDashboardSlate({ get: async (key) => keys[key] }, dateKey, fetchMlb)
+    assert.equal(dashboard.slate.status, expected)
+    assert.deepEqual(dashboard.games, [])
+  }
+})
