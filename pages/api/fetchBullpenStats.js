@@ -41,11 +41,14 @@ export default async function handler(req, res) {
       return
     }
 
-    const bullpenStats = await fetchBullpenStatsByTeam()
+    const now = new Date()
+    const dateKey = getEasternDateKey(now)
+    const season = Number(dateKey.slice(0, 4))
+    const bullpenStats = await fetchBullpenStatsByTeam({ season })
     const games = await redis.get("mlb:games:today")
     const statsMeta = {
       ...validateStatsCandidate({ kind: "bullpen", candidate: bullpenStats, games: Array.isArray(games) ? games : [] }),
-      lastUpdatedAt: new Date().toISOString(), dateKey: getEasternDateKey(),
+      lastUpdatedAt: new Date().toISOString(), dateKey, season,
       source: "statsapi.mlb.com + baseballsavant.mlb.com",
       version: "v1",
       records: Object.keys(bullpenStats).length
